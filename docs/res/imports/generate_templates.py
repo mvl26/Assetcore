@@ -12,10 +12,21 @@ from openpyxl.styles import (
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
-OUT_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                 "..", "..", "assetcore", "public", "import_templates")
-)
+# Script sống ở docs/res/imports/ → gốc app cách 3 cấp. Dò ngược thay vì đếm
+# cứng số "..": file này đã từng bị di chuyển và ghi template ra thư mục ma.
+def _resolve_out_dir() -> str:
+    here = os.path.dirname(os.path.abspath(__file__))
+    for up in range(1, 6):
+        root = os.path.normpath(os.path.join(here, *([".."] * up)))
+        candidate = os.path.join(root, "assetcore", "public", "import_templates")
+        if os.path.isdir(candidate):
+            return candidate
+    raise SystemExit(
+        "Không tìm thấy assetcore/public/import_templates — chạy script từ trong repo assetcore."
+    )
+
+
+OUT_DIR = _resolve_out_dir()
 
 # ── Color palette ────────────────────────────────────────────────────────────
 C_HEADER_REQ  = "C00000"   # dark red   – required field header
@@ -26,6 +37,15 @@ C_ROW_DESC    = "D6EAF8"   # light blue – description row
 C_ROW_EXAMPLE = "EAFAF1"   # light green – example row
 C_ROW_DATA    = "FFFFFF"   # white – data rows
 C_BORDER      = "BDC3C7"
+
+# Nhắc dùng chung cho MỌI sheet: cột tham chiếu điền TÊN, không điền mã hệ thống.
+NAME_NOT_CODE = "Điền TÊN, KHÔNG điền mã hệ thống."
+
+DEFAULT_INSTRUCTIONS = (
+    "Điền dữ liệu từ HÀNG 6 trở xuống (hàng 5 là ví dụ mẫu, hệ thống bỏ qua). "
+    "Cột đỏ = bắt buộc. Không xoá/không sửa hàng 1-5. "
+    "Cột tham chiếu (danh mục, khoa phòng, vị trí, model, nhà cung cấp) điền TÊN, không điền mã."
+)
 
 THIN = Side(style="thin", color=C_BORDER)
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
@@ -90,7 +110,7 @@ def build_sheet(wb, title, columns, examples, instructions=""):
     cell = ws.cell(row=1, column=1)
     cell.value = (
         f"📋 HƯỚNG DẪN IMPORT: {title}  |  "
-        + (instructions or "Điền dữ liệu từ hàng 5 trở xuống. Cột đỏ = bắt buộc. Không xóa hàng 2-4.")
+        + (instructions or DEFAULT_INSTRUCTIONS)
     )
     cell.font = Font(name="Calibri", bold=True, size=10, color=C_HEADER_FG)
     cell.fill = fill(C_HEADER_INFO)
@@ -155,7 +175,7 @@ def build_sheet(wb, title, columns, examples, instructions=""):
     for col_idx, col in enumerate(columns, start=1):
         if col.get("dv"):
             col_letter = get_column_letter(col_idx)
-            add_dv(ws, col["dv"], f"{col_letter}5:{col_letter}105")
+            add_dv(ws, col["dv"], f"{col_letter}6:{col_letter}105")
 
     # ── Column widths ─────────────────────────────────────────────────────
     for col_idx, col in enumerate(columns, start=1):
@@ -200,9 +220,9 @@ def make_asset_category():
          "desc": "Số ngày giữa hai lần hiệu chuẩn.",
          "example": "365"},
         {"name": "default_depreciation_method", "label": "Phương pháp khấu hao", "required": False, "width": 26,
-         "desc": "Straight Line / Double Declining / Units of Production",
-         "example": "Straight Line",
-         "dv": '"Straight Line,Double Declining,Units of Production"'},
+         "desc": "Đường thẳng / Số dư giảm dần / Theo sản lượng.",
+         "example": "Đường thẳng",
+         "dv": '"Đường thẳng,Số dư giảm dần,Theo sản lượng"'},
         {"name": "total_depreciation_months", "label": "Thời gian khấu hao (tháng)", "required": False, "width": 28,
          "desc": "Tổng số tháng khấu hao. VD: 60 = 5 năm.", "example": "60"},
         {"name": "has_radiation", "label": "Có bức xạ?", "required": False, "width": 16,
@@ -233,10 +253,10 @@ def make_department():
          "desc": "Mã ngắn duy nhất. VD: ICU, XRAY, LAB.",
          "example": "ICU"},
         {"name": "parent_department", "label": "Khoa cha", "required": False, "width": 30,
-         "desc": "Tên khoa cha (nếu là khoa con). Phải tồn tại trong hệ thống.",
+         "desc": f"Tên khoa/phòng cấp trên (nếu là khoa con). {NAME_NOT_CODE} Phải tồn tại trong hệ thống hoặc được khai ở hàng phía trên.",
          "example": "Bệnh viện ABC"},
         {"name": "dept_head", "label": "Trưởng khoa (email)", "required": False, "width": 30,
-         "desc": "Email của trưởng khoa (User phải tồn tại trong hệ thống).",
+         "desc": "Email của trưởng khoa. Tài khoản phải tồn tại; sai email thì dòng vẫn nhập được nhưng để trống ô này.",
          "example": "nguyen.van.a@hospital.vn"},
         {"name": "phone", "label": "Số điện thoại", "required": False, "width": 18,
          "desc": "Số DT nội bộ hoặc di động.", "example": "0912345678"},
@@ -269,21 +289,22 @@ def make_location():
          "desc": "Mã ngắn duy nhất. VD: P301, XRAY-1.",
          "example": "P301"},
         {"name": "parent_location", "label": "Vị trí cha", "required": False, "width": 30,
-         "desc": "Tên vị trí cha (phải tồn tại). VD: Tòa nhà A.",
+         "desc": f"Tên vị trí cấp trên. {NAME_NOT_CODE} VD: Tòa nhà A. Phải tồn tại hoặc được khai ở hàng phía trên.",
          "example": "Tòa nhà A"},
         {"name": "clinical_area_type", "label": "Loại khu vực lâm sàng", "required": False, "width": 26,
-         "desc": "ICU / OR / Lab / Imaging / General Ward / Storage / Office",
-         "example": "ICU",
-         "dv": '"ICU,OR,Lab,Imaging,General Ward,Storage,Office"'},
+         "desc": "Hồi sức tích cực / Phòng mổ / Xét nghiệm / Chẩn đoán hình ảnh / "
+                 "Khoa lâm sàng thường / Kho / Văn phòng.",
+         "example": "Hồi sức tích cực",
+         "dv": '"Hồi sức tích cực,Phòng mổ,Xét nghiệm,Chẩn đoán hình ảnh,Khoa lâm sàng thường,Kho,Văn phòng"'},
         {"name": "infection_control_level", "label": "Mức kiểm soát nhiễm khuẩn", "required": False, "width": 30,
-         "desc": "Standard / Enhanced / Isolation",
-         "example": "Standard",
-         "dv": '"Standard,Enhanced,Isolation"'},
+         "desc": "Tiêu chuẩn / Tăng cường / Cách ly.",
+         "example": "Tiêu chuẩn",
+         "dv": '"Tiêu chuẩn,Tăng cường,Cách ly"'},
         {"name": "power_backup_available", "label": "Có UPS/máy phát?", "required": False, "width": 20,
          "desc": "1 = có nguồn dự phòng; 0 = không.",
          "example": "1", "dv": '"1,0"'},
         {"name": "dept_head", "label": "Người phụ trách (email)", "required": False, "width": 30,
-         "desc": "Email User phụ trách vị trí.", "example": "nguyen.van.a@hospital.vn"},
+         "desc": "Email người phụ trách vị trí. Sai email thì dòng vẫn nhập được nhưng để trống ô này.", "example": "nguyen.van.a@hospital.vn"},
         {"name": "contact_phone", "label": "Số liên hệ", "required": False, "width": 22,
          "desc": "Số liên hệ. Khi để trống, hệ thống sẽ tự lấy theo số di động "
                  "của người phụ trách (mobile_no).",
@@ -311,14 +332,14 @@ def make_imm00():
          "example": "Công ty TNHH Thiết bị Y tế ABC"},
         {"name": "supplier_code", "label": "Mã NCC", "required": False, "width": 15,
          "desc": "Mã nội bộ duy nhất. Tự sinh nếu để trống.", "example": "SUP-001"},
-        {"name": "supplier_group", "label": "Loại NCC", "required": True, "width": 22,
-         "desc": "Manufacturer / Distributor / Calibration Lab / Service Provider",
-         "example": "Distributor",
-         "dv": '"Manufacturer,Distributor,Calibration Lab,Service Provider"'},
-        {"name": "vendor_type", "label": "Loại vendor", "required": True, "width": 22,
-         "desc": "Manufacturer / Distributor / Calibration Lab / Service",
-         "example": "Distributor",
-         "dv": '"Manufacturer,Distributor,Calibration Lab,Service"'},
+        {"name": "supplier_group", "label": "Nhóm nhà cung cấp", "required": True, "width": 24,
+         "desc": "Nhà sản xuất / Nhà phân phối / Phòng hiệu chuẩn / Dịch vụ.",
+         "example": "Nhà phân phối",
+         "dv": '"Nhà sản xuất,Nhà phân phối,Phòng hiệu chuẩn,Dịch vụ"'},
+        {"name": "vendor_type", "label": "Loại nhà cung cấp", "required": True, "width": 24,
+         "desc": "Nhà sản xuất / Nhà phân phối / Phòng hiệu chuẩn / Dịch vụ.",
+         "example": "Nhà phân phối",
+         "dv": '"Nhà sản xuất,Nhà phân phối,Phòng hiệu chuẩn,Dịch vụ"'},
         {"name": "country", "label": "Quốc gia", "required": False, "width": 16,
          "desc": "Quốc gia đăng ký kinh doanh. VD: Việt Nam, Singapore.",
          "example": "Việt Nam"},
@@ -357,12 +378,13 @@ def make_imm00():
         {"name": "manufacturer", "label": "Nhà sản xuất", "required": True, "width": 28,
          "desc": "Tên nhà sản xuất (hãng gốc).", "example": "GE Healthcare"},
         {"name": "asset_category", "label": "Danh mục tài sản", "required": True, "width": 28,
-         "desc": "Phải khớp với tên trong sheet 'Danh mục tài sản'.",
+         "desc": f"Tên danh mục, khớp sheet 'Danh mục tài sản'. {NAME_NOT_CODE}",
          "example": "Máy chẩn đoán hình ảnh"},
         {"name": "medical_device_class", "label": "Phân loại thiết bị", "required": True, "width": 22,
-         "desc": "Class I / Class II / Class III (theo QCVN/WHO).",
-         "example": "Class II",
-         "dv": '"Class I,Class II,Class III"'},
+         "desc": "Loại I — Rủi ro thấp / Loại II — Rủi ro trung bình / "
+                 "Loại III — Rủi ro cao (theo QCVN/WHO).",
+         "example": "Loại II — Rủi ro trung bình",
+         "dv": '"Loại I — Rủi ro thấp,Loại II — Rủi ro trung bình,Loại III — Rủi ro cao"'},
         {"name": "model_version", "label": "Phiên bản", "required": False, "width": 16,
          "desc": "Số phiên bản / generation. VD: Rev.3, Gen2.", "example": "S8"},
         {"name": "country_of_origin", "label": "Xuất xứ", "required": False, "width": 16,
@@ -388,9 +410,9 @@ def make_imm00():
         {"name": "calibration_interval_days", "label": "Chu kỳ hiệu chuẩn (ngày)", "required": False, "width": 28,
          "desc": "Số ngày giữa 2 lần hiệu chuẩn. Bắt buộc nếu HC = 1.", "example": "365"},
         {"name": "default_calibration_type", "label": "Loại hiệu chuẩn", "required": False, "width": 22,
-         "desc": "Internal / External / Both",
-         "example": "External",
-         "dv": '"Internal,External,Both"'},
+         "desc": "Nội bộ / Bên ngoài / Cả hai.",
+         "example": "Bên ngoài",
+         "dv": '"Nội bộ,Bên ngoài,Cả hai"'},
         {"name": "power_supply", "label": "Nguồn điện", "required": False, "width": 20,
          "desc": "VD: 220V/50Hz, 110-240V/50-60Hz.", "example": "220V/50Hz"},
         {"name": "dimensions", "label": "Kích thước (DxRxC, mm)", "required": False, "width": 26,
@@ -408,11 +430,11 @@ def make_imm00():
         {"name": "contract_title", "label": "Tên hợp đồng", "required": True, "width": 40,
          "desc": "Tên đầy đủ của hợp đồng.", "example": "Hợp đồng bảo trì thiết bị siêu âm 2024"},
         {"name": "supplier", "label": "Nhà cung cấp", "required": True, "width": 35,
-         "desc": "Tên NCC phải khớp với sheet 'Nhà cung cấp'.", "example": "Công ty TNHH Thiết bị Y tế ABC"},
+         "desc": f"Tên nhà cung cấp, khớp sheet 'Nhà cung cấp'. {NAME_NOT_CODE}", "example": "Công ty TNHH Thiết bị Y tế ABC"},
         {"name": "contract_type", "label": "Loại hợp đồng", "required": True, "width": 25,
-         "desc": "Preventive Maintenance / Calibration / Repair / Full Service / Warranty Extension",
-         "example": "Preventive Maintenance",
-         "dv": '"Preventive Maintenance,Calibration,Repair,Full Service,Warranty Extension"'},
+         "desc": "Bảo trì định kỳ / Hiệu chuẩn / Sửa chữa / Toàn diện / Gia hạn bảo hành.",
+         "example": "Bảo trì định kỳ",
+         "dv": '"Bảo trì định kỳ,Hiệu chuẩn,Sửa chữa,Toàn diện,Gia hạn bảo hành"'},
         {"name": "contract_start", "label": "Ngày bắt đầu", "required": True, "width": 18,
          "desc": "Định dạng: YYYY-MM-DD.", "example": "2024-01-01"},
         {"name": "contract_end", "label": "Ngày kết thúc", "required": True, "width": 18,
@@ -437,10 +459,10 @@ def make_imm00():
         {"name": "policy_name", "label": "Tên chính sách SLA", "required": True, "width": 35,
          "desc": "Tên duy nhất của chính sách SLA. VD: SLA-Critical-ICU.",
          "example": "SLA-P1-Critical"},
-        {"name": "priority", "label": "Mức ưu tiên", "required": True, "width": 18,
-         "desc": "P1 Critical / P1 High / P2 / P3 / P4",
-         "example": "P1 Critical",
-         "dv": '"P1 Critical,P1 High,P2,P3,P4"'},
+        {"name": "priority", "label": "Mức ưu tiên", "required": True, "width": 22,
+         "desc": "P1 — Khẩn cấp / P2 — Cao / P3 — Trung bình / P4 — Thấp.",
+         "example": "P1 — Khẩn cấp",
+         "dv": '"P1 — Khẩn cấp,P2 — Cao,P3 — Trung bình,P4 — Thấp"'},
         {"name": "response_time_minutes", "label": "Thời gian phản hồi (phút)", "required": True, "width": 28,
          "desc": "Thời gian tối đa để ghi nhận / phản hồi sự cố (phút). VD: 30.",
          "example": "30"},
@@ -448,9 +470,9 @@ def make_imm00():
          "desc": "Thời gian tối đa để hoàn tất sửa chữa (giờ). VD: 4.",
          "example": "4"},
         {"name": "risk_class", "label": "Phân loại rủi ro", "required": False, "width": 22,
-         "desc": "Low / Medium / High / Critical — áp dụng cho rủi ro nào.",
-         "example": "Critical",
-         "dv": '"Low,Medium,High,Critical"'},
+         "desc": "Thấp / Trung bình / Cao / Nghiêm trọng — áp dụng cho mức rủi ro nào.",
+         "example": "Nghiêm trọng",
+         "dv": '"Thấp,Trung bình,Cao,Nghiêm trọng"'},
         {"name": "escalation_l1_user", "label": "Escalation L1 (email)", "required": False, "width": 28,
          "desc": "Email User sẽ nhận thông báo leo thang L1.", "example": "truong.kythuat@hospital.vn"},
         {"name": "escalation_l1_hours", "label": "Leo thang L1 sau (giờ)", "required": False, "width": 24,
@@ -491,10 +513,10 @@ def make_assets():
                  "(không khoảng trắng, không dấu). Để trống = hệ thống tự sinh.",
          "example": "TS-2024-001"},
         {"name": "asset_category", "label": "Danh mục tài sản", "required": True, "width": 28,
-         "desc": "Phải khớp tên trong file 01_du_lieu_tham_chieu.xlsx / sheet 'Danh mục tài sản'.",
+         "desc": f"Tên danh mục, khớp file 01 / sheet 'Danh mục tài sản'. {NAME_NOT_CODE}",
          "example": "Máy chẩn đoán hình ảnh"},
         {"name": "device_model", "label": "Model thiết bị", "required": False, "width": 25,
-         "desc": "Tên model trong file 02 / sheet 'Mô hình thiết bị'. Tự điền nếu có.",
+         "desc": f"Tên model, khớp file 02 / sheet 'Mô hình thiết bị'. {NAME_NOT_CODE}",
          "example": "LOGIQ E10"},
         {"name": "manufacturer_sn", "label": "Số serial NSX", "required": False, "width": 22,
          "desc": "Số serial do nhà sản xuất cấp — KHÁC Mã tài sản. "
@@ -508,17 +530,17 @@ def make_assets():
          "desc": "Ngày hết hạn số ĐKLH. Định dạng: YYYY-MM-DD.", "example": "2028-06-30"},
         # ── Vị trí & phụ trách ───────────────────────────────────────────
         {"name": "location", "label": "Vị trí đặt máy", "required": False, "width": 28,
-         "desc": "Tên vị trí (khớp file 01 / sheet 'Vị trí'). VD: Phòng hồi sức P301.",
+         "desc": f"Tên vị trí, khớp file 01 / sheet 'Vị trí'. {NAME_NOT_CODE} VD: Phòng hồi sức P301.",
          "example": "Phòng siêu âm tim - Tầng 3"},
         {"name": "department", "label": "Khoa phòng quản lý", "required": False, "width": 28,
-         "desc": "Tên khoa phòng (khớp file 01 / sheet 'Khoa phòng').",
+         "desc": f"Tên khoa/phòng, khớp file 01 / sheet 'Khoa phòng'. {NAME_NOT_CODE}",
          "example": "Khoa Tim mạch"},
         {"name": "custodian", "label": "Người phụ trách (email)", "required": False, "width": 30,
          "desc": "Email của người giữ/sử dụng thiết bị.", "example": "nguyen.van.a@hospital.vn"},
         {"name": "responsible_technician", "label": "KTV phụ trách (email)", "required": False, "width": 30,
          "desc": "Email kỹ thuật viên chịu trách nhiệm bảo trì.", "example": "le.van.b@hospital.vn"},
         {"name": "supplier", "label": "Nhà cung cấp", "required": False, "width": 30,
-         "desc": "Tên NCC (khớp file 02 / sheet 'Nhà cung cấp').",
+         "desc": f"Tên nhà cung cấp, khớp file 02 / sheet 'Nhà cung cấp'. {NAME_NOT_CODE}",
          "example": "Công ty TNHH Thiết bị Y tế ABC"},
         # ── Mua sắm & bảo hành ───────────────────────────────────────────
         {"name": "purchase_date", "label": "Ngày mua", "required": False, "width": 16,
@@ -531,9 +553,9 @@ def make_assets():
          "desc": "Ngày nghiệm thu / đưa vào vận hành. Định dạng: YYYY-MM-DD.", "example": "2022-04-01"},
         # ── Khấu hao ─────────────────────────────────────────────────────
         {"name": "depreciation_method", "label": "Phương pháp khấu hao", "required": False, "width": 26,
-         "desc": "Straight Line / Double Declining / Units of Production",
-         "example": "Straight Line",
-         "dv": '"Straight Line,Double Declining,Units of Production"'},
+         "desc": "Đường thẳng / Số dư giảm dần / Theo sản lượng / Không khấu hao.",
+         "example": "Đường thẳng",
+         "dv": '"Đường thẳng,Số dư giảm dần,Theo sản lượng,Không khấu hao"'},
         {"name": "useful_life_years", "label": "Tuổi thọ hữu ích (năm)", "required": False, "width": 26,
          "desc": "Số năm khấu hao theo quy định tài chính.", "example": "10"},
         {"name": "residual_value", "label": "Giá trị thu hồi (VNĐ)", "required": False, "width": 24,
@@ -553,14 +575,16 @@ def make_assets():
          "desc": "Định dạng: YYYY-MM-DD.", "example": "2024-12-31"},
         # ── Trạng thái ───────────────────────────────────────────────────
         {"name": "lifecycle_status", "label": "Trạng thái vòng đời", "required": True, "width": 26,
-         "desc": "Draft / Commissioned / Active / Under Maintenance / Under Repair / Calibrating / Out of Service / Decommissioned",
-         "example": "Active",
-         "dv": '"Draft,Commissioned,Active,Under Maintenance,Under Repair,Calibrating,Out of Service,Decommissioned"'},
+         "desc": "Bản nháp / Đã đưa vào sử dụng / Đang hoạt động / Đang bảo trì / "
+                 "Đang sửa chữa / Đang hiệu chuẩn / Ngừng hoạt động / Đã thanh lý.",
+         "example": "Đang hoạt động",
+         "dv": '"Bản nháp,Đã đưa vào sử dụng,Đang hoạt động,Đang bảo trì,Đang sửa chữa,Đang hiệu chuẩn,Ngừng hoạt động,Đã thanh lý"'},
         {"name": "notes", "label": "Ghi chú", "required": False, "width": 40,
          "desc": "Ghi chú thêm về tài sản.", "example": ""},
     ], [{}],
-    instructions="Mỗi hàng = 1 tài sản. Cột đỏ bắt buộc. "
-                 "Các cột Link phải khớp giá trị đã có trong hệ thống hoặc file import tham chiếu.")
+    instructions="Mỗi hàng = 1 tài sản, điền từ HÀNG 6 (hàng 5 là ví dụ mẫu). Cột đỏ bắt buộc. "
+                 "Danh mục / Model / Vị trí / Khoa phòng / Nhà cung cấp: điền TÊN đã có trong "
+                 "hệ thống (hoặc trong file tham chiếu đã nhập trước) — KHÔNG điền mã hệ thống.")
 
     wb.save(os.path.join(OUT_DIR, "03_danh_sach_tai_san.xlsx"))
     print("✓ 03_danh_sach_tai_san.xlsx")
@@ -580,15 +604,15 @@ def make_spare_parts():
         {"name": "part_code", "label": "Mã phụ tùng", "required": False, "width": 20,
          "desc": "Mã nội bộ duy nhất. Để trống = tự sinh.", "example": "PT-ECG-001"},
         {"name": "part_category", "label": "Loại phụ tùng", "required": False, "width": 20,
-         "desc": "Electrical / Mechanical / Consumable / Filter / Battery / Sensor / Other",
-         "example": "Electrical",
-         "dv": '"Electrical,Mechanical,Consumable,Filter,Battery,Sensor,Other"'},
+         "desc": "Điện / Cơ khí / Tiêu hao / Bộ lọc / Pin, ắc-quy / Cảm biến / Khác.",
+         "example": "Điện",
+         "dv": '"Điện,Cơ khí,Tiêu hao,Bộ lọc,Pin/Ắc-quy,Cảm biến,Khác"'},
         {"name": "manufacturer", "label": "Nhà sản xuất", "required": False, "width": 25,
          "desc": "Tên hãng sản xuất phụ tùng.", "example": "GE Healthcare"},
         {"name": "manufacturer_part_no", "label": "Mã NSX (Part No.)", "required": False, "width": 22,
          "desc": "Mã phụ tùng theo nhà sản xuất.", "example": "2017716-001"},
         {"name": "preferred_supplier", "label": "NCC ưu tiên", "required": False, "width": 28,
-         "desc": "Tên NCC ưu tiên (khớp file 02 / sheet 'Nhà cung cấp').",
+         "desc": f"Tên nhà cung cấp ưu tiên, khớp file 02 / sheet 'Nhà cung cấp'. {NAME_NOT_CODE}",
          "example": "Công ty TNHH Thiết bị Y tế ABC"},
         {"name": "stock_uom", "label": "Đơn vị tính", "required": True, "width": 16,
          "desc": "Đơn vị tính lưu kho. VD: Cái, Bộ, Hộp, Cuộn.",
@@ -631,9 +655,9 @@ def make_warehouse():
         {"name": "warehouse_name", "label": "Tên kho", "required": True, "width": 35,
          "desc": "Tên đầy đủ của kho hàng.", "example": "Kho vật tư kỹ thuật trung tâm"},
         {"name": "location", "label": "Vị trí kho", "required": False, "width": 28,
-         "desc": "Tên vị trí (khớp file 01 / sheet 'Vị trí').", "example": "Tầng hầm - Tòa nhà A"},
+         "desc": f"Tên vị trí, khớp file 01 / sheet 'Vị trí'. {NAME_NOT_CODE}", "example": "Tầng hầm - Tòa nhà A"},
         {"name": "department", "label": "Khoa phòng quản lý", "required": False, "width": 28,
-         "desc": "Tên khoa phòng chịu trách nhiệm kho (khớp file 01).",
+         "desc": f"Tên khoa/phòng chịu trách nhiệm kho, khớp file 01. {NAME_NOT_CODE}",
          "example": "Phòng Vật tư thiết bị"},
         {"name": "manager", "label": "Thủ kho (email)", "required": False, "width": 30,
          "desc": "Email của thủ kho / người phụ trách kho.", "example": "tran.van.c@hospital.vn"},
@@ -657,7 +681,7 @@ def make_users():
     wb.remove(wb.active)
 
     build_sheet(wb, "Danh sách người dùng", [
-        {"name": "email", "label": "Email (Mã người dùng)", "required": True, "width": 32,
+        {"name": "email", "label": "Email đăng nhập", "required": True, "width": 32,
          "desc": "Email là username đăng nhập hệ thống. Phải là email hợp lệ, duy nhất.",
          "example": "nguyen.van.a@hospital.vn"},
         {"name": "first_name", "label": "Tên", "required": True, "width": 18,
@@ -667,19 +691,21 @@ def make_users():
         {"name": "mobile_no", "label": "Điện thoại", "required": False, "width": 18,
          "desc": "Số di động. VD: 0912345678.", "example": "0912345678"},
         {"name": "ac_department", "label": "Khoa/Phòng", "required": False, "width": 28,
-         "desc": "Mã khoa/phòng (AC Department name). VD: Khoa-HSTC.",
-         "example": "Khoa-HSTC"},
+         "desc": f"Tên khoa/phòng, khớp file 01 / sheet 'Khoa phòng'. {NAME_NOT_CODE} "
+                 "Sai tên thì dòng vẫn nhập được nhưng để trống ô này.",
+         "example": "Khoa Hồi sức tích cực"},
         {"name": "imm_approval_status", "label": "Trạng thái duyệt", "required": False, "width": 22,
-         "desc": "Trạng thái duyệt IMM. Chọn: Pending / Approved / Rejected.",
-         "example": "Approved", "dv": '"Pending,Approved,Rejected"'},
+         "desc": "Chờ xử lý / Đã phê duyệt / Bị từ chối.",
+         "example": "Đã phê duyệt", "dv": '"Chờ xử lý,Đã phê duyệt,Bị từ chối"'},
         {"name": "roles", "label": "Vai trò (phân cách bằng dấu phẩy)", "required": False, "width": 40,
          "desc": "Danh sách vai trò Frappe, phân cách bằng dấu phẩy. "
                  "Chỉ thêm, không xóa vai trò hiện có. "
                  "VD: HTM Technician, HTM Manager.",
          "example": "HTM Technician, HTM Manager"},
     ], [{}],
-    instructions="Mỗi hàng = 1 người dùng. "
+    instructions="Mỗi hàng = 1 người dùng, điền từ HÀNG 6 (hàng 5 là ví dụ mẫu). "
                  "Email là định danh duy nhất. Nếu đã tồn tại sẽ cập nhật thông tin. "
+                 "Khoa/Phòng điền TÊN, không điền mã. "
                  "Vai trò chỉ được thêm, không bao giờ xóa vai trò hiện có.")
 
     wb.save(os.path.join(OUT_DIR, "06_danh_sach_nguoi_dung.xlsx"))
@@ -789,6 +815,27 @@ def make_guide():
     c.fill = fill("EDE7F6")
     c.alignment = left()
     c.border = BORDER
+
+    # Quy tắc điền — 3 điều người dùng hay làm sai nhất
+    notes = [
+        "1. Điền dữ liệu từ HÀNG 6 trở xuống. Hàng 1-5 (banner, tên trường, nhãn, "
+        "mô tả, ví dụ) là phần khung — không xoá, không ghi đè.",
+        "2. Cột tham chiếu (Danh mục, Khoa/Phòng, Vị trí, Model, Nhà cung cấp) điền "
+        "TÊN đúng như trong hệ thống — KHÔNG điền mã hệ thống (AC-DEPT-0007, CAT-0001...). "
+        "File 'Xuất Excel' cũng in ra tên, dùng lại được ngay.",
+        "3. Sai/trùng ở vài dòng KHÔNG chặn cả file: màn hình nhập liệu báo rõ sai ở "
+        "hàng nào, cột nào; chọn 'Bỏ qua dòng lỗi/trùng' để nhập phần hợp lệ rồi tải "
+        "báo cáo lỗi về sửa các dòng còn lại.",
+    ]
+    for i, note in enumerate(notes):
+        r = legend_row + 1 + i
+        ws.row_dimensions[r].height = 32
+        ws.merge_cells(f"A{r}:E{r}")
+        c = ws.cell(row=r, column=1, value=note)
+        c.font = cell_font(size=10)
+        c.fill = fill("FFF9C4" if i % 2 == 0 else "FDFEFE")
+        c.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        c.border = BORDER
 
     ws.freeze_panes = "A3"
     wb.save(os.path.join(OUT_DIR, "00_huong_dan_import.xlsx"))
