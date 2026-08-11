@@ -21,13 +21,18 @@ frontend/src/
 ## 2.2 Types (`types/import.ts`)
 
 ```typescript
-export type RefDataDoctype = "AC Asset Category" | "AC Department" | "AC Location"
+// Đồng bộ với SUPPORTED_REF_DOCTYPES ở utils/import_helpers.py
+export type RefDataDoctype =
+  | "AC Asset Category" | "AC Department" | "AC Location" | "AC Supplier"
+  | "IMM Device Model" | "Service Contract" | "User" | "AC Asset"
 
 export type ImportMode = "strict" | "skip_invalid"
 
 export interface ImportIssue {
-  row: number
+  row: number         // chỉ số dòng dữ liệu — DÙNG NỘI BỘ, không hiển thị
+  sourceRow: number   // số hàng THẬT trong file — cái phải hiện ra màn hình
   field: string
+  label: string       // nhãn cột tiếng Việt (BE trả qua enrich_issues)
   message: string
   severity: "error" | "warning"
 }
@@ -38,6 +43,7 @@ export interface ImportPreviewResult {
   validRows: number
   preview: Record<string, unknown>[]
   fieldnames: string[]
+  fieldLabels: Record<string, string>   // fieldname → nhãn VI cho tiêu đề bảng
   errors: ImportIssue[]
   warnings: ImportIssue[]
   cascadeCount?: number   // chỉ có cho Tree DocType (vd AC Location)
@@ -45,8 +51,10 @@ export interface ImportPreviewResult {
 
 export interface ImportSkippedRow {
   row: number
+  sourceRow: number
   reason: "pre_validate" | "cascade_parent_skipped"
   field: string
+  label: string
   message: string
 }
 
@@ -92,7 +100,11 @@ export async function importRefData(
     skipped: raw.skipped ?? 0,
     errors: raw.errors ?? [],
     skippedRows: (raw.skipped_rows ?? []).map((r: any) => ({
-      row: r.row, reason: r.reason, field: r.field, message: r.message,
+      row: r.row,
+      // BE cũ chưa có source_row/label ⇒ fallback ĐẶT Ở ĐÂY, không rải ra view.
+      sourceRow: r.source_row ?? r.row + HEADER_ROWS,   // HEADER_ROWS = 5
+      reason: r.reason, field: r.field,
+      label: r.label || r.field, message: r.message,
     })),
   }
 }
@@ -190,7 +202,7 @@ Khi preview phát hiện `errors.length > 0`, hiển thị radio 2-mode (KHÔNG 
       <input type="radio" v-model="importMode" value="skip_invalid" class="mt-1" />
       <div>
         <p class="font-medium">
-          Bỏ qua {{ totalSkip }} dòng lỗi, import {{ preview.totalRows - totalSkip }} dòng hợp lệ
+          Bỏ qua {{ totalSkip }} dòng lỗi/trùng, nhập {{ preview.totalRows - totalSkip }} dòng hợp lệ
         </p>
         <p class="text-sm text-slate-600">
           Tải file dòng bị bỏ qua sau khi import xong để sửa & import lại sau
@@ -219,7 +231,7 @@ async function runImport() {
   <p class="font-medium">Đã bỏ qua {{ result.skipped }} dòng</p>
   <ul class="mt-2 max-h-48 overflow-auto text-sm">
     <li v-for="r in result.skippedRows" :key="r.row">
-      Dòng {{ r.row }} — {{ r.message }}
+      Hàng {{ r.sourceRow }} — {{ r.label || 'Cả dòng' }}: {{ r.message }}
       <span v-if="r.reason === 'cascade_parent_skipped'"
             class="ml-1 rounded bg-amber-200 px-1 text-xs">phụ thuộc</span>
     </li>
@@ -235,6 +247,8 @@ async function runImport() {
 - Cảnh báo cascade phải hiển thị TRƯỚC khi user chọn skip — không silent.
 - Nếu `totalSkip / preview.totalRows > 0.3` (>30%) → thêm warning đỏ "Cảnh báo: hơn 30% dòng bị bỏ qua, kiểm tra lại file gốc".
 - Nếu `totalSkip === preview.totalRows` (100% invalid) → disable nút "Import" cả 2 mode, hiện thông báo "Không có dòng hợp lệ".
+- **Chỉ đúng chỗ sai (LL-IMP-3)**: hiện `sourceRow` (số hàng THẬT trong file, BE trả `source_row`) chứ KHÔNG hiện `row` (chỉ số dòng dữ liệu — lệch khi file có dòng trống), và hiện `label` (nhãn cột tiếng Việt) chứ KHÔNG hiện `field` (fieldname tiếng Anh). Tiêu đề bảng xem trước lấy `fieldLabels[fn]`. BE cũ thiếu 2 khoá này ⇒ fallback `row + 5` / `field` đặt trong `api/importData.ts`, KHÔNG rải fallback ra từng view.
+- **Nhãn nút phải nói cả "trùng" (LL-IMP-4)**: người dùng tìm cách nhập tiếp khi dữ liệu TRÙNG, không chỉ khi SAI — dùng "Bỏ qua N dòng lỗi/trùng, nhập M dòng hợp lệ".
 
 ## 2.7 Template download — dùng URL trực tiếp, không gọi API
 

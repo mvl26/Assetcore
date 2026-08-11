@@ -130,6 +130,16 @@ Tổng hợp từ "Phần 3 — Anti-patterns". Chi tiết đầy đủ giữ tr
 | "Upload thẳng `api.post(upload_file, fd)` luôn" | Axios gửi `application/json` phá multipart boundary (#10). Pass `{ headers: { 'Content-Type': undefined } }`. |
 | "Gọi API import không cần `/api/method/`" | 404 "Không tìm thấy tài nguyên" (#12). Dùng `BASE = '/api/method/assetcore.api.import_data'`. |
 | "Upload trước, tạo folder sau cũng được" | Frappe reject *"Could not find Folder"* (#11). `initImportFolders()` PHẢI gọi trước upload. |
+| "Export cứ dump thẳng `frappe.get_all`, cột Link ra sao kệ" | Cột Link ra MÃ hệ thống (`AC-DEPT-0007`) — file xuất ra không đọc được, nhập lại phải tra mã (LL-IMP-2). Chạy `resolve_links_to_display` trước khi ghi sheet. |
+| "Báo lỗi 'Dòng 3' là đủ rồi" | Parser bỏ dòng trống ⇒ "dòng 3" có thể là hàng 9 của Excel. Trả `source_row` + `label` VI qua `enrich_issues` (LL-IMP-3). |
+| "Doctype này logic riêng, chưa cho skip cũng được" | 1 email sai = bắt sửa file nhập lại từ đầu (LL-IMP-4). Đường upsert riêng vẫn phải nhận `invalid_idx`/`skipped_rows`. |
+| "DocType có bảng con thì cho user 2 sheet cha/con cho đúng cấu trúc" | Người nhập liệu bệnh viện điền 1 sheet phẳng (mỗi hàng = 1 dòng con), BE gộp theo khoá (LL-IMP-6). 2 sheet = phải tự khớp khoá tay, sai ngay. |
+| "Gộp nhóm theo các hàng liền nhau cho nhanh" | File thật rải rác các hàng cùng mẫu. Gộp theo KHOÁ đã chuẩn hoá tên→mã + nhãn→enum (LL-IMP-6a/b). |
+| "Việt hoá enum cho mẫu đang sửa thôi, mẫu khác tính sau" | Nửa Việt nửa Anh khó dùng hơn thuần Anh (LL-IMP-8). Quét cả `_REF_DATA_CONFIG` + `_TEMPLATE_MAP` một lượt, guard `test_import_enum_labels.py` phải xanh. |
+| "Hai field cùng ý nghĩa thì dùng chung 1 map nhãn" | `supplier_group` kết thúc 'Service Provider', `vendor_type' kết thúc 'Service' — gộp = khoá rác + nhãn trùng ⇒ đổi ngược không xác định (LL-IMP-7). Đọc `options` TỪNG field. |
+| "Danh sách dropdown trong file mẫu chép từ tài liệu là được" | Sheet SLA từng chào `P1 Critical` trong khi DocType chỉ có `P1..P4` ⇒ user làm đúng hướng dẫn vẫn bị từ chối. Đối chiếu `options` thật (LL-IMP-7). |
+| "Cột Select cứ để user gõ đúng enum tiếng Anh" | "Semi-Annual"/"Pass/Fail" không phải tiếng người dùng. Template + export in nhãn VI, import nhận cả hai (LL-IMP-7). |
+| "Banner ghi hàng 5 hay hàng 6 thì có gì khác" | Parser đọc từ hàng 6; banner sai ⇒ người dùng ghi đè hàng ví dụ, dòng đầu bị nuốt IM LẶNG (LL-IMP-5). |
 | "Làm 1 phát cả 11 DocType cho xong pipeline" | Vi phạm thin vertical slice — build 1 entity xuyên stack + test rồi mới sang entity kế (theo dependency order). Cả-một-lượt = lỗi compound, khó revert (Named principle). |
 | "Cứ insert rồi engine Frappe tự báo lỗi" | Vi phạm boundary validation — validate ở biên TRƯỚC insert, trả `list[ImportError]` để user thấy đủ lỗi ở Preview; insert chỉ sau khi qua biên sạch (Named principle). |
 
@@ -145,6 +155,13 @@ Tổng hợp từ "Phần 3 — Anti-patterns". Chi tiết đầy đủ giữ tr
 - `api.post('/api/method/upload_file', fd)` thiếu `{ headers: { 'Content-Type': undefined } }`; FormData thiếu `is_private: '1'`.
 - FE gọi API import thiếu prefix `/api/method/`; template download gọi `frappeGet` thay vì `window.open(url)`.
 - `submit_after_import = True` khi dùng Frappe engine cho AC Asset.
+- DocType cha+bảng con dựng bản ghi bằng `new_doc().insert()` trần thay vì service layer của module; gộp nhóm theo vị trí liền kề; khoá nhóm chưa chuẩn hoá tên→mã / nhãn→enum.
+- Template hoặc export in enum tiếng Anh cho cột Select đã có nhãn VI ở FE.
+- Validator còn tập `_VALID_*` hardcode tiếng Anh; dropdown gõ tay lần hai thay vì sinh từ `ENUM_DISPLAY_BY_DOCTYPE`; nhãn enum khai trong `.vue` thay vì `constants/labels.ts`.
+- Khai Link display→code ở `api/import_data.py` thay vì SSoT `utils/import_helpers.LINK_DISPLAY_BY_DOCTYPE` (alias phải `assertIs`, KHÔNG fork bản sao).
+- `export_ref_data` ghi thẳng giá trị Link (ra mã hệ thống) — thiếu `resolve_links_to_display`.
+- Lỗi trả FE thiếu `source_row`/`label`; hoặc khoá parser `__*` lọt vào `doc.update()`.
+- `raise` chặn skip_invalid theo doctype; template `desc` cột Link không có chữ "TÊN"; banner template ghi sai hàng dữ liệu đầu tiên.
 - Template `example` dùng system code thay vì display name (user copy sẽ điền code lệch master).
 
 ## Verification
@@ -160,6 +177,14 @@ Tổng hợp từ "Phần 7 — Checklist trước khi xong". Trước khi khai 
 - [ ] `_RESOLVABLE_LINKS_BY_DOCTYPE`: mỗi DocType có Link display name → có entry (đặc biệt Tree DocType với `nsm_parent_field`) (LL-BE-26).
 - [ ] (LL-IMP-1) Mọi validator check Link dùng `_link_lookup_set(doctype, display_field)`. Audit grep KHÔNG match khi context build valid Link set: `grep -nE 'for r in frappe\.get_all\([^,]+, fields=\["name"\]\)' assetcore/services/import_validators.py`.
 - [ ] Template example dùng display name (tiếng Việt) khớp resolver, không system code.
+- [ ] (LL-IMP-2) `LINK_DISPLAY_BY_DOCTYPE` ở `utils/import_helpers.py` là SSoT; `_RESOLVABLE_LINKS_BY_DOCTYPE` chỉ alias; `export_ref_data` gọi `resolve_links_to_display` ⇒ export in TÊN.
+- [ ] (LL-IMP-3) mọi lỗi trả ra (preview · import errors · skipped_rows · error report) đi qua `enrich_issues` ⇒ có `source_row` (hàng thật) + `label` (nhãn VI); `_normalise_row` bỏ khoá `__*`.
+- [ ] (LL-IMP-4) skip_invalid chạy được cho MỌI doctype hỗ trợ, kể cả đường upsert riêng.
+- [ ] (LL-IMP-5) banner template + vùng dropdown + `FIRST_DATA_ROW` cùng chỉ hàng 6.
+- [ ] (LL-IMP-6) DocType cha+bảng con: khai đủ `child_table`/`group_key_fields`/`parent_fields`/`child_fields`; khoá nhóm chuẩn hoá TRƯỚC khi gộp; tạo bản ghi qua service layer; trả `groups_created`; export trải phẳng cùng bố cục.
+- [ ] (LL-IMP-7) cột Select khai ở `ENUM_DISPLAY_BY_DOCTYPE`, nhãn khớp SSoT FE; template/export in nhãn VI, import nhận cả nhãn VI lẫn giá trị gốc.
+- [ ] (LL-IMP-7) `bench --site <site> run-tests --app assetcore --module assetcore.tests.test_import_enum_labels` **XANH** — 4 tầng: phủ-kín · không-khoá-rác · parity FE · dropdown trong `.xlsx` thật.
+- [ ] (LL-IMP-8) validator KHÔNG còn tập `_VALID_*` hardcode tiếng Anh cho cột Select (dùng `_check_enum`); đường insert phẳng có `_restore_enum_values`; đã sinh lại TOÀN BỘ template.
 - [ ] `import_ref_data()`: param `skip_invalid: bool = False`, default `False`; `_cascade_skip_for_tree()` walk-pass cho cascade nhiều cấp.
 - [ ] Response include `skipped` (int) + `skipped_rows` (list[{row, reason, field, message}]); `preview_ref_data` include `cascade_count` cho Tree DocType; edge 100% invalid raise ServiceError, không commit rỗng.
 
@@ -170,6 +195,7 @@ Tổng hợp từ "Phần 7 — Checklist trước khi xong". Trước khi khai 
 - [ ] `ImportMode` radio default `"strict"`, không auto-select skip; bước 3 hiển thị `totalSkip = errors.length + cascadeCount` TRƯỚC confirm.
 - [ ] Bước 4 hiển thị `skippedRows` với badge "phụ thuộc" cho cascade; warning đỏ khi `totalSkip/totalRows > 30%`; disable Import khi 100% invalid.
 - [ ] `importRefData(doctype, fileUrl, mode)` map snake_case `skipped_rows` → camelCase `skippedRows`.
+- [ ] Wizard hiển thị **"Hàng {sourceRow}"** (số hàng thật trong file) + nhãn cột tiếng Việt (`label` / `fieldLabels`) — KHÔNG hiện `row` thô hay fieldname tiếng Anh.
 
 ---
 
@@ -177,7 +203,7 @@ Tổng hợp từ "Phần 7 — Checklist trước khi xong". Trước khi khai 
 
 - Chiến lược đầy đủ: `docs/res/guides/import-strategy.md`
 - Template files: `assetcore/public/import_templates/`
-- Template generator: `docs/imports/generate_templates.py`
+- Template generator: `docs/res/imports/generate_templates.py`
 - Frappe file_manager: `frappe.utils.file_manager.save_file`
 - Frappe folder API: `frappe.core.api.file.create_new_folder`
 - BE conventions: `.claude/skills/assetcore-be/SKILL.md`
