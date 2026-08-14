@@ -27,7 +27,7 @@ dùng vừa bấm từ một thiết bị cụ thể (không lỗi, không cản
 
 Mỗi assert kèm message chỉ RÕ màn FE sẽ vỡ, để người phá guard biết ngay hệ quả.
 
-Vế FE của cùng hợp đồng do ``frontend/src/router/connectionsListParity.test.ts`` giữ
+Vế FE của cùng hợp đồng do ``frontend/src/guards/connectionsListParity.guard.test.ts`` giữ
 (phân hoạch ``DOCTYPE_LIST_TARGET`` ∪ ``LIST_TARGET_NO_FILTER`` == ``DOCTYPE_ROUTE``,
 allowlist CHỈ-GIẢM + ``sourceKeys`` là Link → AC Asset thật).
 
@@ -265,7 +265,7 @@ class TestConnectionsListFilterParity(FrappeTestCase):
     def test_tc_be_conn_15b_anchor_key_is_real_link_to_ac_asset(self) -> None:
         """Khoá neo là Link → AC Asset THẬT trong schema DocType (đọc JSON trên đĩa).
 
-        Song song với guard FE ``connectionsListParity.test.ts`` — đổi tên Link field
+        Song song với guard FE ``connectionsListParity.guard.test.ts`` — đổi tên Link field
         mà quên hai bảng dịch ⇒ deep-link trỏ vào cột không tồn tại.
         """
         for doctype, anchor, slug, route in _PROMOTED:
