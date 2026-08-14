@@ -251,7 +251,7 @@ async function runImport() {
 - **Nhãn nút phải nói cả "trùng" (LL-IMP-4)**: người dùng tìm cách nhập tiếp khi dữ liệu TRÙNG, không chỉ khi SAI — dùng "Bỏ qua N dòng lỗi/trùng, nhập M dòng hợp lệ".
 - **DocType cha + bảng con: đếm BẢN GHI, không chỉ đếm dòng (LL-IMP-10b)**: khi `previewData.groups` có dữ liệu, bước 2 phải dựng bảng "File này sẽ tạo/cập nhật N <groupUnit>" — mỗi nhóm một dòng: tên bản ghi · khoá đã dịch (danh mục · loại) · số dòng con · nhãn *Tạo mới / Cập nhật / Đã tồn tại* · số dòng con hiện có sẽ bị thay · **"từ hàng {firstSourceRow}"**. `useImportWizard` expose `groups` + `hasExistingGroups` — view KHÔNG tự lọc `previewData.groups` lần nữa.
 - **Công tắc "Cập nhật bản ghi đã có" (LL-IMP-10c)**: CHỈ hiện khi `hasExistingGroups`; mặc định TẮT và `open()` phải reset về TẮT (mở lại wizard không được nhớ lựa chọn ghi đè). Đổi công tắc ⇒ `toggleUpdateExisting()` **gọi lại `previewRefImport(doctype, fileUrl, true)`** — không tự lọc lỗi trùng ở FE. Cờ đi kèm `importRefData(..., mode, updateExisting)` **luôn tường minh**, không để `undefined`.
-- **Test công tắc phải chứng minh nó NỐI THẬT** (`components/import/importWizardGroups.test.ts`): mount modal → `find('input[type="checkbox"]').setValue(true)` → assert `toggleUpdateExisting` được gọi. Chỉ assert "checkbox tồn tại" là để lọt nút chết (LL-FE-47).
+- **Test công tắc phải chứng minh nó NỐI THẬT** (`components/import/ImportWizardModal.groups.test.ts`): mount modal → `find('input[type="checkbox"]').setValue(true)` → assert `toggleUpdateExisting` được gọi. Chỉ assert "checkbox tồn tại" là để lọt nút chết (LL-FE-47).
 
 ## 2.7 Template download — dùng URL trực tiếp, không gọi API
 

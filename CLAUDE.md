@@ -181,6 +181,7 @@ HIS / EMR / LIS / RIS / PACS / Insurance
 - Bắt buộc docstring
 - Naming theo domain (vd: `maintenance\_schedule`)
 - Không viết logic trong controller → dùng service layer
+- **Cấu trúc & tên file FE (`frontend/`)**: theo `docs/architecture/SPEC_chuan_hoa_cau_truc_frontend.md`. Test chỉ có **3 nhà** — **`<thư-mục-nguồn>/tests/`** (`<Nguồn>[.<khiaCanh>].test.ts`, KHÔNG đặt ngang hàng nguồn) · `src/guards/` (`<chuDe>.guard.test.ts`) · `src/integration/` (`<luong>.integration.test.ts`). SSoT **cưỡng chế bằng máy** = `frontend/src/guards/testFileConvention.guard.test.ts`; đường dẫn của guard lấy từ `frontend/src/test/paths.ts`, KHÔNG tính theo độ sâu.
 
 ---
 
