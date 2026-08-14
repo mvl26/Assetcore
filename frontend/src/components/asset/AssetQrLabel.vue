@@ -13,7 +13,7 @@ import QRCode from 'qrcode'
 import { translateStatus } from '@/utils/formatters'
 import { ASSET_STATUS_LABELS } from '@/constants/labels'
 import type { BatchLabelItem, BatchLabelErrorItem, AssetLabelData } from '@/api/imm00'
-import type { LabelFormatKey } from '@/constants/label'
+import type { LabelFormatKey } from '@/constants/labelFormats'
 
 const props = defineProps<{
   label: BatchLabelItem
