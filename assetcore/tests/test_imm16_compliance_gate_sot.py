@@ -35,6 +35,7 @@ from frappe.utils import add_days, nowdate
 
 from assetcore.services import imm16 as svc
 from assetcore.services.imm00 import _open_capa_filter, check_capa_overdue
+from assetcore.tests._asset_cleanup import purge_asset
 
 _UID = str(int(time.time()) % 100000)
 _DT_CAPA = "IMM CAPA Record"
@@ -90,9 +91,11 @@ class TestComplianceGateSoT(unittest.TestCase):
                     d.cancel()
                 frappe.delete_doc(_DT_CAPA, n, force=True, ignore_permissions=True,
                                   delete_permanently=True)
+        # R-9: phải đi qua purge_asset — AC Asset.on_trash (WR-03) chặn xoá cứng khi
+        # còn Sự kiện vòng đời/audit, và force=True KHÔNG bỏ qua on_trash tuỳ biến.
+        # Xoá thẳng bằng delete_doc ⇒ tearDown ném LinkExistsError ⇒ asset rò ra site.
         for a in (cls._asset, cls._asset_b):
-            frappe.db.sql("DELETE FROM `tabIMM Audit Trail` WHERE asset=%s", (a.name,))
-            frappe.delete_doc("AC Asset", a.name, force=True, ignore_permissions=True)
+            purge_asset(a.name)
         frappe.delete_doc("AC Asset Category", cls._cat.name, force=True,
                           ignore_permissions=True)
         frappe.db.commit()

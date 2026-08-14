@@ -19,6 +19,7 @@ from frappe.utils import today, add_days
 from assetcore.api.imm00 import list_assets
 from assetcore.api.dashboard import get_overview
 from assetcore.services.imm00 import byt_expiry_filter, BYT_EXPIRY_SOON_DAYS
+from assetcore.tests._asset_cleanup import purge_asset
 
 
 class TestBytExpiryFilterSoT(FrappeTestCase):
@@ -94,7 +95,15 @@ class _BytSeedMixin:
             # NON-reserved asset_name (KHÔNG prefix '_'): data-hygiene SSoT ẩn '_…'
             # khỏi list_assets; fixture cần XUẤT HIỆN trong drill ⇒ tên thường.
             name = f"ZZTEST-BYT-{suffix}"
-            if frappe.db.exists("AC Asset", {"asset_name": name}):
+            # NHẬN NUÔI bản rò của lượt trước thay vì `continue`: bỏ qua nghĩa là
+            # fixture cũ (hạn đã lùi vào quá khứ) ở lại DB, không được đăng ký để
+            # dọn, và test tự sập theo NGÀY — đúng sự cố 2026-08-14 (asset rò từ
+            # 2026-07-22 khiến 'ZZTEST-BYT-today' rơi sang rổ 'đã hết hạn').
+            stale = frappe.db.get_value("AC Asset", {"asset_name": name}, "name")
+            if stale:
+                frappe.db.set_value("AC Asset", stale, "byt_reg_expiry", expiry,
+                                    update_modified=False)
+                cls._assets.append(stale)
                 continue
             # lifecycle_status để mặc định (Draft) — byt filter độc lập với lifecycle;
             # ép Active vi phạm workflow guard, không cần cho test này.
@@ -110,11 +119,11 @@ class _BytSeedMixin:
 
     @classmethod
     def _teardown(cls):
+        # purge_asset, KHÔNG delete_doc bọc `except: pass`: WR-03 (on_trash) chặn xoá
+        # cứng khi asset đã có Sự kiện vòng đời ⇒ except nuốt lỗi ⇒ rò 5 asset MỖI
+        # lượt chạy mà test vẫn xanh (đo 2026-08-14).
         for n in cls._assets:
-            try:
-                frappe.delete_doc("AC Asset", n, force=True, ignore_permissions=True)
-            except Exception:
-                pass
+            purge_asset(n)
         # Purge the self-seeded category too (by resolved doc-name) so it never
         # leaks into prod-like category lists.
         if cls._cat_name and frappe.db.exists("AC Asset Category", cls._cat_name):
