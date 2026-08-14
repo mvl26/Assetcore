@@ -3,7 +3,7 @@
 with full lifecycle data (PM/CM WOs, lifecycle events, downtime logs, depreciation).
 
 Run:
-    bench --site miyano execute assetcore.scripts.cleanup_and_seed_assets.run
+    bench --site miyano execute assetcore.scripts.maintenance.cleanup_and_seed_assets.run
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ TARGET_ASSETS = [
     {
         "asset_name": "Máy thở Dräger Evita V500 — ICU giường số 3",
         "device_model": "IMM-MDL-2026-0023",
-        "asset_category": "Thiet-bi-Ho-tro-Su-song",
+        "asset_category": "Máy thở",
         "department": "Khoa-HSTC",
         "location": "AC-LOC-2026-0127",
         "supplier": "AC-SUP-2026-0017",
@@ -61,7 +61,7 @@ TARGET_ASSETS = [
     {
         "asset_name": "Monitor bệnh nhân Mindray BeneView T9 — ICU giường số 7",
         "device_model": "IMM-MDL-2026-0024",
-        "asset_category": "Thiet-bi-Theo-doi-Benh-nhan",
+        "asset_category": "Monitor theo dõi bệnh nhân",
         "department": "Khoa-HSTC",
         "location": "AC-LOC-2026-0127",
         "supplier": "AC-SUP-2026-0018",
@@ -95,7 +95,7 @@ TARGET_ASSETS = [
     {
         "asset_name": "Máy siêu âm Philips EPIQ 7 — Khoa Chẩn đoán Hình ảnh",
         "device_model": "IMM-MDL-2026-0026",
-        "asset_category": "Thiet-bi-Chan-doan-Hinh-anh",
+        "asset_category": "Máy siêu âm chẩn đoán",
         "department": "Khoa-CDHA",
         "location": "AC-LOC-2026-0129",
         "supplier": "AC-SUP-2026-0018",
@@ -213,6 +213,25 @@ def _purge_asset_dependents(asset: str) -> None:
 
 # ───── 2) Upsert 3 real assets with ALL fields filled ─────────────────────────
 
+def _resolve_category(category_name: str) -> str:
+    """Đổi TÊN danh mục (đọc được) → doc-name thật (``CAT-####``).
+
+    ``AC Asset Category`` autoname ``CAT-####`` nên KHÔNG được gán thẳng chuỗi
+    người đọc vào ``asset_category``: Frappe không kiểm link khi ghi qua script,
+    nên giá trị sai lọt vào DB thành FK TREO — chính lỗi này (3 slug cũ
+    ``Thiet-bi-*`` không còn trong bộ danh mục) đã làm ``demo_ops`` gãy ở
+    ``_ensure_pm_template`` với "Could not find Loại thiết bị".
+    Thiếu danh mục thì DỪNG HẲN, không seed dữ liệu hỏng.
+    """
+    name = frappe.db.get_value("AC Asset Category", {"category_name": category_name}, "name")
+    if not name:
+        frappe.throw(
+            f"Thiếu danh mục '{category_name}' — seed dữ liệu tham chiếu trước "
+            f"(assetcore.scripts.seed.seed_ref_data) rồi chạy lại."
+        )
+    return name
+
+
 def seed_or_update_assets() -> list[str]:
     """Đảm bảo 3 asset thực tế tồn tại và điền đầy đủ TẤT CẢ field nghiệp vụ."""
     asset_names: list[str] = []
@@ -235,6 +254,8 @@ def seed_or_update_assets() -> list[str]:
         for k, v in spec.items():
             if k in ("lifecycle_status", "status", "calibration_status"):
                 continue
+            if k == "asset_category":
+                v = _resolve_category(v)
             setattr(doc, k, v)
 
         # Auto-derive
@@ -267,6 +288,11 @@ def seed_or_update_assets() -> list[str]:
         for k, v in spec.items():
             if k in ("lifecycle_status", "status", "calibration_status"):
                 continue
+            # Vòng áp field THỨ HAI cũng phải phân giải danh mục: bỏ sót ở đây thì
+            # nó ghi đè giá trị đã phân giải ở vòng trên bằng chuỗi thô, và
+            # flags.ignore_links=True bên dưới khiến link hỏng lọt thẳng vào DB.
+            if k == "asset_category":
+                v = _resolve_category(v)
             setattr(doc, k, v)
         doc.total_depreciation_months = total_months
         doc.asset_code = spec["manufacturer_sn"]

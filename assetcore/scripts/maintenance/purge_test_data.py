@@ -5,7 +5,7 @@ Auto-discovers every DocType belonging to the `assetcore` app via Module Def,
 so adding a new DocType requires NO change to this script.
 
 Run:
-    bench --site <site> execute assetcore.scripts.purge_test_data.run
+    bench --site <site> execute assetcore.scripts.maintenance.purge_test_data.run
 
 Keep (NOT touched): User, Role, Workflow, Custom Field, Server Script,
 Translation, Email Account, System Settings, and anything outside
@@ -153,5 +153,5 @@ def run(dry_run: bool = False) -> None:
 
 
 def dry_run() -> None:
-    """Preview without deleting: bench --site X execute assetcore.scripts.purge_test_data.dry_run"""
+    """Preview without deleting: bench --site X execute assetcore.scripts.maintenance.purge_test_data.dry_run"""
     run(dry_run=True)

@@ -1,6 +1,6 @@
 """
 Seed toàn bộ reference data cho AssetCore test.
-Run: bench --site miyano execute assetcore.scripts.seed_all_ref.run
+Run: bench --site miyano execute assetcore.scripts.seed.seed_all_ref.run
 """
 import frappe
 

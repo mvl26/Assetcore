@@ -40,7 +40,7 @@ INCLUDE_DIRS = [
     ROOT / "assetcore" / "services",
     ROOT / "assetcore" / "patches",
     ROOT / "assetcore" / "tasks.py",
-    ROOT / "assetcore" / "uat_test.py",
+    ROOT / "assetcore" / "scripts" / "uat" / "uat_test.py",
     ROOT / "frontend" / "src",
 ]
 EXCLUDE_NAMES = {

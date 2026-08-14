@@ -1,4 +1,4 @@
-"""Tests cho seeder demo operational data (assetcore.seed.demo_ops).
+"""Tests cho seeder demo operational data (assetcore.scripts.seed.demo_ops).
 
 LƯU Ý isolation: seed gọi các service (imm08/imm11) có `frappe.db.commit()`
 bên trong → KHÔNG thể dùng savepoint+rollback (commit xoá savepoint, R-9).
@@ -18,7 +18,7 @@ import unittest
 
 import frappe
 
-from assetcore.seed import demo_ops
+from assetcore.scripts.seed import demo_ops
 
 
 def _ensure_active_asset() -> str | None:

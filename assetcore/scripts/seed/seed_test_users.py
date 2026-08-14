@@ -9,7 +9,7 @@ CÔNG (role_profile_name=None) để chứng minh nav là UNION + nhánh sửa t
 Tên người Việt thật, email hợp lệ — KHÔNG dữ liệu rác.
 
 Chạy:
-    bench --site miyano execute assetcore.scripts.seed_test_users.seed_test_users
+    bench --site miyano execute assetcore.scripts.seed.seed_test_users.seed_test_users
 
 Idempotent: user đã tồn tại → cập nhật (đồng bộ) role, không tạo trùng. Mọi role
 đều đã verify tồn tại trong fixtures/role.json. Mỗi user thêm role nền

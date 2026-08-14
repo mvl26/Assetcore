@@ -1,6 +1,6 @@
 """
 Seed final reference data.
-Run: bench --site miyano execute assetcore.scripts.seed_final_ref.run
+Run: bench --site miyano execute assetcore.scripts.seed.seed_final_ref.run
 """
 import frappe
 

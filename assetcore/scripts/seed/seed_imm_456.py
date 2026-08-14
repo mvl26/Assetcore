@@ -1,6 +1,6 @@
 """Seed realistic data for IMM-04, IMM-05, IMM-06.
 
-Run: bench --site miyano execute assetcore.scripts.seed_imm_456.run
+Run: bench --site miyano execute assetcore.scripts.seed.seed_imm_456.run
 """
 from __future__ import annotations
 

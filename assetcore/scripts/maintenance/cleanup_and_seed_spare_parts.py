@@ -3,7 +3,7 @@
 Idempotent. Safe to re-run.
 
 Invoke:
-    bench --site miyano execute assetcore.scripts.cleanup_and_seed_spare_parts.run
+    bench --site miyano execute assetcore.scripts.maintenance.cleanup_and_seed_spare_parts.run
 """
 from __future__ import annotations
 

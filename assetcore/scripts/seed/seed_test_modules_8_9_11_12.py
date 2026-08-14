@@ -1,6 +1,6 @@
 """Seed real-world data for IMM-08/09/11/12 testing.
 
-Run: bench --site miyano execute assetcore.scripts.seed_test_modules_8_9_11_12.run
+Run: bench --site miyano execute assetcore.scripts.seed.seed_test_modules_8_9_11_12.run
 """
 from __future__ import annotations
 

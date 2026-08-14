@@ -3,7 +3,7 @@ Seed reference data cho AssetCore test:
 - 3 AC Department
 - 3 AC Location
 - 3 AC Asset Category
-Run: bench --site miyano execute assetcore.scripts.seed_ref_data.run
+Run: bench --site miyano execute assetcore.scripts.seed.seed_ref_data.run
 """
 import frappe
 

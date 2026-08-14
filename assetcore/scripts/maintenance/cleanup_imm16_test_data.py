@@ -3,7 +3,7 @@
 #
 # An toàn & idempotent. KHÔNG dùng SQL trực tiếp — chỉ Frappe ORM API.
 # Chạy: bench --site <site> execute
-#         assetcore.scripts.cleanup_imm16_test_data.run
+#         assetcore.scripts.maintenance.cleanup_imm16_test_data.run
 from __future__ import annotations
 
 from contextlib import suppress

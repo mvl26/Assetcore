@@ -12,8 +12,8 @@ Nguyên tắc (KHÔNG vi phạm):
     - KHÔNG xoá dữ liệu. Cleanup là thao tác destructive → cần phê duyệt riêng.
 
 Gọi:
-    bench --site <site> execute assetcore.seed.demo_ops.run
-    bench --site <site> execute assetcore.seed.demo_ops.run --kwargs '{"as_admin": true}'
+    bench --site <site> execute assetcore.scripts.seed.demo_ops.run
+    bench --site <site> execute assetcore.scripts.seed.demo_ops.run --kwargs '{"as_admin": true}'
 
 Trả về dict counts: số record tạo mới / đã tồn tại cho từng loại.
 """

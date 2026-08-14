@@ -5,7 +5,7 @@ Prior test runs leaked autonamed records because `_ensure_doc` ignored autoname
 (LL-TEST-9) and teardowns swallowed the AC Asset audit guard with `except: pass`.
 This purges that residue. Idempotent — safe to re-run.
 
-    bench --site miyano execute assetcore.scripts.cleanup_leaked_test_fixtures.run
+    bench --site miyano execute assetcore.scripts.maintenance.cleanup_leaked_test_fixtures.run
 """
 from __future__ import annotations
 
