@@ -108,10 +108,10 @@ vi.mock('@/api/imm12', async (importOriginal) => {
 import { getCalibration } from '@/api/imm11'
 import { getIncident } from '@/api/imm12'
 import { resetRouteMock, setRouteParams, routerPushSpy } from '@/test/vueRouterMock'
-import PMWorkOrderDetailView from './pm/PMWorkOrderDetailView.vue'
-import CMWorkOrderDetailView from './cm/CMWorkOrderDetailView.vue'
-import CalibrationDetailView from './calibration/CalibrationDetailView.vue'
-import IncidentDetailView from './incident/IncidentDetailView.vue'
+import PMWorkOrderDetailView from '@/views/pm/PMWorkOrderDetailView.vue'
+import CMWorkOrderDetailView from '@/views/cm/CMWorkOrderDetailView.vue'
+import CalibrationDetailView from '@/views/calibration/CalibrationDetailView.vue'
+import IncidentDetailView from '@/views/incident/IncidentDetailView.vue'
 
 /** Message HẰNG của BE khi thiếu quyền đọc (MSG.AUTH_FORBIDDEN qua run_rowscoped). */
 const SERVER_MSG = 'Bạn không có quyền thực hiện hành động này.'

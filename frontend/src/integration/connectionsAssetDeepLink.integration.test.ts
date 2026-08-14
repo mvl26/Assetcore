@@ -97,10 +97,10 @@ vi.mock('@/stores/imm04', () => ({
   }),
 }))
 
-import FirmwareCrListView from './document/FirmwareCrListView.vue'
-import CAPAListView from './incident/CAPAListView.vue'
-import DecommissionListView from './eol/DecommissionListView.vue'
-import CommissioningListView from './commissioning/CommissioningListView.vue'
+import FirmwareCrListView from '@/views/document/FirmwareCrListView.vue'
+import CAPAListView from '@/views/incident/CAPAListView.vue'
+import DecommissionListView from '@/views/eol/DecommissionListView.vue'
+import CommissioningListView from '@/views/commissioning/CommissioningListView.vue'
 
 // ListFilterBar + dải chip KHÔNG stub: chip lọc là thứ đang được chấm.
 const stubs = {

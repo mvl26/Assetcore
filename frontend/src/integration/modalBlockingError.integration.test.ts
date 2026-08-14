@@ -124,9 +124,9 @@ vi.mock('@/stores/imm11', () => ({
   }),
 }))
 
-import CycleCountDetailView from './inventory/CycleCountDetailView.vue'
-import NeedsRequestDetailView from './needs/NeedsRequestDetailView.vue'
-import CalibrationScheduleListView from './calibration/CalibrationScheduleListView.vue'
+import CycleCountDetailView from '@/views/inventory/CycleCountDetailView.vue'
+import NeedsRequestDetailView from '@/views/needs/NeedsRequestDetailView.vue'
+import CalibrationScheduleListView from '@/views/calibration/CalibrationScheduleListView.vue'
 
 /** KHÔNG stub BaseModal / ModalInlineError — chính chúng là thứ đang được chấm. */
 const stubs = {
