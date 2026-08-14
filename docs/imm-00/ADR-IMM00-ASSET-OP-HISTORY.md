@@ -200,7 +200,7 @@ Hợp đồng hàm fetch (cả 3, **giống nhau từng bước**):
    finally { loading = false }
 ```
 
-> ⚠️ **Guard cache có thể làm ĐỎ test cũ** `frontend/src/stores/assetHistoryTruncation.test.ts` nếu test nào gọi fetch **2 lần trên cùng store + cùng asset** và mong lần 2 vẫn bắn API. Được phép sửa **chính test đó** (cùng hợp đồng, cùng vòng) và phải ghi vào báo cáo — KHÔNG được nới guard để test cũ xanh (AC2 sẽ chết).
+> ⚠️ **Guard cache có thể làm ĐỎ test cũ** `frontend/src/stores/tests/assetHistoryTruncation.test.ts` nếu test nào gọi fetch **2 lần trên cùng store + cùng asset** và mong lần 2 vẫn bắn API. Được phép sửa **chính test đó** (cùng hợp đồng, cùng vòng) và phải ghi vào báo cáo — KHÔNG được nới guard để test cũ xanh (AC2 sẽ chết).
 
 ### 5.3 Microcopy VI + testid — **SSoT, chép nguyên** (đổi chuỗi/testid ⇒ sửa `07 §XX` TRƯỚC)
 
@@ -210,7 +210,7 @@ Hợp đồng hàm fetch (cả 3, **giống nhau từng bước**):
 | `op-history-section` | *(section)* + `data-branch="pm" \| "cm" \| "incident"` | luôn — **ĐÚNG 3**, thứ tự **pm → cm → incident** |
 | `op-history-toggle` | *(nút mở/thu, `aria-expanded`)* — **CHỨA chuỗi tiêu đề** (`Kết quả bảo trì` / `Lần sửa chữa đã hoàn thành` / `Sự cố đã ghi nhận`) | luôn — 1/section |
 | ~~`op-history-heading`~~ | ⚠️ **CẢI CHÍNH 2026-07-30 (`AC-CR-115`) — testid này KHÔNG tồn tại trên đĩa.** Vai «bọc tiêu đề» do **`op-history-toggle`** đảm nhiệm (`AssetOperationalHistory.vue:318-334`). | — |
-| ~~`op-history-title`~~ | ⚠️ **CẢI CHÍNH** — chuỗi tiêu đề nằm **trong** `op-history-toggle` (`<span>{{ headingVI }}</span>`, `:327`), **không** có testid riêng. Test tiêu đề chấm bằng `.text()` của `op-history-toggle` (đúng như `assetOperationalHistory.test.ts:146,302` đang làm). | — |
+| ~~`op-history-title`~~ | ⚠️ **CẢI CHÍNH** — chuỗi tiêu đề nằm **trong** `op-history-toggle` (`<span>{{ headingVI }}</span>`, `:327`), **không** có testid riêng. Test tiêu đề chấm bằng `.text()` của `op-history-toggle` (đúng như `AssetOperationalHistory.test.ts:146,302` đang làm). | — |
 | ~~`op-history-total`~~ → **`op-history-count`** | ⚠️ **CẢI CHÍNH** — testid thật là **`op-history-count`** (`:332`) và chuỗi là **số trần `{total}`** (badge), KHÔNG phải `{total} bản ghi`. | `loaded` |
 | `op-history-loading` | `Đang tải…` | `expanded ∧ loading` |
 | `op-history-row` | *(dòng)* + `data-branch` | `expanded ∧ loaded ∧ !failed` |
@@ -389,7 +389,7 @@ Khuôn `AC-CR-100` cho tab «Lịch sử» có `timeline-load-more` vì `get_ass
 
 ### 10.5 `D-OPH-20` — Test cũ mâu thuẫn: **PHẢI sửa trong CÙNG vòng** (không phải «test cũ chuyển đỏ»)
 
-`frontend/src/components/asset/assetOperationalHistory.test.ts:298-307` (`TC-FE-OPH-09`) đang assert:
+`frontend/src/components/asset/tests/AssetOperationalHistory.test.ts:298-307` (`TC-FE-OPH-09`) đang assert:
 
 ```ts
 it('10 dòng / tổng 34 ⇒ tiêu đề chứa 34, KHÔNG chứa dải «Đang xem» (vòng sau)', …)
@@ -404,8 +404,8 @@ Assert này là **hiện thân của `D-OPH-12`** — nay đã bị supersede. F
 
 | File | Dòng | Vì sao đỏ | Xử lý |
 |---|---|---|---|
-| `components/asset/assetOperationalHistory.test.ts` | `:298-307` | `not.toContain('Đang xem')` ⇄ AC1 | **Sửa** thành assert dải (đúng 1 `[op-history-truncation]`, chứa 10·34·24) |
-| `views/asset/assetDetailRelatedTab.test.ts` | `:181-208` | Có thể assert thứ tự/`html()` của panel | Chỉ sửa **nếu** thật sự đỏ; thêm TC thứ tự DOM (`D-OPH-18`) |
+| `components/asset/AssetOperationalHistory.test.ts` | `:298-307` | `not.toContain('Đang xem')` ⇄ AC1 | **Sửa** thành assert dải (đúng 1 `[op-history-truncation]`, chứa 10·34·24) |
+| `views/asset/AssetDetailView.relatedTab.test.ts` | `:181-208` | Có thể assert thứ tự/`html()` của panel | Chỉ sửa **nếu** thật sự đỏ; thêm TC thứ tự DOM (`D-OPH-18`) |
 
 `stores/*.ts` **không đổi 1 dòng** ⇒ `stores/assetHistoryTruncation.test.ts` **phải giữ xanh không sửa** (khác vòng `AC-CR-102`). Nếu nó đỏ ⇒ có người sửa store ngoài biên ⇒ **ĐỎ vòng**.
 
@@ -445,7 +445,7 @@ Assert này là **hiện thân của `D-OPH-12`** — nay đã bị supersede. F
 ### 10.8 Boundaries — Always / Ask first / Never (`AC-CR-115`)
 
 **Always**
-- Chạm **đúng 2 file sản phẩm**: `frontend/src/components/asset/AssetOperationalHistory.vue` · `frontend/src/views/asset/AssetDetailView.vue`. Cộng **file test**: sửa `components/asset/assetOperationalHistory.test.ts` (+ `views/asset/assetDetailRelatedTab.test.ts` nếu đỏ/thêm TC thứ tự) · **thêm** `assetcore/tests/test_asset_operational_history_contract.py` ≥3 invariant mới (thêm vào file **đã có**).
+- Chạm **đúng 2 file sản phẩm**: `frontend/src/components/asset/AssetOperationalHistory.vue` · `frontend/src/views/asset/AssetDetailView.vue`. Cộng **file test**: sửa `components/asset/AssetOperationalHistory.test.ts` (+ `views/asset/AssetDetailView.relatedTab.test.ts` nếu đỏ/thêm TC thứ tự) · **thêm** `assetcore/tests/test_asset_operational_history_contract.py` ≥3 invariant mới (thêm vào file **đã có**).
 - Điều kiện render dải dẫn xuất từ **`N − M > 0`** (`D-OPH-17`); `M`, `N` lấy từ **payload + rows**, không từ cờ.
 - Chuỗi microcopy **chép nguyên** §5.3 (2 hàng MỚI); tiêu đề khối 1 **giữ nguyên** chuỗi đang có.
 - DoD chấm bằng `npx vitest run` + `npx vue-tsc --noEmit` + `bench --site miyano run-tests --module assetcore.tests.test_asset_operational_history_contract` (**timeout tool ≥600000ms**); baseline đọc **TỪ ĐĨA**, chấm **delta**.
@@ -723,13 +723,13 @@ assert_doctype_read_permission(_DT_PM_TASK_LOG)   # L0 ROLE — SSoT gate, KHÔN
 | **`AC-CR-120` [P2 — ba]** | Đồng bộ cap-count/version trong `docs/mobile/` (đang v97/97 cap) + docstring `test_mobile_capability_map.py:18` | Pre-existing drift qua **2** cú bump trước; đụng `docs/mobile/` ⇒ phải kiểm counter `test_mobile_docset` ⇒ vòng riêng (§11.9-D) |
 | **`AC-CR-121` [P2 — ba/be]** | OAS mobile khai `403` của 3 op này là **dispatcher-403 (status-line)**, nhưng in-handler cap-403 **đến trên HTTP-200** ⇒ codegen client route sai nhánh (bug họ đã có trong sổ: `memory/mobile_be_openapi_contract_gotchas.md`) | Vòng này **0 OAS delta** (giữ đúng biên). Cần quyết khuôn chung cho **toàn** OAS, không vá lẻ 3 op |
 | **`AC-CR-122` [P3 — fe]** | 5 màn Detail khác cũng dùng `RelatedRecords.vue` + `can()` trần ⇒ có thể mang đúng bệnh «unknown ⇒ khoá oan». Rà soát và áp `capState()` | Ngoài biên (khối này là 3 nhánh vận hành của **AC Asset**). Áp `capState` cho `RelatedRecords.vue` = đụng component dùng chung 5 màn |
-| **`AC-CR-123` [P3 — qa/ba]** | **Mã TC trùng giữa 2 file test** (pre-existing, phát hiện khi cấp số vòng này): `TC-FE-OPH-15`/`16` tồn tại ở **cả** `components/asset/assetOperationalHistory.test.ts:493,516` (`AC-CR-115`) **lẫn** `stores/assetIncidentHistory.test.ts:42,106` (`AC-CR-102`) ⇒ nói «TC-FE-OPH-15 đỏ» **không xác định** được file nào. Cần quy ước không gian tên (vd `TC-FE-OPH-S-xx` cho store) rồi đánh số lại 1 lần. | Đánh số lại = đụng nhiều file test của 2 CR khác ⇒ vòng riêng. Vòng này **tránh** trùng bằng cách cấp **`TC-FE-OPH-22..29`** (max đang dùng trên đĩa = **21**, đo bằng `grep -rho 'TC-FE-OPH-[0-9]*' docs/ frontend/src \| sort -u -t- -k4 -n \| tail -1`). |
+| **`AC-CR-123` [P3 — qa/ba]** | **Mã TC trùng giữa 2 file test** (pre-existing, phát hiện khi cấp số vòng này): `TC-FE-OPH-15`/`16` tồn tại ở **cả** `components/asset/AssetOperationalHistory.test.ts:493,516` (`AC-CR-115`) **lẫn** `stores/imm12.assetIncidentHistory.test.ts:42,106` (`AC-CR-102`) ⇒ nói «TC-FE-OPH-15 đỏ» **không xác định** được file nào. Cần quy ước không gian tên (vd `TC-FE-OPH-S-xx` cho store) rồi đánh số lại 1 lần. | Đánh số lại = đụng nhiều file test của 2 CR khác ⇒ vòng riêng. Vòng này **tránh** trùng bằng cách cấp **`TC-FE-OPH-22..29`** (max đang dùng trên đĩa = **21**, đo bằng `grep -rho 'TC-FE-OPH-[0-9]*' docs/ frontend/src \| sort -u -t- -k4 -n \| tail -1`). |
 | Carry (BA blocker #5) | Asset **∄**: 404 hay 200-rỗng cho 3 endpoint | Không thay đổi ở vòng này |
 
 ### 11.12 Boundaries — Always / Ask first / Never (`AC-CR-119`)
 
 **Always**
-- Chạm **đúng** các đường sau, không hơn: **BE prod (3)** `services/shared/rbac.py` (+1 cặp khoá-giá-trị) · `services/shared/connection_meta.py` (+1 bảng + docstring) · `services/imm08.py` (+1 hằng, +1 lời gọi gate). **BE test (4)** `tests/test_asset_op_history_acl.py` (**MỚI**) · `tests/test_mobile_capability_map.py` · `tests/test_imm00.py` · `tests/test_purchase.py`. **FE prod (5)** `stores/auth.ts` (+`capState`, bump `CAP_SET_VERSION`) · `stores/imm08.ts` · `stores/imm09.ts` · `stores/imm12.ts` (+1 ref mỗi cái) · `components/asset/AssetOperationalHistory.vue`. **FE test** `components/asset/assetOperationalHistory.test.ts` (+ `stores/auth.capabilities.test.ts` nếu thêm TC cho `capState`).
+- Chạm **đúng** các đường sau, không hơn: **BE prod (3)** `services/shared/rbac.py` (+1 cặp khoá-giá-trị) · `services/shared/connection_meta.py` (+1 bảng + docstring) · `services/imm08.py` (+1 hằng, +1 lời gọi gate). **BE test (4)** `tests/test_asset_op_history_acl.py` (**MỚI**) · `tests/test_mobile_capability_map.py` · `tests/test_imm00.py` · `tests/test_purchase.py`. **FE prod (5)** `stores/auth.ts` (+`capState`, bump `CAP_SET_VERSION`) · `stores/imm08.ts` · `stores/imm09.ts` · `stores/imm12.ts` (+1 ref mỗi cái) · `components/asset/AssetOperationalHistory.vue`. **FE test** `components/asset/AssetOperationalHistory.test.ts` (+ `stores/auth.capabilities.test.ts` nếu thêm TC cho `capState`).
 - Cap-set version dùng **giá trị ĐO** bằng `bench --site miyano execute assetcore.services.shared.rbac._compute_cap_set_version` (**không** gõ hash tay); **cùng một** giá trị ở BE test + `frontend/src/stores/auth.ts`.
 - Phân loại 403 **CHỈ** bằng `isForbiddenError` (mã), microcopy chép nguyên §11.5, thứ tự 5 trạng thái đúng §11.5.
 - DoD: `bench --site miyano run-tests` **module-isolated** (timeout tool **≥600000ms**) cho `test_asset_op_history_acl` · `test_mobile_capability_map` · `test_imm00` · `test_purchase` · `test_imm08` · `test_imm09` · `test_imm12` · `test_rbac` · `test_connections_tree` · `test_rowscope_scope_guard`; `npx vitest run` XANH **toàn bộ**; `npx vue-tsc --noEmit` **0 lỗi**. Baseline đọc **TỪ ĐĨA**, chấm **DELTA**.

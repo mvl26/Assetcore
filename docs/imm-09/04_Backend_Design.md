@@ -540,7 +540,7 @@ Endpoint `assign_technician` đã có sẵn ở BE (`api/imm09.py:58`, whitelist
 > **⚠️ Implementation note (BE):**
 > - `rbac.can(cap)` mặc định resolve theo `frappe.session.user`. Để kiểm **target user**, BE phải gọi `frappe.has_permission("Asset Repair", "write", user=technician)` (truyền `user=`), KHÔNG dùng `rbac.can` (không nhận `user=`). Đặt helper `_is_repair_capable(technician)` trong `services/imm09.py` để giữ 1 SoT. KHÔNG bỏ cache-by-session làm sai kết quả.
 > - `error_code=ErrorCode.VALIDATION_ERROR` cần import: `services/imm09.py` HIỆN CHƯA import `ErrorCode` → BE thêm `from assetcore.utils.response import ErrorCode` (đầu file, cạnh import `nthrow`). `MSG.IMM09_INVALID_TECHNICIAN` đã có constant + registry entry (`utils/messages.py`, http_status=422) — KHÔNG cần thêm.
-> - Sau khi thêm MSG mới, chạy `python scripts/gen_fe_messages.py` để regen `frontend/src/i18n/messages.ts` (quy trình `utils/messages.py` docstring §"Quy trình thêm mã mới"). Đây là FE-message generator, KHÔNG đụng mobile contract.
+> - Sau khi thêm MSG mới, chạy `python scripts/gen_fe_messages.py` để regen `frontend/src/locales/messages.ts` (quy trình `utils/messages.py` docstring §"Quy trình thêm mã mới"). Đây là FE-message generator, KHÔNG đụng mobile contract.
 
 **Vị trí gate trong `assign_technician` (services/imm09.py:1008-1023):** chèn SAU `RBAC.require` + status-gate (`status == OPEN`), TRƯỚC `doc.assigned_to = technician`. Thứ tự: not-found WO (`IMM09_NOT_FOUND`) → bad-state (`IMM09_BAD_STATE`) → **invalid-technician (`IMM09_INVALID_TECHNICIAN`)** → set + save. Khi gate fail: `nthrow(...)` raise TRƯỚC mọi mutation ⇒ `doc` KHÔNG save, `assigned_to` KHÔNG đổi, `status` GIỮ `Open` (invariant: fail-fast, no partial write).
 
@@ -604,7 +604,7 @@ nthrow(MSG.IMM09_INVALID_TECHNICIAN,
 > **⚠️ Implementation note (BE):**
 > - Helper gợi ý: `_assert_valid_create_fks(incident_report, source_pm_wo)` trong `services/imm09.py` (1 SoT cho gate), hoặc inline 2 `if`-block. Dùng `frappe.db.exists(doctype, name)` (rẻ, index `name`), KHÔNG `get_doc` (load thừa).
 > - `ErrorCode` đã được import sẵn `services/imm09.py:26` (R25 đã thêm) — KHÔNG cần thêm import.
-> - 2 MSG mới `IMM09_INCIDENT_REPORT_NOT_FOUND` + `IMM09_SOURCE_PM_WO_NOT_FOUND` đã có constant + registry entry (`utils/messages.py`, http_status=422) — sau khi BE/test xong, chạy `python scripts/gen_fe_messages.py` regen `frontend/src/i18n/messages.ts`.
+> - 2 MSG mới `IMM09_INCIDENT_REPORT_NOT_FOUND` + `IMM09_SOURCE_PM_WO_NOT_FOUND` đã có constant + registry entry (`utils/messages.py`, http_status=422) — sau khi BE/test xong, chạy `python scripts/gen_fe_messages.py` regen `frontend/src/locales/messages.ts`.
 
 **Vị trí gate trong `create_work_order` (services/imm09.py:962-997):** chèn SAU `asset_ref`-validate (`:790-791`, `IMM09_ASSET_NOT_FOUND`) + open-WO-guard (`:793-798`, `IMM09_ASSET_HAS_OPEN_WO`), TRƯỚC `frappe.get_doc({...})` (`:805`). Thứ tự: rbac → asset-not-found → open-WO → **incident_report∄ (`IMM09_INCIDENT_REPORT_NOT_FOUND`) → source_pm_wo∄ (`IMM09_SOURCE_PM_WO_NOT_FOUND`)** → get_doc/insert. Khi gate fail: `nthrow(...)` raise TRƯỚC `get_doc`/`insert`/`transition_asset_status`/`commit` ⇒ doc KHÔNG insert, KHÔNG partial-write, KHÔNG commit (invariant `frappe.db.exists("Asset Repair", {asset_ref})` không thêm WO mới). `asset_ref`-validate đứng trước gate này GIỮ nguyên (ngoài scope).
 

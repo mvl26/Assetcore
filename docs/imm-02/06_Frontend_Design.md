@@ -151,7 +151,7 @@ Thanh hành động (`.action-bar`) có 3 nút: **Chốt hồ sơ** / **Rút h�
 - Nút **ẩn** (`v-if`, không chỉ `:disabled`) khi cờ false — user thiếu quyền/sai state KHÔNG thấy nút.
 - Cờ thiếu (BE cũ chưa deploy / spec state lạ) → `Boolean(undefined)=false` → không nút; `allowed_transitions` default `[]` → **không lỗi console**.
 - Types `frontend/src/types/imm02.ts` (`TechSpecDoc`): thêm `allowed_transitions?: string[]`, `can_lock?: 0|1`, `can_withdraw?: 0|1`, `can_reissue?: 0|1`.
-- Test `techSpecCtaGating.test.ts`: assert ma trận cờ→nút (Pending Approval: Chốt+Rút hiện; Locked: chỉ Rút; Withdrawn: chỉ Phát hành lại; cờ=0 → nút ẩn; cờ thiếu → không lỗi + không nút).
+- Test `TechSpecDetailView.ctaGating.test.ts`: assert ma trận cờ→nút (Pending Approval: Chốt+Rút hiện; Locked: chỉ Rút; Withdrawn: chỉ Phát hành lại; cờ=0 → nút ẩn; cờ thiếu → không lỗi + không nút).
 
 ### II.2.2. CTA 6 transition trung gian — server-driven `allowed_actions` (CR-WF-02-SPEC, vòng 24)
 
@@ -196,7 +196,7 @@ Thanh hành động (`.action-bar`) có 3 nút: **Chốt hồ sơ** / **Rút h�
 - **KHÔNG double-render**: `Phê duyệt spec`/`Rút spec` ∉ `allowed_actions` (exception) → 3 nút terminal `cta-lock`/`cta-withdraw`/`cta-reissue` (§II.2.1) GIỮ NGUYÊN, không trùng.
 - **ZERO `workflow_state ===`** cho nút wf (gate DUY NHẤT theo membership `allowed_actions`; grep = 0). *(Badge/stepClass/`withdrawal_reason` hiển thị KHÔNG thuộc CTA — được giữ.)*
 - **Types** `frontend/src/types/imm02.ts` (`TechSpecDoc`): thêm `allowed_actions?: string[]`.
-- Test `techSpecCtaGating.test.ts`: Draft+`allowed_actions:['Gửi rà soát']` → có `cta-wf-gui-ra-soat`, click gọi `store.transitionWorkflow('...','Gửi rà soát')` + `fetchOne`; `allowed_actions:[]`/thiếu → 0 nút wf + không lỗi; Pending Approval có cả nút wf `cta-wf-yeu-cau-chinh-risk` LẪN `cta-lock`/`cta-withdraw` (không nuốt nhau).
+- Test `TechSpecDetailView.ctaGating.test.ts`: Draft+`allowed_actions:['Gửi rà soát']` → có `cta-wf-gui-ra-soat`, click gọi `store.transitionWorkflow('...','Gửi rà soát')` + `fetchOne`; `allowed_actions:[]`/thiếu → 0 nút wf + không lỗi; Pending Approval có cả nút wf `cta-wf-yeu-cau-chinh-risk` LẪN `cta-lock`/`cta-withdraw` (không nuốt nhau).
 
 ## II.3. RequirementEditor
 

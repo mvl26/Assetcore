@@ -601,7 +601,7 @@ const isServerDriven = computed(() => serverActions.value !== null)
 | **Fallback bắt buộc** | payload **thiếu** `available_actions` (BE chưa reload / client cũ) ⇒ rơi về **đúng logic hiện tại** (`can(...) && allowedTransitions.includes(...)`, `CMWorkOrderDetailView.vue:113-138`) — **KHÔNG nút nào biến mất**, KHÔNG màn trắng |
 | Trục cục bộ | chỉ được **SIẾT thêm** bằng điều kiện SERVER KHÔNG THẤY (form chưa lưu) — **KHÔNG nới** |
 
-**Test bắt buộc — `frontend/src/views/cm/cmDetailCtaGating.test.ts` (mirror `sessionDetailCtaGating.test.ts`):**
+**Test bắt buộc — `frontend/src/views/cm/tests/CMWorkOrderDetailView.availableActions.test.ts` (mirror `SessionDetailView.ctaGating.test.ts`):**
 
 | TC | Kỳ vọng |
 |---|---|
@@ -779,7 +779,7 @@ const validateSource = (): boolean => {
 
 `?? 0` là **fail-visible**: chưa nạp/lỗi ⇒ "Tổng 0" — hiển nhiên sai, người dùng và QA thấy ngay, thay vì một con số hợp lý-giả.
 
-**Guard vitest (BẮT BUỘC — chống fallback quay lại):** `frontend/src/views/cm/` — cùng nhóm với `cmSlaBreachedDivergence.test.ts`.
+**Guard vitest (BẮT BUỘC — chống fallback quay lại):** `frontend/src/views/cm/` — cùng nhóm với `CMWorkOrderListView.slaBreachedDivergence.test.ts`.
 
 | TC | Setup | Assert |
 |---|---|---|
@@ -819,7 +819,7 @@ const validateSource = (): boolean => {
 
 > ⚠️ **Vì sao cấm khẳng định số lần sửa khi `truncated === 1`:** con số đó đi vào quyết định lâm sàng/thanh lý (thiết bị hỏng lặp lại theo NĐ98). Nói "đã sửa 10 lần" trong khi thực tế 40 lần là **nói dối có hậu quả**, không phải lỗi hiển thị.
 
-**Phạm vi vòng này (CỐ Ý không mở rộng):** chưa `.vue` nào render 3 tab lịch sử ⇒ **KHÔNG dựng UI mới** (tránh scope creep). Guard vitest: `frontend/src/stores/assetHistoryTruncation.test.ts` (11 TC — đủ khoá / thiếu khoá / vừa khít trần / regress bool / naming-contract imm12).
+**Phạm vi vòng này (CỐ Ý không mở rộng):** chưa `.vue` nào render 3 tab lịch sử ⇒ **KHÔNG dựng UI mới** (tránh scope creep). Guard vitest: `frontend/src/stores/tests/assetHistoryTruncation.test.ts` (11 TC — đủ khoá / thiếu khoá / vừa khít trần / regress bool / naming-contract imm12).
 
 ---
 
@@ -1123,7 +1123,7 @@ Màn danh sách của module này áp **khuôn dùng chung** `frontend/src/compo
 | Hợp đồng props/slots/`data-testid` | [`docs/ui-ux/02_LIST_PAGE_SHELL.md §3`](../ui-ux/02_LIST_PAGE_SHELL.md) |
 | Sổ lô 3 + delta từng file + bảng copy tiếng Việt | [`§14.2` / `§14.4`](../ui-ux/02_LIST_PAGE_SHELL.md) |
 | Bất biến `INV-UX3-24…29` + test `TC-UX3-36` | [`§14.5` / `§14.6`](../ui-ux/02_LIST_PAGE_SHELL.md) |
-| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/views/listShellAdoption.test.ts` |
+| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/guards/listShellAdoption.guard.test.ts` |
 
 - **Route thuộc lô 3 của module này:** `/cm/work-orders`
 - **File view:** `views/cm/CMWorkOrderListView.vue`

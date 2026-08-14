@@ -42,7 +42,7 @@
 - Thêm prop mới cho `DetailLoadError.vue` / `DetailTabBar.vue` (2 file đang được 11 + 5 màn dùng chung).
 
 **Never (tuyệt đối không, vòng 4):**
-- **KHÔNG** đặt shell trong `frontend/src/components/ui/` — guard `uiPrimitiveHygiene.test.ts` đếm
+- **KHÔNG** đặt shell trong `frontend/src/components/ui/` — guard `uiPrimitiveHygiene.guard.test.ts` đếm
   `số export == số .vue == số test`; primitive thứ 9 làm ĐỎ ngay (A1).
 - **KHÔNG** sửa `frontend/src/stores/**`, `frontend/src/api/**`, bất kỳ `.py` nào (A11). BE **không phải sửa**:
   `get_capa` / `get_audit` / `get_management_review` đã emit `allowed_transitions` + cờ capability.
@@ -51,8 +51,8 @@
   `cta-advance`, `cta-reopen`, `cta-transition-<state>`, `transition-confirm`, `no-actions-hint`,
   `checklist-editor`, `checklist-readonly`, `readonly-verdict`.
 - **KHÔNG** đổi nhãn 3 tab của màn kiểm toán (`Tổng quan` / `Bảng kiểm` / `Báo cáo & Phát hiện`) — test cũ
-  tìm nút **bằng đúng chuỗi** `b.text() === 'Bảng kiểm'` (`internalAuditCtaGate.test.ts:84`,
-  `internalAuditChecklistHydration.test.ts:69`).
+  tìm nút **bằng đúng chuỗi** `b.text() === 'Bảng kiểm'` (`InternalAuditDetailView.ctaGate.test.ts:84`,
+  `InternalAuditDetailView.checklistHydration.test.ts:69`).
 - **KHÔNG** đụng `ProcurementPlanDetailView.vue` (5 chỗ hardcode `workflow_state === 'Draft'`) — cần cờ server
   `can_edit`, là **hard-dependency BE** ⇒ `AC-UX-049`, vòng 5.
 - **KHÔNG** re-spec màn DANH SÁCH (vòng 3 đã đóng — xem §1.3 bằng chứng A0).
@@ -94,8 +94,8 @@ grep -rl DetailTabBar   frontend/src/views --include=*.vue | wc -l              
 
 | Mốc | Lệnh | Kết quả đo 14:2x hôm nay |
 |---|---|---|
-| **A0** carry-over vòng 3 | `npx vitest run src/components/ui/ListPageShell.test.ts src/views/purchase/purchaseListStates.test.ts src/views/auth/userProfileListStates.test.ts src/views/procurement/vendorProfileListStates.test.ts src/views/needs/procurementPlanListStates.test.ts` | **5 passed / 40 passed** ⇒ vòng 3 **XONG** |
-| **A10** 5 test bám 3 view | `npx vitest run src/views/incident/capaCtaGate.test.ts src/views/incident/CAPADetailView.test.ts src/views/compliance/internalAuditCtaGate.test.ts src/views/compliance/internalAuditChecklistHydration.test.ts src/views/compliance/managementReviewCtaGate.test.ts` | **5 passed / 50 passed** |
+| **A0** carry-over vòng 3 | `npx vitest run src/components/ui/tests/ListPageShell.test.ts src/views/purchase/tests/PurchaseListView.states.test.ts src/views/auth/tests/UserProfileListView.states.test.ts src/views/procurement/tests/VendorProfileListView.states.test.ts src/views/needs/tests/ProcurementPlanListView.states.test.ts` | **5 passed / 40 passed** ⇒ vòng 3 **XONG** |
+| **A10** 5 test bám 3 view | `npx vitest run src/views/incident/tests/CAPADetailView.ctaGate.test.ts src/views/incident/tests/CAPADetailView.test.ts src/views/compliance/tests/InternalAuditDetailView.ctaGate.test.ts src/views/compliance/tests/InternalAuditDetailView.checklistHydration.test.ts src/views/compliance/tests/ManagementReviewDetailView.ctaGate.test.ts` | **5 passed / 50 passed** |
 | **A12** toàn bộ FE | `npx vitest run` | **305 file / 2951 test — 0 file ĐỎ** |
 | **A1** primitive tầng 0 | `ls frontend/src/components/ui/*.vue \| wc -l` | **8** |
 | **A8** chống thoái lui | `grep -cE 'v-if="[^"]*(status\|workflow_state) ===' <3 file>` | **0 / 0 / 0** |
@@ -168,7 +168,7 @@ Lý do cứng (không phải khẩu hiệu):
 
 1. Nó **compose** hai component tier-1 đang là SSoT: `DetailLoadError.vue` (11 màn dùng) và `DetailTabBar.vue`
    (5 màn dùng). Primitive tầng 0 bị cấm import ngược lên tier-1 (`02 §3.4`).
-2. Guard `uiPrimitiveHygiene.test.ts:22-31,98-114` khoá `EXPECTED_PRIMITIVES` = **8** và đối chiếu 3 vế
+2. Guard `uiPrimitiveHygiene.guard.test.ts:22-31,98-114` khoá `EXPECTED_PRIMITIVES` = **8** và đối chiếu 3 vế
    *(số export barrel == số `.vue` == số test)*. Thêm file thứ 9 vào `ui/` ⇒ **đỏ ngay** (đó chính là phép đo A1).
 3. Nó **có tiếng Việt trong hợp đồng** (nhãn thực thể / nhãn nút quay lại truyền từ view), khác luật primitive
    “copy khai trong `withDefaults`”.
@@ -386,7 +386,7 @@ animate-fade-in space-y-5">` cũ — nếu giữ sẽ lồng 2 lớp `page-conta
 
 | Mã | Bất biến | Đo bằng |
 |---|---|---|
-| **INV-UX4-1** | Đúng **một** chuỗi `v-if/v-else-if/v-else` 4 nhánh trong shell, thứ tự `error > loading > notfound > content` | đọc file + `DetailPageShell.test.ts` (ma trận 16 tổ hợp) |
+| **INV-UX4-1** | Đúng **một** chuỗi `v-if/v-else-if/v-else` 4 nhánh trong shell, thứ tự `error > loading > notfound > content` | đọc file + `detailPageShell.guard.test.ts` (ma trận 16 tổ hợp) |
 | **INV-UX4-2** | Mọi tổ hợp props ⇒ **đúng 1** trong `[detail-skeleton, detail-load-error, detail-content]` có mặt, 2 cái kia = 0 | `findAll(...).length` |
 | **INV-UX4-3** | `errorKind` thắng **cả** `loading` **lẫn** `doc` còn giá trị | TC-UX4-03 |
 | **INV-UX4-4** | `doc=null` + hết `loading` + không lỗi ⇒ nhánh `notfound` (không khung rỗng, không trang trắng) | TC-UX4-04 |
@@ -404,7 +404,7 @@ animate-fade-in space-y-5">` cũ — nếu giữ sẽ lồng 2 lớp `page-conta
 
 ## §6. Test-case & lệnh chấm
 
-### 6.1 `frontend/src/components/common/DetailPageShell.test.ts` (mount THẬT, ≥12 case)
+### 6.1 `frontend/src/guards/detailPageShell.guard.test.ts` (mount THẬT, ≥12 case)
 
 | TC | Nội dung | Neo acceptance |
 |---|---|---|
@@ -425,8 +425,8 @@ animate-fade-in space-y-5">` cũ — nếu giữ sẽ lồng 2 lớp `page-conta
 
 ### 6.2 Ba test trạng thái bám view thật (mỗi file ≥5 case)
 
-`views/incident/capaDetailStates.test.ts` · `views/compliance/internalAuditDetailStates.test.ts` ·
-`views/compliance/managementReviewDetailStates.test.ts` — mock lớp API/store **y như** 5 file test cũ
+`views/incident/capaDetailStates.guard.test.ts` · `views/compliance/InternalAuditDetailView.states.test.ts` ·
+`views/compliance/ManagementReviewDetailView.states.test.ts` — mock lớp API/store **y như** 5 file test cũ
 (`vi.mock('@/api/imm16')` / `vi.mock('@/stores/imm16')` / `vi.mock('vue-router')` / `useApi` call-through):
 
 | TC | Nội dung | Neo |
@@ -455,7 +455,7 @@ grep -c 'DetailTabBar'    src/components/common/DetailPageShell.vue   # >= 1
 grep -c 'Thử lại'         src/components/common/DetailPageShell.vue   # == 0
 
 # A3 / A4 / A5 / A6 / A9 — ma trận + probe + kind-aware
-npx vitest run src/components/common/DetailPageShell.test.ts
+npx vitest run src/guards/detailPageShell.guard.test.ts
 
 # A7 — áp vào 3 màn thật
 for f in src/views/incident/CAPADetailView.vue \
@@ -474,10 +474,10 @@ for f in src/views/incident/CAPADetailView.vue \
 done
 
 # A10 — không thoái lui 5 test cũ
-npx vitest run src/views/incident/capaCtaGate.test.ts src/views/incident/CAPADetailView.test.ts \
-  src/views/compliance/internalAuditCtaGate.test.ts \
-  src/views/compliance/internalAuditChecklistHydration.test.ts \
-  src/views/compliance/managementReviewCtaGate.test.ts       # >= 50 tests passed
+npx vitest run src/views/incident/tests/CAPADetailView.ctaGate.test.ts src/views/incident/tests/CAPADetailView.test.ts \
+  src/views/compliance/tests/InternalAuditDetailView.ctaGate.test.ts \
+  src/views/compliance/tests/InternalAuditDetailView.checklistHydration.test.ts \
+  src/views/compliance/tests/ManagementReviewDetailView.ctaGate.test.ts       # >= 50 tests passed
 
 # A11 — hàng rào phạm vi (3 vế QA TỰ đo)
 cd .. && git status --short -uall | grep -E '\.py$' | wc -l            # == 0
@@ -491,7 +491,7 @@ cd frontend && npx vitest run                                          # 0 file 
 npm run typecheck                                                      # XANH (INV-UX4-12)
 
 # A13 — sổ backlog + guard doc
-npx vitest run src/router/uiAuditDocParity.test.ts                     # 15/15 XANH
+npx vitest run src/guards/uiAuditDocParity.guard.test.ts                     # 15/15 XANH
 ```
 
 ---
@@ -509,7 +509,7 @@ Hiện tại `v-else-if="!audit"` + `<template v-else>` khiến `vue-tsc` biết
 **Cách sai**: rải `!` (`audit!.name`) — che lỗi thật và vi phạm “không dead-control”.
 
 ### 7.3 Ba test cũ tìm tab **bằng đúng chuỗi nhãn**
-`internalAuditCtaGate.test.ts:84` và `internalAuditChecklistHydration.test.ts:69` dùng
+`InternalAuditDetailView.ctaGate.test.ts:84` và `InternalAuditDetailView.checklistHydration.test.ts:69` dùng
 `w.findAll('button').find(b => b.text() === 'Bảng kiểm')`. `DetailTabBar` render `{{ tab.label }}` trong
 `<button>` ⇒ vẫn khớp **nếu** nhãn giữ nguyên **chính xác** `Bảng kiểm` (không thêm số đếm, không thêm icon,
 không đổi thành «Bảng kiểm (3)»).
@@ -526,8 +526,8 @@ Shell sẽ mount **thật** — đây là điều ta muốn (test cũ trở thà
 component ⇒ vùng `detail-skeleton` vẫn tồn tại (ta đếm `div` bọc, không đếm ruột khung xương).
 
 ### 7.6 `PageHeader` bị **stub khác nhau** giữa các test
-`internalAuditCtaGate.test.ts:45` stub `PageHeader` có render `<slot name="actions" />`, còn
-`managementReviewCtaGate.test.ts` **không** stub (dùng `PageHeader` thật). Vì CTA nay chuyển sang `#actions`
+`InternalAuditDetailView.ctaGate.test.ts:45` stub `PageHeader` có render `<slot name="actions" />`, còn
+`ManagementReviewDetailView.ctaGate.test.ts` **không** stub (dùng `PageHeader` thật). Vì CTA nay chuyển sang `#actions`
 của shell, cả hai đường đều tìm thấy nút bằng `data-testid` ở gốc wrapper ⇒ an toàn cả 2 kiểu stub. **Đừng**
 để CTA nằm đồng thời ở 2 nơi (PageHeader `#actions` **và** shell `#actions`) — sẽ có 2 nút cùng `data-testid`,
 `w.find()` lấy nút đầu và `findAll().length` = 2 làm test đếm đỏ.
@@ -547,11 +547,11 @@ Shell đã mang `page-container animate-fade-in space-y-5`. Nếu view giữ l�
 bọc ngoài thì padding/max-width nhân đôi. Xoá thẻ gốc cũ (INV-UX4-11).
 
 ### 7.10 Guard `TC-RWD-01` cấm breakpoint tuỳ biến trong `src/views`
-`src/__tests__/responsiveDoD.test.ts:32` cấm `min-[…]:` / `max-[…]:` **trong `src/views`**. Dải KPI dùng
+`src/guards/responsiveDoD.guard.test.ts:32` cấm `min-[…]:` / `max-[…]:` **trong `src/views`**. Dải KPI dùng
 `grid-cols-1 sm:grid-cols-2 lg:grid-cols-4` (breakpoint chuẩn) — an toàn.
 
 ### 7.11 Sổ `AC-UX-*` bị guard doc khoá
-`src/router/uiAuditDocParity.test.ts:180-224` yêu cầu §6 của `00_AUDIT_HIEN_TRANG.md`: mã **liên tục từ 001**,
+`src/guards/uiAuditDocParity.guard.test.ts:180-224` yêu cầu §6 của `00_AUDIT_HIEN_TRANG.md`: mã **liên tục từ 001**,
 mỗi dòng đúng **6 ô**, cột *Đau* ∈ {P0,P1,P2}, cột *Vòng* ∈ {2,3,4,5}, và dòng `**Tổng: N mục` **khớp** số
 dòng. Thêm mục mới mà quên sửa `Tổng` ⇒ đỏ.
 
@@ -567,13 +567,13 @@ dòng. Thêm mục mới mà quên sửa `Tổng` ⇒ đỏ.
 | # | File | Loại | Ghi chú |
 |---|---|---|---|
 | 1 | `frontend/src/components/common/DetailPageShell.vue` | **mới** | §3.4 |
-| 2 | `frontend/src/components/common/DetailPageShell.test.ts` | **mới** | §6.1 |
+| 2 | `frontend/src/guards/detailPageShell.guard.test.ts` | **mới** | §6.1 |
 | 3 | `frontend/src/views/incident/CAPADetailView.vue` | sửa | §4.1 |
 | 4 | `frontend/src/views/compliance/InternalAuditDetailView.vue` | sửa | §4.2 |
 | 5 | `frontend/src/views/compliance/ManagementReviewDetailView.vue` | sửa | §4.3 |
-| 6 | `frontend/src/views/incident/capaDetailStates.test.ts` | **mới** | §6.2 |
-| 7 | `frontend/src/views/compliance/internalAuditDetailStates.test.ts` | **mới** | §6.2 |
-| 8 | `frontend/src/views/compliance/managementReviewDetailStates.test.ts` | **mới** | §6.2 |
+| 6 | `frontend/src/guards/capaDetailStates.guard.test.ts` | **mới** | §6.2 |
+| 7 | `frontend/src/views/compliance/tests/InternalAuditDetailView.states.test.ts` | **mới** | §6.2 |
+| 8 | `frontend/src/views/compliance/tests/ManagementReviewDetailView.states.test.ts` | **mới** | §6.2 |
 | 9 | `docs/ui-ux/03_DETAIL_PAGE_SHELL.md` | **mới** | tài liệu này |
 | 10 | `docs/ui-ux/00_AUDIT_HIEN_TRANG.md` | sửa (light-touch) | §Tài liệu liên quan · §6 sổ · §9 ADR · §10 ghim |
 
@@ -589,7 +589,7 @@ dòng. Thêm mục mới mà quên sửa `Tổng` ⇒ đỏ.
 | **A0** | vòng 3 đã đóng | §1.3 (đo lại: 5 file / 40 test XANH) | §6.3 (đã chạy 14:31) |
 | **A1** | shell ở `common/`, `ui/` vẫn 8 | §3.0 + **ADR-UX-06** | `ls … \| wc -l` · `vitest run src/components/ui` |
 | **A2** | no-fork `DetailLoadError` + `DetailTabBar`, 0 chuỗi nút nạp lại | §3.3, §3.4, §7.1, INV-UX4-6 | 3 lệnh `grep -c` |
-| **A3** | 4 trạng thái loại trừ bằng cấu trúc, ma trận ≥8 | §2.1, §3.4, TC-UX4-01/02 | `vitest run DetailPageShell.test.ts` |
+| **A3** | 4 trạng thái loại trừ bằng cấu trúc, ma trận ≥8 | §2.1, §3.4, TC-UX4-01/02 | `vitest run detailPageShell.guard.test.ts` |
 | **A4** | ưu tiên lỗi; `doc=null` ⇒ notfound | §2.1 (giải thích), TC-UX4-03/04 | như trên |
 | **A5** | panel thao tác/tab/KPI chỉ ở content | §2.2, §3.4, TC-UX4-05/06 | như trên |
 | **A6** | kind-aware retry/back | §3.2, TC-UX4-07/08/09 | như trên |
@@ -599,7 +599,7 @@ dòng. Thêm mục mới mà quên sửa `Tổng` ⇒ đỏ.
 | **A10** | 5 test cũ ≥50 test XANH, testid giữ tên | §0 Never, §7.3, §7.5, §7.6, INV-UX4-10 | `vitest run` 5 file |
 | **A11** | hàng rào phạm vi | §8 | 4 lệnh `git status` |
 | **A12** | delta suite +4 file, 0 đỏ mới | §1.3 (baseline 305/2951/0 đỏ) | `find … \| wc -l` · `vitest run` · `npm run typecheck` |
-| **A13** | sổ mở từ `AC-UX-048`, ghi 2 khoản nợ bắt buộc | §6 tài liệu mẹ (`AC-UX-048`, `AC-UX-049`) + §7.11 | `vitest run uiAuditDocParity.test.ts` |
+| **A13** | sổ mở từ `AC-UX-048`, ghi 2 khoản nợ bắt buộc | §6 tài liệu mẹ (`AC-UX-048`, `AC-UX-049`) + §7.11 | `vitest run uiAuditDocParity.guard.test.ts` |
 
 ---
 
@@ -663,7 +663,7 @@ lớp UI/UX — không nhân bản nội dung ADR ở đây).
 | Sổ `AC-UX` lớn nhất / tổng | `grep -rhoE 'AC-UX-[0-9]{3}' docs frontend/src` | **058 / 58 mục** | 058 | khớp — **CẤM cấp số mới** |
 | `ADR-UX-*` lớn nhất | grep | **ADR-UX-11** | — | lô 1 dùng **ADR-UX-12** |
 | File test FE **trước** bước BA | `find frontend/src -name '*.test.ts' -o -name '*.spec.ts'` | **327** | — | mốc DELTA của cả vòng: cuối vòng phải **336** (+9) |
-| File test FE **sau** bước BA | như trên | **328** (+1 = guard `uiDetailShellLot1Parity.test.ts`, **17 TC**) | — | ⇒ phần FE còn lại là **+8** file test trạng thái |
+| File test FE **sau** bước BA | như trên | **328** (+1 = guard `uiDetailShellLot1Parity.guard.test.ts`, **17 TC**) | — | ⇒ phần FE còn lại là **+8** file test trạng thái |
 | Suite FE **sau** bước BA | `npx vitest run` (đo 13:54) | **328 file / 3222 test — 0 ĐỎ** | — | mốc chấm delta của FE; cuối vòng phải **336 file**, vẫn 0 đỏ |
 | `npm run typecheck` sau bước BA | `vue-tsc --noEmit` | **XANH** | — | điều kiện đóng vòng |
 
@@ -710,7 +710,7 @@ tới được (`/cm/firmware`, `/suppliers`) đang **0 bản ghi / 403 ở lớ
      (`if (props.notFound || !props.doc) return 'notfound'`). Đã bổ sung vào §3.1; lô 1 **được phép dùng** khi
      view muốn phân loại 404 tường minh.
 
-### 12.2 Sổ lô 1 — 8 route (SSoT; guard `uiDetailShellLot1Parity.test.ts` đọc CHÍNH bảng này)
+### 12.2 Sổ lô 1 — 8 route (SSoT; guard `uiDetailShellLot1Parity.guard.test.ts` đọc CHÍNH bảng này)
 
 | # | Route | View file | Hàm nạp | Nguồn lỗi sau sửa | Module cần `vi.mock` | Trạng thái | TC |
 |---|---|---|---|---|---|---|---|
@@ -769,7 +769,7 @@ mà quên đổi ô ⇒ **ĐỎ ngay** (INV-UX4L1-4).
 - **KHÔNG** đụng `DetailPageShell.vue` / `DetailLoadError.vue` / `DetailTabBar.vue` — khuôn đã chốt vòng 4.
 - **KHÔNG** kéo `DetailTabBar` / `AC-UX-052` vào lô này.
 - **KHÔNG** di trú overlay tự vẽ (`AC-UX-055/056`): 3 file lô 1 nằm trong allowlist đóng băng 30 của
-  `modalOverlayHygiene.test.ts:61-97` (`AssetTransferDetailView` `:66` · `SparePartDetailView` `:77` ·
+  `modalOverlayHygiene.guard.test.ts:61-97` (`AssetTransferDetailView` `:66` · `SparePartDetailView` `:77` ·
   `WarehouseDetailView` `:80`). Thêm overlay mới ⇒ ĐỎ; bỏ overlay cũ ⇒ ngoài phạm vi lô.
 - **KHÔNG** đưa lỗi HÀNH ĐỘNG (lưu / duyệt / xoá / chuyển trạng thái) vào `:error-kind` — 1 lần bấm hỏng sẽ
   **thay cả màn bằng banner lỗi**. Lỗi hành động giữ nguyên kênh cũ (`err` / `toast` / `notify`).
@@ -861,9 +861,9 @@ Ngược lại → `#header`. Áp dụng: `#title` dùng ở **4 màn** (4, 5, 7
 | Xoá | `page-container` `:113`; `v-if="loading && !part"` `:116`; `v-else-if="part"` `:118` |
 | `#header` | `<PageHeader>` `:119-129` **bỏ `#actions`** + lưới KPI `:132-150`, bọc `<template v-if="part">` |
 | `#actions` | 2 nút `:126-127` (Chỉnh sửa · Ngừng sử dụng) |
-| mặc định | `toast` `:114` + `:153-304` (gồm nút tạo đơn mua `:250-251` — **giữ nguyên** gate `can('purchase.create')`, đang bị `router/createButtonAffordance.test.ts:37` khoá) + hộp thoại sửa `:309-382` |
+| mặc định | `toast` `:114` + `:153-304` (gồm nút tạo đơn mua `:250-251` — **giữ nguyên** gate `can('purchase.create')`, đang bị `router/createButtonAffordance.guard.test.ts:37` khoá) + hộp thoại sửa `:309-382` |
 | Props shell | `entity-label="phụ tùng"` · `:record-id="props.name"` · `back-label="Về danh mục phụ tùng"` · `@retry="load()"` · `@back="router.push('/spare-parts')"` |
-| Không đụng | `CurrencyInput v-model="form.unit_cost"` — `components/common/currencyInputRollout.test.ts:21` khoá |
+| Không đụng | `CurrencyInput v-model="form.unit_cost"` — `components/common/currencyInputRollout.guard.test.ts:21` khoá |
 
 #### 12.4.4 `views/asset/AssetTransferDetailView.vue` (342 dòng) — **panel thao tác đang ở NGOÀI mọi trạng thái**
 
@@ -903,7 +903,7 @@ Ngược lại → `#header`. Áp dụng: `#title` dùng ở **4 màn** (4, 5, 7
 | `#actions` | 6 CTA `:162-169` (`cta-start-review` · `cta-confirm` · `cta-mark-false` · `cta-waive` · `cta-create-capa` · `cta-link-capa`) — nguyên `data-testid`, nguyên điều kiện gate |
 | mặc định | `<RecordHistory>` `:246` + **cả 6** `<BaseModal>` `:250-364` |
 | Props shell | `entity-label="phát hiện tuân thủ"` · `:record-id="props.id"` · `back-label="Về danh sách phát hiện"` · `@retry="load()"` · `@back="router.push('/compliance/findings')"` |
-| Không đụng | 6 computed gate `:52-58` (server-driven `allowed_transitions` + `can_create_capa`) — `findingDetailCtaGating.test.ts` khoá 9 case |
+| Không đụng | 6 computed gate `:52-58` (server-driven `allowed_transitions` + `can_create_capa`) — `FindingDetailView.ctaGating.test.ts` khoá 9 case |
 
 #### 12.4.7 `views/purchase/SupplierDetailView.vue` (235 dòng)
 
@@ -932,14 +932,14 @@ Ngược lại → `#header`. Áp dụng: `#title` dùng ở **4 màn** (4, 5, 7
 | `#actions` | `.action-bar` `:170-176` — **bỏ thẻ `<div class="action-bar">`**, giữ vòng `v-for` + mọi `data-testid="workflow-action"` / `:data-action`. **KHÔNG** dời 2 form `cta-award` `:83` / `cta-record-contract` `:142` (là biểu mẫu, không phải nút — ở slot mặc định) |
 | mặc định | banner `store.error` `:20-23` (giữ — nay chỉ còn lỗi transition/award) + `.grid-2col` `:25-80` + `cta-award` `:83-139` + `cta-record-contract` `:142-167` |
 | Props shell | `entity-label="quyết định mua sắm"` · `:record-id="props.id"` · `back-label="Về danh sách quyết định mua sắm"` · `@retry="load()"` |
-| ⚠️ Router | view hiện **không** `import { useRouter }`; `decisionAvlEligibilityBadge.test.ts:87` chỉ cấp `mocks: { $router }`. ⇒ `@back` viết **trong template**: `@back="$router.back()"`. **KHÔNG** thêm `useRouter()` — thêm sẽ làm test đó đỏ (`useRouter()` trả `undefined` khi router không được cài) |
-| Không đụng | `CurrencyInput v-model="awardForm.awarded_price"` (`currencyInputRollout.test.ts:28`); computed `workflowActions` `:268` (GATE-8 — `DecisionDetailView.ctaGating.test.ts` khoá 7 case, trong đó 1 case đọc `?raw` source) |
+| ⚠️ Router | view hiện **không** `import { useRouter }`; `DecisionDetailView.avlEligibilityBadge.test.ts:87` chỉ cấp `mocks: { $router }`. ⇒ `@back` viết **trong template**: `@back="$router.back()"`. **KHÔNG** thêm `useRouter()` — thêm sẽ làm test đó đỏ (`useRouter()` trả `undefined` khi router không được cài) |
+| Không đụng | `CurrencyInput v-model="awardForm.awarded_price"` (`currencyInputRollout.guard.test.ts:28`); computed `workflowActions` `:268` (GATE-8 — `DecisionDetailView.ctaGating.test.ts` khoá 7 case, trong đó 1 case đọc `?raw` source) |
 
 ### 12.5 Bất biến lô 1 (namespace MỚI `INV-UX4L1-*` — KHÔNG tái dùng `INV-UX4-*`)
 
 | Mã | Bất biến | Đo bằng |
 |---|---|---|
-| **INV-UX4L1-1** | Sổ §12.2 có **đúng 8** dòng, đánh số 1…8, tập route **trùng khít** 8 route đã chốt | `uiDetailShellLot1Parity.test.ts` |
+| **INV-UX4L1-1** | Sổ §12.2 có **đúng 8** dòng, đánh số 1…8, tập route **trùng khít** 8 route đã chốt | `uiDetailShellLot1Parity.guard.test.ts` |
 | **INV-UX4L1-2** | Mã TC là `TC-UX4-24 … TC-UX4-31` (nối tiếp max 23 trên đĩa, không tái dùng ≤ 23, không trùng); §12.6 khai đủ 8 file đặt tên `*DetailStates.test.ts`, khớp mã TC của sổ | như trên |
 | **INV-UX4L1-3** | Mọi route trong sổ là route **THẬT** (`router/index.ts`); view file **tồn tại trên đĩa** và **trùng khít** ô view file tương ứng ở `00 §3.1` | như trên |
 | **INV-UX4L1-4** | **Parity 2 CHIỀU**: view có `import DetailPageShell` ⟺ ô «Trạng thái» của route đó = `ĐÃ ĐÓNG`. Kèm 1 chiều: `ĐÃ ĐÓNG` ⇒ ô *Lỗi+Thử lại* của route đó ở `00 §3.1` = ✅, và ⇒ file test trạng thái **tồn tại trên đĩa** | như trên |
@@ -960,14 +960,14 @@ Ngược lại → `#header`. Áp dụng: `#title` dùng ở **4 màn** (4, 5, 7
 
 | TC | file |
 |---|---|
-| `TC-UX4-24` | `frontend/src/views/inventory/stockMovementDetailStates.test.ts` |
-| `TC-UX4-25` | `frontend/src/views/inventory/warehouseDetailStates.test.ts` |
-| `TC-UX4-26` | `frontend/src/views/inventory/sparePartDetailStates.test.ts` |
-| `TC-UX4-27` | `frontend/src/views/asset/assetTransferDetailStates.test.ts` |
-| `TC-UX4-28` | `frontend/src/views/document/firmwareCrDetailStates.test.ts` |
-| `TC-UX4-29` | `frontend/src/views/compliance/findingDetailStates.test.ts` |
-| `TC-UX4-30` | `frontend/src/views/purchase/supplierDetailStates.test.ts` |
-| `TC-UX4-31` | `frontend/src/views/procurement/decisionDetailStates.test.ts` |
+| `TC-UX4-24` | `frontend/src/views/inventory/tests/StockMovementDetailView.states.test.ts` |
+| `TC-UX4-25` | `frontend/src/views/inventory/tests/WarehouseDetailView.states.test.ts` |
+| `TC-UX4-26` | `frontend/src/views/inventory/tests/SparePartDetailView.states.test.ts` |
+| `TC-UX4-27` | `frontend/src/views/asset/tests/AssetTransferDetailView.states.test.ts` |
+| `TC-UX4-28` | `frontend/src/views/document/tests/FirmwareCrDetailView.states.test.ts` |
+| `TC-UX4-29` | `frontend/src/views/compliance/tests/FindingDetailView.states.test.ts` |
+| `TC-UX4-30` | `frontend/src/views/purchase/tests/SupplierDetailView.states.test.ts` |
+| `TC-UX4-31` | `frontend/src/views/procurement/tests/DecisionDetailView.states.test.ts` |
 
 **Sub-case bắt buộc** (5 × 8 = **≥ 40 case**):
 
@@ -983,10 +983,10 @@ Ngược lại → `#header`. Áp dụng: `#title` dùng ở **4 màn** (4, 5, 7
 - **KHÔNG** stub `DetailPageShell`, `DetailLoadError`, `SkeletonLoader` — mount THẬT. Stub `DetailPageShell` làm
   mọi assert về `detail-actions` / `detail-content` **xanh giả**.
 - Stub được phép: `PageHeader` (**phải render `<slot />` + `<slot name="actions" />`** nếu màn đó còn CTA trong
-  `PageHeader`; khuôn ở `findingDetailCtaGating.test.ts:46-52`), `BaseModal`, `StatusBadge`, `RecordHistory`,
+  `PageHeader`; khuôn ở `FindingDetailView.ctaGating.test.ts:46-52`), `BaseModal`, `StatusBadge`, `RecordHistory`,
   `SmartSelect`, `ApproverSelect`, `CurrencyInput`, `DateInput`, `FileUploadField`, `UomConverter`, `RouterLink`.
 - `vi.mock('vue-router')` trả `useRoute` + `useRouter` (khuôn `@/test/vueRouterMock`, đang dùng ở
-  `firmwareCrCtaGate.test.ts:15`). **Riêng màn 8** dùng `mocks: { $router }` — **không** mock `useRouter`.
+  `FirmwareCrDetailView.ctaGate.test.ts:15`). **Riêng màn 8** dùng `mocks: { $router }` — **không** mock `useRouter`.
 - Màn 6 và 8 cần `setActivePinia(createPinia())`.
 - Assert «0 panel thao tác» phải dùng **2 lớp**: `[data-testid="detail-actions"]` **và** ≥ 1 testid CTA cụ thể
   của màn (testid panel có thể đổi; testid CTA bị test cũ khoá nên ổn định hơn).
@@ -1060,32 +1060,32 @@ done            # shell>=1 · red500==0 · pc==0
 grep -n 'Lỗi tải kho' src/views/inventory/WarehouseDetailView.vue              # 0 kết quả
 
 # (e)(f)(g)(h)(i) test trạng thái + guard parity
-npx vitest run src/views/inventory/stockMovementDetailStates.test.ts \
-  src/views/inventory/warehouseDetailStates.test.ts \
-  src/views/inventory/sparePartDetailStates.test.ts \
-  src/views/asset/assetTransferDetailStates.test.ts \
-  src/views/document/firmwareCrDetailStates.test.ts \
-  src/views/compliance/findingDetailStates.test.ts \
-  src/views/purchase/supplierDetailStates.test.ts \
-  src/views/procurement/decisionDetailStates.test.ts \
-  src/router/uiDetailShellLot1Parity.test.ts        # 9 file XANH, >= 40 case
+npx vitest run src/views/inventory/tests/StockMovementDetailView.states.test.ts \
+  src/views/inventory/tests/WarehouseDetailView.states.test.ts \
+  src/views/inventory/tests/SparePartDetailView.states.test.ts \
+  src/views/asset/tests/AssetTransferDetailView.states.test.ts \
+  src/views/document/tests/FirmwareCrDetailView.states.test.ts \
+  src/views/compliance/tests/FindingDetailView.states.test.ts \
+  src/views/purchase/tests/SupplierDetailView.states.test.ts \
+  src/views/procurement/tests/DecisionDetailView.states.test.ts \
+  src/guards/uiDetailShellLot1Parity.guard.test.ts        # 9 file XANH, >= 40 case
 
 # (j) chống thoái lui — 10 file test cũ bám 6/8 màn + 7 guard/khuôn vòng trước
-npx vitest run src/views/asset/assetTransferDetailCtaGate.test.ts \
-  src/views/asset/assetTransferDetailEditGate.test.ts \
-  src/views/asset/assetTransferDetailNames.test.ts \
-  src/views/document/firmwareCrCtaGate.test.ts \
-  src/views/compliance/findingDetailCtaGating.test.ts \
-  src/views/procurement/DecisionDetailView.ctaGating.test.ts \
-  src/views/procurement/decisionAvlEligibilityBadge.test.ts \
-  src/components/common/modalOverlayHygiene.test.ts \
-  src/components/common/currencyInputRollout.test.ts \
-  src/router/createButtonAffordance.test.ts
-npx vitest run src/router/uiAuditDocParity.test.ts src/router/uiFixPlanParity.test.ts \
-  src/router/uiListShellLot1Parity.test.ts src/components/common/DetailPageShell.test.ts \
-  src/views/incident/capaDetailStates.test.ts \
-  src/views/compliance/internalAuditDetailStates.test.ts \
-  src/views/compliance/managementReviewDetailStates.test.ts
+npx vitest run src/views/asset/tests/AssetTransferDetailView.ctaGate.test.ts \
+  src/views/asset/tests/AssetTransferDetailView.editGate.test.ts \
+  src/views/asset/tests/AssetTransferDetailView.names.test.ts \
+  src/views/document/tests/FirmwareCrDetailView.ctaGate.test.ts \
+  src/views/compliance/tests/FindingDetailView.ctaGating.test.ts \
+  src/views/procurement/tests/DecisionDetailView.ctaGating.test.ts \
+  src/views/procurement/tests/DecisionDetailView.avlEligibilityBadge.test.ts \
+  src/guards/modalOverlayHygiene.guard.test.ts \
+  src/guards/currencyInputRollout.guard.test.ts \
+  src/guards/createButtonAffordance.guard.test.ts
+npx vitest run src/guards/uiAuditDocParity.guard.test.ts src/guards/uiFixPlanParity.guard.test.ts \
+  src/guards/uiListShellLot1Parity.guard.test.ts src/guards/detailPageShell.guard.test.ts \
+  src/guards/capaDetailStates.guard.test.ts \
+  src/views/compliance/tests/InternalAuditDetailView.states.test.ts \
+  src/views/compliance/tests/ManagementReviewDetailView.states.test.ts
 
 find src -name '*.test.ts' -o -name '*.spec.ts' | wc -l   # 327 -> 336 (+9)
 npx vitest run                                            # 0 file ĐỎ
@@ -1154,7 +1154,7 @@ Xem **ADR-UX-12** ở [`00_AUDIT_HIEN_TRANG.md` §9](./00_AUDIT_HIEN_TRANG.md) �
 | Ngày đo | **2026-08-04** — mọi số dưới đây đo TỪ ĐĨA hôm nay; số trong prompt/STATE **không** được kế thừa |
 | Nhánh | `feature/hieuc/core-refinement` |
 | Tài liệu cha | §0–§11 (hợp đồng `DetailPageShell`) + §12 (lô 1, 8 màn — khuôn sổ-lô và guard parity mà lô này kế thừa) |
-| Tài liệu anh | [`02 §14`](./02_LIST_PAGE_SHELL.md) — lô 3 lớp DANH SÁCH đã ĐÓNG HẲN 40/40 (khuôn guard CHỈ-GIẢM `listShellAdoption.test.ts` mà `AC-UX-071` sao chép) · [`07`](./07_DETAIL_TAB_BAR_SSOT.md) — SSoT thanh tab |
+| Tài liệu anh | [`02 §14`](./02_LIST_PAGE_SHELL.md) — lô 3 lớp DANH SÁCH đã ĐÓNG HẲN 40/40 (khuôn guard CHỈ-GIẢM `listShellAdoption.guard.test.ts` mà `AC-UX-071` sao chép) · [`07`](./07_DETAIL_TAB_BAR_SSOT.md) — SSoT thanh tab |
 | Trạng thái | **Chốt để code** |
 
 > **Vì sao lô này phải là lô CUỐI.** Lớp danh sách đã học xong bài học của nó: đóng «12 route cuối cùng» theo
@@ -1191,7 +1191,7 @@ của vòng này là **21/32**, delta **+18** — không phải 24. Đích **24*
 legacy, việc mà chính A2 cấm. **Chốt: 3 → 21.** Lệnh nghiệm thu ghi ở §13.10 (c).
 
 **⚠️ ĐÍNH CHÍNH 2 — cột *Lỗi+Thử lại* của `00 §3.1` KHÔNG được lật ở bước BA.**
-`uiListShellLot1Parity.test.ts` (INV-UX3L-6, `ADR-UX-22`) ép **parity từng ô trên cả 148 dòng** giữa `00 §3.1`
+`uiListShellLot1Parity.guard.test.ts` (INV-UX3L-6, `ADR-UX-22`) ép **parity từng ô trên cả 148 dòng** giữa `00 §3.1`
 và **bộ dò đo LIVE**. Trong 21 route của lô, hôm nay có **7 ô ❌**: `/rca/:id` (#68) · `/service-contracts/:id`
 (#89) · `/purchases/:name` (#111) · `/procurement-plans/:id` (#126) · `/tech-specs/:id` (#129) ·
 `/vendor-evaluations/:id` (#131) · `/vendor-profiles/:id` (#136). 14 ô còn lại đang ✅ — trong đó **5 ô ✅ sai
@@ -1201,12 +1201,12 @@ BA **giữ nguyên** cả 21 ô. **FE lật 7 ô ❌ → ✅ và cập nhật to
 với mã** (§13.8 mục 3). Sau lô 2, 5 ô ✅-sai-lý-do trở thành ✅ **đúng lý do** mà không ai phải chấm tay lại.
 
 **⚠️ ĐÍNH CHÍNH 3 — token `NO-DET` sẽ về 0, và công thức của guard lô 1 PHẢI được nới trong cùng lượt.**
-`uiDetailShellLot1Parity.test.ts` (INV-UX4L1-5) ép **hai** đẳng thức cùng lúc: `N == 20 − số route lô 1 ĐÃ ĐÓNG`
+`uiDetailShellLot1Parity.guard.test.ts` (INV-UX4L1-5) ép **hai** đẳng thức cùng lúc: `N == 20 − số route lô 1 ĐÃ ĐÓNG`
 (= 12, đã đông cứng vì lô 1 đóng hết) **và** `N == số màn 0-lối-nạp-lại đo lại từ đĩa`. Lô 2 kéo vế thứ hai về
 **0** ⇒ **guard ĐỎ** nếu không sửa. Đây là bẫy chắc chắn nổ, không phải rủi ro giả định — cách sửa duy nhất
 được phép ghi ở §13.8 mục 2 (**ADR-UX-26**).
 
-### 13.2 Sổ lô 2 — 21 route (SSoT; guard `detailShellAdoption.test.ts` đọc CHÍNH bảng này)
+### 13.2 Sổ lô 2 — 21 route (SSoT; guard `detailShellAdoption.guard.test.ts` đọc CHÍNH bảng này)
 
 | # | Route | View file | Hàm nạp | Nguồn lỗi sau sửa | Nhóm | Trạng thái | TC |
 |---|---|---|---|---|---|---|---|
@@ -1240,7 +1240,7 @@ với mã). Guard `AC-UX-071` ép **2 chiều**: `view import DetailPageShell` �
 > = **32** (adoption ĐÓNG HẲN 32/32, non-adopter = 0) và
 > `grep -rl useDetailAccess --include='*DetailView.vue' src/views | wc -l` = **21**
 > (11 màn legacy còn `loadErrorKind` cục bộ vẫn đóng băng trong `LEGACY_LOCAL_KIND_BUDGET`).
-> `NON_ADOPTER_BUDGET` của `views/detailShellAdoption.test.ts` nay **RỖNG** ⇒ guard chuyển sang chế độ
+> `NON_ADOPTER_BUDGET` của `views/detailShellAdoption.guard.test.ts` nay **RỖNG** ⇒ guard chuyển sang chế độ
 > đóng băng 0: một `*DetailView.vue` mới không có khuôn sẽ làm ĐỎ ngay.
 
 **Bốn nhóm — không có nhóm thứ năm** (nhóm quyết định khối lượng, không phải module):
@@ -1291,7 +1291,7 @@ Bảy màn cột `TAB` (1, 2, 3, 4, 8, 11, 13) thi hành thêm **AC-UX-073 / ADR
 - **KHÔNG** đưa lỗi HÀNH ĐỘNG (lưu / duyệt / xoá / chuyển trạng thái) vào `:error-kind` — 1 lần bấm hỏng sẽ
   **thay cả màn bằng banner lỗi**. Lỗi hành động giữ nguyên kênh cũ (`err` / `toast` / `notify` / inline modal).
 - **KHÔNG** di trú overlay tự vẽ (`AC-UX-055/056`): **12/21** màn của lô nằm trong allowlist đóng băng của
-  `modalOverlayHygiene.test.ts` (`AssetDetailView` ở `ALLOWLIST_HYBRID`; `Calibration` · `CM` · `Commissioning` ·
+  `modalOverlayHygiene.guard.test.ts` (`AssetDetailView` ở `ALLOWLIST_HYBRID`; `Calibration` · `CM` · `Commissioning` ·
   `Document` · `Incident` · `PM` · `Purchase` · `Competency` · `Session` ở `ALLOWLIST_SELF_DRAWN`). Thêm overlay
   mới ⇒ ĐỎ; bỏ overlay cũ ⇒ ngoài phạm vi lô (và phải hạ sổ cùng lượt).
 - **KHÔNG** đổi `loadErrorKind` cục bộ của **11 màn legacy** sang `useDetailAccess` ở vòng này — đó là
@@ -1408,7 +1408,7 @@ import DetailTabBar, { type DetailTab } from './DetailTabBar.vue'
 tabs?: DetailTab[]        // thay cho { key: string; label: string }[]
 ```
 
-Không đổi mặc định (`() => []`), không đổi template, không đổi emit. `DetailPageShell.test.ts` (24 TC) phải
+Không đổi mặc định (`() => []`), không đổi template, không đổi emit. `detailPageShell.guard.test.ts` (24 TC) phải
 **0 dòng đổi** — nếu phải sửa test cũ thì thay đổi đã vượt phạm vi cho phép, dừng và hỏi BA.
 
 ### 13.5 Bất biến đo được — namespace MỚI `INV-UX4L2-*`
@@ -1428,27 +1428,27 @@ Không đổi mặc định (`() => []`), không đổi template, không đổi 
 
 | TC | File test |
 |---|---|
-| `TC-UX4-32` | `frontend/src/views/asset/assetDetailStates.test.ts` |
-| `TC-UX4-33` | `frontend/src/views/calibration/calibrationDetailStates.test.ts` |
-| `TC-UX4-34` | `frontend/src/views/cm/cmWorkOrderDetailStates.test.ts` |
-| `TC-UX4-35` | `frontend/src/views/commissioning/commissioningDetailStates.test.ts` |
-| `TC-UX4-36` | `frontend/src/views/compliance/complianceRuleDetailStates.test.ts` |
-| `TC-UX4-37` | `frontend/src/views/document/documentDetailStates.test.ts` |
-| `TC-UX4-38` | `frontend/src/views/eol/decommissionDetailStates.test.ts` |
-| `TC-UX4-39` | `frontend/src/views/incident/incidentDetailStates.test.ts` |
-| `TC-UX4-40` | `frontend/src/views/incident/rcaDetailStates.test.ts` |
-| `TC-UX4-41` | `frontend/src/views/inventory/cycleCountDetailStates.test.ts` |
-| `TC-UX4-42` | `frontend/src/views/needs/needsRequestDetailStates.test.ts` |
-| `TC-UX4-43` | `frontend/src/views/needs/procurementPlanDetailStates.test.ts` |
-| `TC-UX4-44` | `frontend/src/views/pm/pmWorkOrderDetailStates.test.ts` |
-| `TC-UX4-45` | `frontend/src/views/procurement/vendorEvalDetailStates.test.ts` |
-| `TC-UX4-46` | `frontend/src/views/procurement/vendorProfileDetailStates.test.ts` |
-| `TC-UX4-47` | `frontend/src/views/purchase/purchaseDetailStates.test.ts` |
-| `TC-UX4-48` | `frontend/src/views/purchase/serviceContractDetailStates.test.ts` |
-| `TC-UX4-49` | `frontend/src/views/tech-specs/techSpecDetailStates.test.ts` |
-| `TC-UX4-50` | `frontend/src/views/training/competencyDetailStates.test.ts` |
-| `TC-UX4-51` | `frontend/src/views/training/programDetailStates.test.ts` |
-| `TC-UX4-52` | `frontend/src/views/training/sessionDetailStates.test.ts` |
+| `TC-UX4-32` | `frontend/src/views/asset/tests/AssetDetailView.states.test.ts` |
+| `TC-UX4-33` | `frontend/src/views/calibration/tests/CalibrationDetailView.states.test.ts` |
+| `TC-UX4-34` | `frontend/src/views/cm/tests/CMWorkOrderDetailView.states.test.ts` |
+| `TC-UX4-35` | `frontend/src/views/commissioning/tests/CommissioningDetailView.states.test.ts` |
+| `TC-UX4-36` | `frontend/src/views/compliance/tests/ComplianceRuleDetailView.states.test.ts` |
+| `TC-UX4-37` | `frontend/src/views/document/tests/DocumentDetailView.states.test.ts` |
+| `TC-UX4-38` | `frontend/src/views/eol/tests/DecommissionDetailView.states.test.ts` |
+| `TC-UX4-39` | `frontend/src/views/incident/tests/IncidentDetailView.states.test.ts` |
+| `TC-UX4-40` | `frontend/src/views/incident/tests/RCADetailView.states.test.ts` |
+| `TC-UX4-41` | `frontend/src/views/inventory/tests/CycleCountDetailView.states.test.ts` |
+| `TC-UX4-42` | `frontend/src/views/needs/tests/NeedsRequestDetailView.states.test.ts` |
+| `TC-UX4-43` | `frontend/src/views/needs/tests/ProcurementPlanDetailView.states.test.ts` |
+| `TC-UX4-44` | `frontend/src/views/pm/tests/PMWorkOrderDetailView.states.test.ts` |
+| `TC-UX4-45` | `frontend/src/views/procurement/tests/VendorEvalDetailView.states.test.ts` |
+| `TC-UX4-46` | `frontend/src/views/procurement/tests/VendorProfileDetailView.states.test.ts` |
+| `TC-UX4-47` | `frontend/src/views/purchase/tests/PurchaseDetailView.states.test.ts` |
+| `TC-UX4-48` | `frontend/src/views/purchase/tests/ServiceContractDetailView.states.test.ts` |
+| `TC-UX4-49` | `frontend/src/views/tech-specs/tests/TechSpecDetailView.states.test.ts` |
+| `TC-UX4-50` | `frontend/src/views/training/tests/CompetencyDetailView.states.test.ts` |
+| `TC-UX4-51` | `frontend/src/views/training/tests/ProgramDetailView.states.test.ts` |
+| `TC-UX4-52` | `frontend/src/views/training/tests/SessionDetailView.states.test.ts` |
 
 **Sub-case BẮT BUỘC (lô 2)** — mỗi file phải có đủ, mount THẬT (không `shallowMount`, không stub shell):
 
@@ -1473,9 +1473,9 @@ Không đổi mặc định (`() => []`), không đổi template, không đổi 
 
 ### 13.7 Hai guard MỚI — hợp đồng
 
-#### 13.7.1 `frontend/src/views/detailShellAdoption.test.ts` (**AC-UX-071**)
+#### 13.7.1 `frontend/src/guards/detailShellAdoption.guard.test.ts` (**AC-UX-071**)
 
-Sao chép khuôn `views/listShellAdoption.test.ts` (`AC-UX-070`) — **không viết bộ quét thứ hai**.
+Sao chép khuôn `views/listShellAdoption.guard.test.ts` (`AC-UX-070`) — **không viết bộ quét thứ hai**.
 
 ```ts
 const SHELL_IMPORT = /from\s+'@\/components\/common\/DetailPageShell\.vue'/
@@ -1493,7 +1493,7 @@ const NON_ADOPTER_BUDGET: readonly string[] = [ /* 21 dòng lúc mở lô → R�
 Cuối vòng: `NON_ADOPTER_BUDGET` **RỖNG** ⇒ guard chuyển sang chế độ **đóng băng 0**: thêm `*DetailView.vue`
 mới không có khuôn ⇒ ĐỎ ngay.
 
-#### 13.7.2 `frontend/src/views/detailAccessAdoption.test.ts` (**AC-UX-072**)
+#### 13.7.2 `frontend/src/guards/detailAccessAdoption.guard.test.ts` (**AC-UX-072**)
 
 ```ts
 /** 11 màn đã áp shell nhưng còn `loadErrorKind` cục bộ — ĐÓNG BĂNG, CHỈ ĐƯỢC XOÁ DÒNG. */
@@ -1524,14 +1524,14 @@ Bất biến:
 
 ### 13.8 Sửa guard cũ **trong CÙNG lượt** — 3 việc bắt buộc, tamper-evident
 
-1. **`views/detailTabBarAdoption.test.ts` (AC-UX-069) — di trú danh sách, KHÔNG xoá assert.**
+1. **`views/detailTabBarAdoption.guard.test.ts` (AC-UX-069) — di trú danh sách, KHÔNG xoá assert.**
    Phần B (e) hiện ép **7 màn** `import DetailTabBar` + có đúng 1 thẻ `<DetailTabBar>`. Sau hoisting, 7 màn
    đó **không còn import** ⇒ ĐỎ. Sửa: chuyển 7 đường dẫn từ `MUST_USE_SSOT` sang danh sách mới
    `MUST_USE_SSOT_VIA_SHELL`, gộp với `InternalAuditDetailView` (đã sẵn ở test (h)) ⇒ **8 mục**, assert cho
    từng mục: `import DetailTabBar` == **false** · chứa `DetailPageShell` · chứa `active-tab` · `<DetailTabBar`
    == **0**. Thêm `expect(MUST_USE_SSOT_VIA_SHELL).toHaveLength(8)` để việc rút ngắn danh sách là tamper-evident.
    **Giữ nguyên** phần A (bản đồ nút-tab tự chế) và assert (g) `role="tablist"` chỉ ở SSoT.
-2. **`router/uiDetailShellLot1Parity.test.ts` (INV-UX4L1-5) — nới công thức token (ADR-UX-26).**
+2. **`router/uiDetailShellLot1Parity.guard.test.ts` (INV-UX4L1-5) — nới công thức token (ADR-UX-26).**
    Thêm hằng `LOT2_NO_RECOVERY` = **12** đường dẫn đang thuộc nhóm 0-lối-nạp-lại
    (`asset/AssetDetailView` · `commissioning/CommissioningDetailView` · `document/DocumentDetailView` ·
    `incident/RCADetailView` · `needs/NeedsRequestDetailView` · `needs/ProcurementPlanDetailView` ·
@@ -1540,7 +1540,7 @@ Bất biến:
    rồi đổi đẳng thức thành `N == 20 − closedLot1 − closedLot2NoRecovery` (đếm từ cột «Trạng thái» của §13.2).
    **Giữ nguyên** đẳng thức `N == số đo lại từ đĩa` — đó mới là bất biến thật. Cập nhật token `NO-DET` ở
    `00 §6` về **0** trong cùng lượt.
-3. **`router/uiListShellLot1Parity.test.ts` (INV-UX3L-5/6) — lật 7 ô + đo lại token.**
+3. **`router/uiListShellLot1Parity.guard.test.ts` (INV-UX3L-5/6) — lật 7 ô + đo lại token.**
    Sau khi 21 màn có `@retry`, bộ dò sẽ lật **7 ô ❌ → ✅** (danh sách ở ĐÍNH CHÍNH 2). Chạy
    `node frontend/scripts/ui-audit-inventory.mjs --check`, sửa **đúng những ô nó báo lệch** ở `00 §3.1`, rồi
    ghi token `NO-CON` = **số bộ dò in ra** (kỳ vọng 57 − 7 = **50**, nhưng **ghi số đo được**, không ghi số kỳ vọng).
@@ -1591,7 +1591,7 @@ trường bắt buộc **KHÔNG được xoá** (mất tín hiệu a11y) — ch�
 cũ đỏ vì DOM đổi, sửa **selector** chứ không sửa **kỳ vọng**. `VendorProfileDetailView` là màn **duy nhất**
 0 test cũ.
 
-**13.9.10 `detailBlockedNoTabBar.test.ts` vẫn phải xanh.** Nó ép «phiếu bị chặn đọc ⇒ 0 thanh tab». Sau
+**13.9.10 `detailBlockedNoTabBar.integration.test.ts` vẫn phải xanh.** Nó ép «phiếu bị chặn đọc ⇒ 0 thanh tab». Sau
 hoisting, điều đó **đúng bằng cấu trúc** (thanh tab nằm trong nhánh `content`). Đừng thêm `v-if` bù.
 
 **13.9.11 Guard `TC-RWD-01`** cấm breakpoint tuỳ biến trong `src/views` — đừng bê class responsive của thanh
@@ -1619,14 +1619,14 @@ grep -rl "import DetailTabBar" --include='*DetailView.vue' src/views | wc -l    
 
 # (d) A3/A5 — 21 file trạng thái + guard mới
 ls src/views/*/*DetailStates.test.ts | wc -l                                      # 32 (11 hiện có + 21 mới)
-npx vitest run src/views/detailShellAdoption.test.ts src/views/detailAccessAdoption.test.ts
+npx vitest run src/guards/detailShellAdoption.guard.test.ts src/guards/detailAccessAdoption.guard.test.ts
 
 # (e) A8 — guard cũ KHÔNG đỏ
-npx vitest run src/router/uiAuditDocParity.test.ts src/router/uiFixPlanParity.test.ts \
-  src/views/listShellAdoption.test.ts src/views/detailTabBarAdoption.test.ts \
-  src/router/uiDetailShellLot1Parity.test.ts src/router/uiListShellLot1Parity.test.ts \
-  src/components/common/modalOverlayHygiene.test.ts src/components/ui/uiPrimitiveHygiene.test.ts \
-  src/design/tokens.parity.test.ts
+npx vitest run src/guards/uiAuditDocParity.guard.test.ts src/guards/uiFixPlanParity.guard.test.ts \
+  src/guards/listShellAdoption.guard.test.ts src/guards/detailTabBarAdoption.guard.test.ts \
+  src/guards/uiDetailShellLot1Parity.guard.test.ts src/guards/uiListShellLot1Parity.guard.test.ts \
+  src/guards/modalOverlayHygiene.guard.test.ts src/guards/uiPrimitiveHygiene.guard.test.ts \
+  src/guards/designTokens.guard.test.ts
 
 # (f) A7 — suite + kiểu, ĐỌC BẰNG MẮT
 npx vitest run            # kỳ vọng 377 + 23 = 400 file, 0 đỏ
@@ -1662,7 +1662,7 @@ lần đỏ có chủ đích · 3 guard cũ đã sửa theo §13.8 và xanh · s
   không đo được «đúng 1 lần» của A6, và tồn tại 2 cách làm cùng việc ⇒ màn sau lại chọn nhầm; (b) *prop
   `tabsPosition`* — loại: thêm bậc tự do cho một quyết định đáng ra phải nhất quán; (c) *bỏ `DetailTabBar`,
   shell tự vẽ tab* — loại: fork markup, phá SSoT `AC-UX-067`.
-- **Consequences**: `detailTabBarAdoption.test.ts` phải di trú 7 đường dẫn sang `MUST_USE_SSOT_VIA_SHELL`
+- **Consequences**: `detailTabBarAdoption.guard.test.ts` phải di trú 7 đường dẫn sang `MUST_USE_SSOT_VIA_SHELL`
   (§13.8 mục 1) — **cùng lượt**, kèm assert độ dài 8 để không ai rút ngắn danh sách. Thanh tab luôn nằm
   **dưới** `#actions`/`#kpi` và **trên** nội dung — thứ tự này từ nay là hợp đồng, không phải tuỳ màn.
   `Commissioning` phải dùng cặp `:active-tab` + `@update:active-tab` (computed không setter).

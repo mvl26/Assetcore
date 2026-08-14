@@ -151,10 +151,10 @@ if not rbac.can(_CAP_REPORT):
 | BE-test | `assetcore/tests/test_imm12.py` | AC1 parity (read-only→403 no-leak / create→200) + AC2 (lifecycle `incident_reported` + provenance + chain-valid) |
 | FE-view | `frontend/src/views/incident/IncidentCreateView.vue` | đọc `route.query.source`; khoá SmartSelect khi qr-scan; truyền `source` (D3) |
 | FE-api | `frontend/src/api/imm12.ts` | `ReportIncidentPayload` +`source?: 'manual'\|'qr-scan'` (D3) |
-| FE-test | `frontend/src/views/incident/IncidentCreateView.test.ts` (MỚI) | AC3: qr-scan→khoá+source / no-source→editable+manual |
+| FE-test | `frontend/src/views/incident/tests/IncidentCreateView.test.ts` (MỚI) | AC3: qr-scan→khoá+source / no-source→editable+manual |
 
 **File CẤM đụng (uncommitted vòng 1-3):**
-- 9 file QR/asset-code: `api/imm00.py`, `tests/test_imm00.py`, `types/imm00.ts`, `AssetDetailView.vue`, `assetDetailOverdueFlags.test.ts`, `AssetScanInfoView.vue`(+`.test.ts`), `labels.ts`(+`.test.ts`) — (nhóm SSoT-overdue / absent-vs-null / i18n status-pill).
+- 9 file QR/asset-code: `api/imm00.py`, `tests/test_imm00.py`, `types/imm00.ts`, `AssetDetailView.vue`, `AssetDetailView.overdueFlags.test.ts`, `AssetScanInfoView.vue`(+`.test.ts`), `labels.ts`(+`.test.ts`) — (nhóm SSoT-overdue / absent-vs-null / i18n status-pill).
 - 5 file FE-button: `AssetCreateView.vue`(+`.test.ts`), `AssetEditView.vue`(+`.test.ts`), `AssetScanInfoView.vue` (Thao tác nhanh — D1/D2/D3 QR-scan-action) — đã DONE vòng trước.
 - **KHÔNG đụng `services/imm00.py`** (scan-action SSoT) — tầng-2 đã đúng (F5). KHÔNG đụng `router/index.ts` (tầng-1 đã đúng). KHÔNG đụng `rbac.py` (cap đã auto-gen F3).
 

@@ -39,7 +39,7 @@
 
 - `assetcore/scripts/fix_asset_gmdn.py` — **DELETE**
 - `assetcore/scripts/fix_master_display_names.py` — xoá block sửa `gmdn_status`
-- `assetcore/scripts/cleanup_and_seed_assets.py` — xoá keys `gmdn_status`
+- `assetcore/scripts/maintenance/cleanup_and_seed_assets.py` — xoá keys `gmdn_status`
 - `assetcore/scripts/audit_master_data.py` — xoá `gmdn_status` khỏi fields
 
 ### Docs (sync)
@@ -723,7 +723,7 @@ git commit -m "refactor(fe-qr): scan QR opens asset detail (no state toggle)"
 **Files:**
 - Delete: `assetcore/scripts/fix_asset_gmdn.py`
 - Modify: `assetcore/scripts/fix_master_display_names.py:68-72`
-- Modify: `assetcore/scripts/cleanup_and_seed_assets.py:236,262,269`
+- Modify: `assetcore/scripts/maintenance/cleanup_and_seed_assets.py:236,262,269`
 - Modify: `assetcore/scripts/audit_master_data.py:20`
 
 - [ ] **Step 1: Xoá file `fix_asset_gmdn.py`**

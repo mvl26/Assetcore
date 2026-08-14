@@ -385,7 +385,7 @@ trùng đã có trong hệ thống hoặc trùng trong file đều là lỗi ch�
 Với dữ liệu cây, bỏ qua cha thì bỏ qua luôn con (`_cascade_skip_for_tree`) để không
 sinh node mồ côi. Sau khi nhập xong tải báo cáo lỗi về sửa rồi nhập lại phần còn thiếu.
 
-Guard: `assetcore/tests/test_import_display_names.py` (17 TC) + `frontend/src/api/importRowLabels.test.ts` (4 TC).
+Guard: `assetcore/tests/test_import_display_names.py` (17 TC) + `frontend/src/api/tests/importRowLabels.test.ts` (4 TC).
 
 ### 8bis.1 Dữ liệu có BẢNG CON — mẫu bảng kiểm bảo trì (bổ sung 2026-08-11)
 
@@ -428,9 +428,9 @@ tiên không phẳng. Quyết định:
   về giá trị gốc. Enum của DocType KHÔNG đổi.
 
 Guard: `assetcore/tests/test_import_pm_checklist_template.py` (19 TC) +
-`frontend/src/views/pm/pmTemplateImportWiring.test.ts` (5 TC) +
-`frontend/src/composables/importGroupedWizard.test.ts` (7 TC) +
-`frontend/src/components/import/importWizardGroups.test.ts` (6 TC).
+`frontend/src/views/pm/tests/PmTemplateListView.importWiring.test.ts` (5 TC) +
+`frontend/src/composables/tests/importGroupedWizard.test.ts` (7 TC) +
+`frontend/src/components/import/tests/ImportWizardModal.groups.test.ts` (6 TC).
 
 ### 8bis.1c Nhập để CẬP NHẬT bản ghi đã có (mở rộng 2026-08-11)
 
@@ -459,7 +459,7 @@ Hợp đồng thống nhất cho MỌI loại dữ liệu:
   trùng = nhân đôi im lặng. Guard: `test_import_update_existing.py`.
 
 Guard: `assetcore/tests/test_import_update_existing.py` (11 TC) +
-`frontend/src/composables/importGroupedWizard.test.ts` (11 TC).
+`frontend/src/composables/tests/importGroupedWizard.test.ts` (11 TC).
 
 ### 8bis.1b Khung file: XUẤT RA phải nhập lại được (sửa 2026-08-11)
 

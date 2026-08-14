@@ -505,13 +505,13 @@ File BE: class `TestLabelWriteCapability` + `TestRegenerateQrToken` (`assetcore/
 
 | TC (FE) | Kịch bản | Verify |
 |---|---|---|
-| `assetDetailQrPrint.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG print) | nút "In nhãn QR" KHÔNG render |
-| `assetDetailQrPrint.test.ts` (D6) | mock caps `{asset.print:true}` | nút "In nhãn QR" render |
-| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.print:true}` (KHÔNG rotate) | nút "Sinh lại mã QR" KHÔNG render (tách quyền) |
-| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.qr.rotate:true}` | nút "Sinh lại mã QR" render |
-| `assetListBatchSelect.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG print) | nút "In nhãn hàng loạt" KHÔNG render |
+| `AssetDetailView.qrPrint.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG print) | nút "In nhãn QR" KHÔNG render |
+| `AssetDetailView.qrPrint.test.ts` (D6) | mock caps `{asset.print:true}` | nút "In nhãn QR" render |
+| `AssetDetailView.qrRegenerate.test.ts` (D6) | mock caps `{asset.print:true}` (KHÔNG rotate) | nút "Sinh lại mã QR" KHÔNG render (tách quyền) |
+| `AssetDetailView.qrRegenerate.test.ts` (D6) | mock caps `{asset.qr.rotate:true}` | nút "Sinh lại mã QR" render |
+| `AssetListView.batchSelect.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG print) | nút "In nhãn hàng loạt" KHÔNG render |
 | `routeAccess.test.ts` (D6) | guard `AssetLabelPrint` với caps `{asset.read:true}` | unauthorized; `{asset.print:true}` → allow |
-| `assetDetailRbacAffordance.test.ts` (D6) | caps `{asset.print:true}` only | "In nhãn QR" hiện, "Sinh lại mã QR"/"Chỉnh sửa" ẩn (least-privilege) |
+| `AssetDetailView.rbacAffordance.test.ts` (D6) | caps `{asset.print:true}` only | "In nhãn QR" hiện, "Sinh lại mã QR"/"Chỉnh sửa" ẩn (least-privilege) |
 
 ### III.6.0e-TRANSITIONAUTHZ — Vòng 39 / CR-WF-00-TRANSITION-AUTHZ: gate `asset.write` + IDOR tầng endpoint cho `transition_status` (BR-00-57 / FR-00-108)
 
@@ -621,7 +621,7 @@ File BE: class MỚI `TestLabelQrEmpty` trong `assetcore/tests/test_imm00.py` (c
 
 ### III.6.a — A6: `get_asset_scan_info` — màn info mobile-first khi quét QR (ADR-001 V7)
 
-File BE: thêm class `TestGetAssetScanInfo` vào `assetcore/tests/test_imm00.py` (cạnh `TestResolveQrToken` A2 — line ~2045). FE: `frontend/src/views/asset/AssetScanInfoView.test.ts` (NEW) + cập nhật `QrResolveView.test.ts` (regression).
+File BE: thêm class `TestGetAssetScanInfo` vào `assetcore/tests/test_imm00.py` (cạnh `TestResolveQrToken` A2 — line ~2045). FE: `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (NEW) + cập nhật `QrResolveView.test.ts` (regression).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests` (BE A6) + `bench migrate` sạch + `vue-tsc` 0 lỗi + `vitest` (view mới + regression).
 
@@ -649,7 +649,7 @@ File BE: thêm class `TestGetAssetScanInfo` vào `assetcore/tests/test_imm00.py`
 
 #### III.6.a-PMOVERDUE — A6-hardening (Vòng 27 B): cờ `pm_overdue` server-side — BR-00-36 / FR-00-85
 
-File BE: thêm class `TestAssetScanInfoPmOverdue` vào `assetcore/tests/test_imm00.py` (cạnh `TestGetAssetScanInfo`). FE: cập nhật `frontend/src/views/asset/AssetScanInfoView.test.ts` (thêm TC badge). **RED-first:** class/TC chưa tồn tại → fail → impl `_is_pm_overdue` + thêm field payload → GREEN. Đo QUA `build_asset_scan_info` (KHÔNG mock `getdate`/`nowdate` — set `next_pm_date` thật quanh `nowdate()` để check ranh giới strict `<`).
+File BE: thêm class `TestAssetScanInfoPmOverdue` vào `assetcore/tests/test_imm00.py` (cạnh `TestGetAssetScanInfo`). FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC badge). **RED-first:** class/TC chưa tồn tại → fail → impl `_is_pm_overdue` + thêm field payload → GREEN. Đo QUA `build_asset_scan_info` (KHÔNG mock `getdate`/`nowdate` — set `next_pm_date` thật quanh `nowdate()` để check ranh giới strict `<`).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestAssetScanInfo` baseline + `TestAssetScanInfoPmOverdue` mới) + `bench migrate` exit 0 + `vue-tsc` 0 lỗi + `vitest AssetScanInfoView.test.ts` GREEN. `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`.
 
@@ -676,7 +676,7 @@ File BE: thêm class `TestAssetScanInfoPmOverdue` vào `assetcore/tests/test_imm
 
 #### III.6.b-CALOVERDUE — A6-hardening (Vòng 28 B): cờ `calibration_overdue` + `next_calibration_date` server-side — BR-00-37 / FR-00-86
 
-File BE: thêm class `TestAssetScanInfoCalibrationOverdue` vào `assetcore/tests/test_imm00.py` (cạnh `TestAssetScanInfoPmOverdue`). FE: cập nhật `frontend/src/views/asset/AssetScanInfoView.test.ts` (thêm TC badge hiệu chuẩn). **RED-first BẮT BUỘC:** class/TC chưa tồn tại → fail → impl `_is_calibration_overdue` + thêm `next_calibration_date` vào fields-list + 2 field payload → GREEN. Đo QUA `build_asset_scan_info` (KHÔNG mock `getdate`/`nowdate` — set `next_calibration_date` thật quanh `nowdate()` để check ranh giới strict `<`). **DISTINCT với III.6.a-PMOVERDUE** (chiều hiệu chuẩn, field+signal khác).
+File BE: thêm class `TestAssetScanInfoCalibrationOverdue` vào `assetcore/tests/test_imm00.py` (cạnh `TestAssetScanInfoPmOverdue`). FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC badge hiệu chuẩn). **RED-first BẮT BUỘC:** class/TC chưa tồn tại → fail → impl `_is_calibration_overdue` + thêm `next_calibration_date` vào fields-list + 2 field payload → GREEN. Đo QUA `build_asset_scan_info` (KHÔNG mock `getdate`/`nowdate` — set `next_calibration_date` thật quanh `nowdate()` để check ranh giới strict `<`). **DISTINCT với III.6.a-PMOVERDUE** (chiều hiệu chuẩn, field+signal khác).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestAssetScanInfo` baseline + `TestAssetScanInfoPmOverdue` + `TestAssetScanInfoCalibrationOverdue` mới) + `bench migrate` exit 0 + `vue-tsc` 0 lỗi + `vitest AssetScanInfoView.test.ts` GREEN. `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`.
 
@@ -764,7 +764,7 @@ File BE: **bổ sung** class `TestAssetScanInfoNameWhitespace` (`assetcore/tests
 
 #### III.6.m-SCANSN — Vòng 37: `manufacturer_sn` (Số serial NSX) vào payload `build_asset_scan_info` + FE `serialText` fallback `'Chưa rõ'` — FR-00-103 / BR-00-52 / ADR §D13
 
-File BE: **bổ sung** class `TestScanInfoManufacturerSn` (`assetcore/tests/test_imm00.py` — cạnh `TestAssetScanInfo`). File FE: cập nhật `frontend/src/views/asset/AssetScanInfoView.test.ts` (thêm TC dòng "Số serial NSX" + empty-fallback). **RED-first BẮT BUỘC:** TC `assert 'manufacturer_sn' in payload` + `== <giá-trị-thật>` ĐỎ trước fix (key absent → KeyError/None) → thêm `"manufacturer_sn"` vào fields-list `db.get_value` + key payload `row.get("manufacturer_sn") or ""` → GREEN; TC FE `serialText==='Chưa rõ'` khi rỗng ĐỎ trước thêm computed → GREEN. Đo QUA `build_asset_scan_info` THẬT (Administrator có mọi DocPerm — KHÔNG mock; tạo AC Asset thật, set `manufacturer_sn` thật + biến thể rỗng). Spec: [`04 §II.1.8d-SCANSN`](./04_Backend_Design.md) + [`05 §get_asset_scan_info payload 12-field`](./05_API_Specification.md) + [`02 §IV.28 / BR-00-52`](./02_Analysis_Design.md) + [`06 §II.3d-SERIALSN`](./06_Frontend_Design.md) + [ADR §D13](./ADR-IMM00-QR-SCAN-ACTION.md).
+File BE: **bổ sung** class `TestScanInfoManufacturerSn` (`assetcore/tests/test_imm00.py` — cạnh `TestAssetScanInfo`). File FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC dòng "Số serial NSX" + empty-fallback). **RED-first BẮT BUỘC:** TC `assert 'manufacturer_sn' in payload` + `== <giá-trị-thật>` ĐỎ trước fix (key absent → KeyError/None) → thêm `"manufacturer_sn"` vào fields-list `db.get_value` + key payload `row.get("manufacturer_sn") or ""` → GREEN; TC FE `serialText==='Chưa rõ'` khi rỗng ĐỎ trước thêm computed → GREEN. Đo QUA `build_asset_scan_info` THẬT (Administrator có mọi DocPerm — KHÔNG mock; tạo AC Asset thật, set `manufacturer_sn` thật + biến thể rỗng). Spec: [`04 §II.1.8d-SCANSN`](./04_Backend_Design.md) + [`05 §get_asset_scan_info payload 12-field`](./05_API_Specification.md) + [`02 §IV.28 / BR-00-52`](./02_Analysis_Design.md) + [`06 §II.3d-SERIALSN`](./06_Frontend_Design.md) + [ADR §D13](./ADR-IMM00-QR-SCAN-ACTION.md).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestScanInfoManufacturerSn` mới + `TestAssetScanInfo`/`…PmOverdue`/`…CalibrationOverdue`/`…AvailableActions`/`TestResolveQrToken` baseline + label-pdf suite) GREEN — 0 regression. `bench migrate` KHÔNG cần (0 schema/patch — `manufacturer_sn` đã là field AC Asset). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. FE: `vitest AssetScanInfoView.test.ts` GREEN + `vue-tsc` 0 + full asset-domain vitest no-regression. **Logic-level fresh-import (BE) + vitest (FE render — KHÔNG cần reload) — KHÔNG tuyên bố verify HTTP/Playwright/quét-QR-thật live** (endpoint live HTTP cần USER reload gunicorn --preload → backlog [BLOCKED reload]; STATE 🔴#1).
 
@@ -789,7 +789,7 @@ File BE: **bổ sung** class `TestScanInfoManufacturerSn` (`assetcore/tests/test
 
 #### III.6.n-PILLA11Y — Vòng 39: status pill lifecycle `role="status"` + `aria-label` VI (SSoT `statusLabel`) + anchor `data-test="scan-status"` — FR-00-104 / BR-00-53 / ADR §D14 — **NEW (FE-only)**
 
-File FE: cập nhật `frontend/src/views/asset/AssetScanInfoView.test.ts` (thêm TC pill a11y + anchor + exactly-one). **KHÔNG file BE** (FE-only, KHÔNG đụng `build_asset_scan_info`/payload). **RED-first BẮT BUỘC:** TC assert `wrapper.get('[data-test="scan-status"]')` + `role==='status'` + `aria-label` khớp `'Trạng thái thiết bị: ' + statusLabel` ĐỎ trước khi thêm 3 attr (pill cũ chỉ có `class`/`:class` → `[data-test="scan-status"]` không tồn tại / `role` undefined) → thêm `data-test="scan-status"` + `role="status"` + `:aria-label` lên `<span>` pill (`AssetScanInfoView.vue:445-450`) → GREEN. Đo QUA mount THẬT `AssetScanInfoView` (mock `getAssetScanInfo` trả payload với `lifecycle_status` biến thể — KHÔNG mock `lifecycleStatusLabel`; aria-label phải bằng giá-trị `statusLabel` THẬT để chứng minh SSoT-shared). Spec: [`02 §IV.29 / FR-00-104 / BR-00-53`](./02_Analysis_Design.md) + [`06 §II.3e-PILLA11Y`](./06_Frontend_Design.md) + [ADR §D14](./ADR-IMM00-QR-SCAN-ACTION.md). Parity §II.3e-PILLNOLEAK (no-EN/raw-code/empty leak — Vòng 8) cho nhánh aria-label.
+File FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC pill a11y + anchor + exactly-one). **KHÔNG file BE** (FE-only, KHÔNG đụng `build_asset_scan_info`/payload). **RED-first BẮT BUỘC:** TC assert `wrapper.get('[data-test="scan-status"]')` + `role==='status'` + `aria-label` khớp `'Trạng thái thiết bị: ' + statusLabel` ĐỎ trước khi thêm 3 attr (pill cũ chỉ có `class`/`:class` → `[data-test="scan-status"]` không tồn tại / `role` undefined) → thêm `data-test="scan-status"` + `role="status"` + `:aria-label` lên `<span>` pill (`AssetScanInfoView.vue:445-450`) → GREEN. Đo QUA mount THẬT `AssetScanInfoView` (mock `getAssetScanInfo` trả payload với `lifecycle_status` biến thể — KHÔNG mock `lifecycleStatusLabel`; aria-label phải bằng giá-trị `statusLabel` THẬT để chứng minh SSoT-shared). Spec: [`02 §IV.29 / FR-00-104 / BR-00-53`](./02_Analysis_Design.md) + [`06 §II.3e-PILLA11Y`](./06_Frontend_Design.md) + [ADR §D14](./ADR-IMM00-QR-SCAN-ACTION.md). Parity §II.3e-PILLNOLEAK (no-EN/raw-code/empty leak — Vòng 8) cho nhánh aria-label.
 
 **Acceptance — chạy XANH:** `vitest AssetScanInfoView.test.ts` (TC pill-a11y mới + baseline pill no-leak/PM-overdue/cal-overdue/serial/available-actions) GREEN + `vue-tsc` 0 + full asset-domain vitest no-regression. **KHÔNG BE test / KHÔNG `bench migrate` / KHÔNG reload** (FE-only template attr — `statusLabel`/`statusClass`/`constants/labels.ts`/payload KHÔNG đổi). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. **Verify Playwright/quét-QR-thật BLOCKED reload gunicorn --preload (HARD-STOP USER) → vitest + code-audit là gate hợp lệ; KHÔNG tuyên bố DONE live.**
 
@@ -810,11 +810,11 @@ File FE: cập nhật `frontend/src/views/asset/AssetScanInfoView.test.ts` (thê
 
 #### III.6.o-SCANRISKURGENT — Vòng 47: dòng "Phân loại rủi ro" cờ urgency High/Critical (`role="status"` + `aria-label` VI SSoT `riskText` + anchor `data-test="scan-risk-urgent"`) — derive THUẦN enum-equality (no client-clock) — FR-00-105 / BR-00-54 / ADR §D15 — **NEW (FE-only)**
 
-File FE: cập nhật `frontend/src/views/asset/assetScanInfoRisk.test.ts` (thêm TC cờ urgency — file vòng 38 đã có TC nhãn `riskText`) + `AssetScanInfoView.test.ts` (TC integration). **KHÔNG file BE** (FE-only, KHÔNG đụng `build_asset_scan_info`/payload — BE đã emit `risk_classification` coalesce `''`). **RED-first BẮT BUỘC:** TC assert `wrapper.find('[data-test="scan-risk-urgent"]')` tồn tại + `role==='status'` + `aria-label` khớp `'Cảnh báo rủi ro cao: ' + riskText` ĐỎ trước khi thêm (dòng risk cũ chỉ có `riskText`, KHÔNG cờ) → thêm computed `riskUrgent` + 3 hằng VI + phần tử `data-test="scan-risk-urgent"` vào `AssetScanInfoView.vue` (dòng `:466-473`) → GREEN. Đo QUA mount THẬT `AssetScanInfoView` (mock `getAssetScanInfo` trả payload với `risk_classification` biến thể — KHÔNG mock `riskClassificationLabel`; aria-label phải bằng giá-trị `riskText` THẬT để chứng minh SSoT-shared). Spec: [`02 §IV.30 / FR-00-105 / BR-00-54`](./02_Analysis_Design.md) + [`06 §II.3f-SCANRISKURGENT`](./06_Frontend_Design.md) + [ADR §D15](./ADR-IMM00-QR-SCAN-ACTION.md). Parity nguyên-tắc overdue-SSoT vòng 21 (derive cờ server, no client-clock) + status-pill a11y vòng 39 (role=status + aria-label SSoT-shared).
+File FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.risk.test.ts` (thêm TC cờ urgency — file vòng 38 đã có TC nhãn `riskText`) + `AssetScanInfoView.test.ts` (TC integration). **KHÔNG file BE** (FE-only, KHÔNG đụng `build_asset_scan_info`/payload — BE đã emit `risk_classification` coalesce `''`). **RED-first BẮT BUỘC:** TC assert `wrapper.find('[data-test="scan-risk-urgent"]')` tồn tại + `role==='status'` + `aria-label` khớp `'Cảnh báo rủi ro cao: ' + riskText` ĐỎ trước khi thêm (dòng risk cũ chỉ có `riskText`, KHÔNG cờ) → thêm computed `riskUrgent` + 3 hằng VI + phần tử `data-test="scan-risk-urgent"` vào `AssetScanInfoView.vue` (dòng `:466-473`) → GREEN. Đo QUA mount THẬT `AssetScanInfoView` (mock `getAssetScanInfo` trả payload với `risk_classification` biến thể — KHÔNG mock `riskClassificationLabel`; aria-label phải bằng giá-trị `riskText` THẬT để chứng minh SSoT-shared). Spec: [`02 §IV.30 / FR-00-105 / BR-00-54`](./02_Analysis_Design.md) + [`06 §II.3f-SCANRISKURGENT`](./06_Frontend_Design.md) + [ADR §D15](./ADR-IMM00-QR-SCAN-ACTION.md). Parity nguyên-tắc overdue-SSoT vòng 21 (derive cờ server, no client-clock) + status-pill a11y vòng 39 (role=status + aria-label SSoT-shared).
 
-**Acceptance — chạy XANH:** `vitest` (`assetScanInfoRisk.test.ts` TC urgency mới + `AssetScanInfoView.test.ts` + baseline riskText nhãn vòng 38/40 + pill-a11y/serial/overdue) GREEN + `vue-tsc` 0 + full asset-domain vitest no-regression. **KHÔNG BE test / KHÔNG `bench migrate` / KHÔNG reload** (FE-only template + computed — `riskText`/`RISK_CLASSIFICATION_LABEL`/`constants/labels.ts`/payload KHÔNG đổi). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. **Verify Playwright/quét-QR-thật BLOCKED reload gunicorn --preload (HARD-STOP USER) → vitest + code-audit là gate hợp lệ; KHÔNG tuyên bố DONE live.**
+**Acceptance — chạy XANH:** `vitest` (`AssetScanInfoView.risk.test.ts` TC urgency mới + `AssetScanInfoView.test.ts` + baseline riskText nhãn vòng 38/40 + pill-a11y/serial/overdue) GREEN + `vue-tsc` 0 + full asset-domain vitest no-regression. **KHÔNG BE test / KHÔNG `bench migrate` / KHÔNG reload** (FE-only template + computed — `riskText`/`RISK_CLASSIFICATION_LABEL`/`constants/labels.ts`/payload KHÔNG đổi). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. **Verify Playwright/quét-QR-thật BLOCKED reload gunicorn --preload (HARD-STOP USER) → vitest + code-audit là gate hợp lệ; KHÔNG tuyên bố DONE live.**
 
-| TC (FE — `assetScanInfoRisk.test.ts` / `AssetScanInfoView.test.ts`) | Kịch bản | Verify |
+| TC (FE — `AssetScanInfoView.risk.test.ts` / `AssetScanInfoView.test.ts`) | Kịch bản | Verify |
 |---|---|---|
 | `risk urgent flag for High` | mount `risk_classification:'High'` | `riskUrgent===true`; `findAll('[data-test="scan-risk-urgent"]').length===1`; phần tử chứa icon ⚠ + nhãn VI `'Rủi ro cao'` (FR-00-105 #1 — RED-first) |
 | `risk urgent flag for Critical` | mount `risk_classification:'Critical'` | `findAll('[data-test="scan-risk-urgent"]').length===1`; (FR-00-105 #1) |
@@ -830,7 +830,7 @@ File FE: cập nhật `frontend/src/views/asset/assetScanInfoRisk.test.ts` (thê
 
 > **Pattern aria-label-SSoT (FE):** TC aria-label assert bằng `'Cảnh báo rủi ro cao: ' + riskText` (ghép động từ CHÍNH `riskText`) — KHÔNG so literal cứng — chứng minh aria-label đọc chung SSoT `riskClassificationLabel`, đổi nhãn → aria-label đổi theo (no-drift), no-EN-leak bao trùm.
 
-**REG (acceptance đề mục):** §II.3f-SCANRISKURGENT mới + nhãn `riskText` (vòng 38, `assetScanInfoRisk.test.ts` TC1-TC7) — GIỮ GREEN 0 regression; §II.3e-PILLA11Y (status-pill), §II.3c-PMOVERDUE/§II.3d-CALOVERDUE (overdue badge), §III.6.m-SCANSN (serial) — GIỮ XANH. FE-only: KHÔNG đổi `riskText`/`RISK_CLASSIFICATION_LABEL` logic / BE payload / RBAC / `available_actions` shape.
+**REG (acceptance đề mục):** §II.3f-SCANRISKURGENT mới + nhãn `riskText` (vòng 38, `AssetScanInfoView.risk.test.ts` TC1-TC7) — GIỮ GREEN 0 regression; §II.3e-PILLA11Y (status-pill), §II.3c-PMOVERDUE/§II.3d-CALOVERDUE (overdue badge), §III.6.m-SCANSN (serial) — GIỮ XANH. FE-only: KHÔNG đổi `riskText`/`RISK_CLASSIFICATION_LABEL` logic / BE payload / RBAC / `available_actions` shape.
 
 #### III.6.q-SAFEDATE — Vòng 50: crash-safe `getdate` ở 4 hàm xử-lý-ngày của `build_asset_scan_info` (`_is_warranty_expired`/`_is_pm_overdue`/`_is_calibration_overdue`/`_date_str_or_none`) degrade graceful ngày drift → `None`/`False`, bịt HTTP-500 traceback-leak — FR-00-107 / BR-00-56 / ADR §D17 — **NEW (BE-only)**
 
@@ -853,7 +853,7 @@ File BE: **bổ sung** vào `assetcore/tests/test_imm00.py` — mở rộng `Tes
 
 #### III.6.d-REASONNONEMPTY — factory vòng 7: action disabled LUÔN kèm `reason` VI — bịt lỗ status rỗng/lạ — FR-00-92 / BR-00-41 / ADR §D9
 
-File BE: **bổ sung** class `TestScanInfoAvailableActions` (`assetcore/tests/test_imm00.py:3463` — ĐÃ tồn tại từ vòng QR-SCAN-ACTION) + **SIẾT** `test_unknown_status_safe_default` (`:3719`). File FE: cập nhật `frontend/src/views/asset/AssetScanInfoView.test.ts` (thêm TC reason non-rỗng + non-dangling aria-describedby). **RED-first BẮT BUỘC:** TC unknown/empty-status assert `reason == _LIFECYCLE_REASON_UNKNOWN` + bất biến `enabled=False ⟹ reason!=""` ĐỎ trước fix (hiện `reason==""` cho status rỗng/lạ + Admin) → thêm hằng `_LIFECYCLE_REASON_UNKNOWN` + bậc-3 `or` ở `_build_available_actions` → GREEN. Đo QUA `build_asset_scan_info` THẬT (Administrator có mọi DocPerm = nhánh lifecycle thuần; monkeypatch `svc.rbac.can` ép thiếu cap — KHÔNG mock `getdate`/`nowdate`). Spec: [`04 §II.1.8f`](./04_Backend_Design.md) + [`05 §III.1 available_actions`](./05_API_Specification.md) + [`02 §IV.18 / BR-00-41`](./02_Analysis_Design.md) + [`06 §reason-render`](./06_Frontend_Design.md) + [ADR §D9](./ADR-IMM00-QR-SCAN-ACTION.md).
+File BE: **bổ sung** class `TestScanInfoAvailableActions` (`assetcore/tests/test_imm00.py:3463` — ĐÃ tồn tại từ vòng QR-SCAN-ACTION) + **SIẾT** `test_unknown_status_safe_default` (`:3719`). File FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC reason non-rỗng + non-dangling aria-describedby). **RED-first BẮT BUỘC:** TC unknown/empty-status assert `reason == _LIFECYCLE_REASON_UNKNOWN` + bất biến `enabled=False ⟹ reason!=""` ĐỎ trước fix (hiện `reason==""` cho status rỗng/lạ + Admin) → thêm hằng `_LIFECYCLE_REASON_UNKNOWN` + bậc-3 `or` ở `_build_available_actions` → GREEN. Đo QUA `build_asset_scan_info` THẬT (Administrator có mọi DocPerm = nhánh lifecycle thuần; monkeypatch `svc.rbac.can` ép thiếu cap — KHÔNG mock `getdate`/`nowdate`). Spec: [`04 §II.1.8f`](./04_Backend_Design.md) + [`05 §III.1 available_actions`](./05_API_Specification.md) + [`02 §IV.18 / BR-00-41`](./02_Analysis_Design.md) + [`06 §reason-render`](./06_Frontend_Design.md) + [ADR §D9](./ADR-IMM00-QR-SCAN-ACTION.md).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestScanInfoAvailableActions` mở rộng + baseline) GREEN + `vitest AssetScanInfoView` GREEN. `bench migrate` KHÔNG cần (0 schema/patch). `CAP_SET_VERSION` GIỮ NGUYÊN. **Logic-level / vitest — KHÔNG tuyên bố verify HTTP/Playwright live** (endpoint live cần USER reload — STATE 🔴#1).
 
@@ -881,7 +881,7 @@ File BE: **bổ sung** class `TestScanInfoAvailableActions` (`assetcore/tests/te
 
 #### III.6.e-PILLNOLEAK — factory vòng 8: status pill VI an toàn — `lifecycleStatusLabel` no-EN/raw-code/empty leak — FR-00-93 / BR-00-42 / ADR §D10
 
-> **Đề mục factory vòng 8 (2026-06-11 — scan-action / status-pill no-EN-leak — Self-Correction lỗi thiết kế gốc FE-formatter).** **FE-only** — BE KHÔNG đổi (`build_asset_scan_info`/`resolve_qr_token` GIỮ `or ""`). File FE: `frontend/src/constants/labels.test.ts` (mở rộng block `lifecycleStatusLabel`/`lifecycleStatusClass` — ĐÃ có) + `frontend/src/views/asset/AssetScanInfoView.test.ts` (thêm TC pill rỗng/lạ). **RED-first BẮT BUỘC:** TC mã-lạ (`'In Use'`/`'Retired'`/`'active'`) + rỗng (`''`/null/undefined) assert `=== 'Không xác định'` ĐỎ trước fix (hiện `?? v` trả raw/empty) → thêm hằng `LIFECYCLE_STATUS_UNKNOWN_LABEL` + đổi fallback formatter → GREEN. Spec: [`06 §status-pill-safe`](./06_Frontend_Design.md) + [`02 §IV.19 / BR-00-42`](./02_Analysis_Design.md) + [ADR §D10](./ADR-IMM00-QR-SCAN-ACTION.md).
+> **Đề mục factory vòng 8 (2026-06-11 — scan-action / status-pill no-EN-leak — Self-Correction lỗi thiết kế gốc FE-formatter).** **FE-only** — BE KHÔNG đổi (`build_asset_scan_info`/`resolve_qr_token` GIỮ `or ""`). File FE: `frontend/src/constants/tests/labels.test.ts` (mở rộng block `lifecycleStatusLabel`/`lifecycleStatusClass` — ĐÃ có) + `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC pill rỗng/lạ). **RED-first BẮT BUỘC:** TC mã-lạ (`'In Use'`/`'Retired'`/`'active'`) + rỗng (`''`/null/undefined) assert `=== 'Không xác định'` ĐỎ trước fix (hiện `?? v` trả raw/empty) → thêm hằng `LIFECYCLE_STATUS_UNKNOWN_LABEL` + đổi fallback formatter → GREEN. Spec: [`06 §status-pill-safe`](./06_Frontend_Design.md) + [`02 §IV.19 / BR-00-42`](./02_Analysis_Design.md) + [ADR §D10](./ADR-IMM00-QR-SCAN-ACTION.md).
 
 **Acceptance — chạy XANH:** `vitest` (`labels.test.ts` + `AssetScanInfoView.test.ts`) GREEN + `vue-tsc` 0 lỗi + full asset-domain vitest suite no-regression. **KHÔNG cần reload/migrate** (FE-only — BE KHÔNG đổi). KHÔNG tuyên bố verify HTTP/Playwright live.
 
@@ -907,7 +907,7 @@ File BE: **bổ sung** class `TestScanInfoAvailableActions` (`assetcore/tests/te
 
 ### III.6.b — B item 2: `regenerate_asset_qr_token` — rotate QR token (ADR-001 D1/D3/D4)
 
-File BE: thêm class `TestRegenerateAssetQrToken` vào `assetcore/tests/test_imm00.py` (cạnh `TestAssetLabelData` / `TestGetAssetScanInfo`). FE: `frontend/src/views/asset/assetDetailQrRegenerate.test.ts` (NEW) + cập nhật `routeAccess.test.ts` (không route mới — gate ở nút). **RED-first BẮT BUỘC** (class chưa tồn tại → ImportError/AttributeError → impl → GREEN). Đo QUA layer `require` với **user THẬT** có/không `asset.write` (KHÔNG mock `require`/`has_permission` — chống false-green; baseline 116 test giữ xanh).
+File BE: thêm class `TestRegenerateAssetQrToken` vào `assetcore/tests/test_imm00.py` (cạnh `TestAssetLabelData` / `TestGetAssetScanInfo`). FE: `frontend/src/views/asset/tests/AssetDetailView.qrRegenerate.test.ts` (NEW) + cập nhật `routeAccess.test.ts` (không route mới — gate ở nút). **RED-first BẮT BUỘC** (class chưa tồn tại → ImportError/AttributeError → impl → GREEN). Đo QUA layer `require` với **user THẬT** có/không `asset.write` (KHÔNG mock `require`/`has_permission` — chống false-green; baseline 116 test giữ xanh).
 
 | TC (BE) | Kịch bản | Expect | Kỹ thuật |
 |---|---|---|---|
@@ -926,13 +926,13 @@ File BE: thêm class `TestRegenerateAssetQrToken` vào `assetcore/tests/test_imm
 
 | TC (FE) | Kịch bản | Verify |
 |---|---|---|
-| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG rotate) | nút "Sinh lại mã QR" KHÔNG render |
-| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.print:true}` (in được, KHÔNG rotate) | nút "Sinh lại mã QR" KHÔNG render (tách quyền) |
-| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.qr.rotate:true}` | nút "Sinh lại mã QR" render |
-| `assetDetailQrRegenerate.test.ts::click_opens_modal_no_confirm_no_api` | click nút | **KHÔNG** gọi `window.confirm`; mở `BaseModal` cảnh báo "vô hiệu hoá mọi nhãn QR đã in"; API **chưa** gọi |
-| `assetDetailQrRegenerate.test.ts::confirm_calls_api_refetch_toast` | bấm "Xác nhận" | `regenerateAssetQrToken(id)` gọi **1 lần** đúng id; refetch asset; toast VI thành công |
-| `assetDetailQrRegenerate.test.ts::cancel_noop` | bấm "Huỷ" | đóng modal; **0** API call; KHÔNG đổi gì |
-| `assetDetailQrRegenerate.test.ts::error_403_no_leak` | mock API 403 | toast/alert lỗi VI; KHÔNG leak token/mã EN/raw method |
+| `AssetDetailView.qrRegenerate.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG rotate) | nút "Sinh lại mã QR" KHÔNG render |
+| `AssetDetailView.qrRegenerate.test.ts` (D6) | mock caps `{asset.print:true}` (in được, KHÔNG rotate) | nút "Sinh lại mã QR" KHÔNG render (tách quyền) |
+| `AssetDetailView.qrRegenerate.test.ts` (D6) | mock caps `{asset.qr.rotate:true}` | nút "Sinh lại mã QR" render |
+| `AssetDetailView.qrRegenerate.test.ts::click_opens_modal_no_confirm_no_api` | click nút | **KHÔNG** gọi `window.confirm`; mở `BaseModal` cảnh báo "vô hiệu hoá mọi nhãn QR đã in"; API **chưa** gọi |
+| `AssetDetailView.qrRegenerate.test.ts::confirm_calls_api_refetch_toast` | bấm "Xác nhận" | `regenerateAssetQrToken(id)` gọi **1 lần** đúng id; refetch asset; toast VI thành công |
+| `AssetDetailView.qrRegenerate.test.ts::cancel_noop` | bấm "Huỷ" | đóng modal; **0** API call; KHÔNG đổi gì |
+| `AssetDetailView.qrRegenerate.test.ts::error_403_no_leak` | mock API 403 | toast/alert lỗi VI; KHÔNG leak token/mã EN/raw method |
 
 > **DoD B-2:** `bench --site miyano run-tests test_imm00` GREEN (baseline **116** + class mới); `bench migrate` sạch (enum ALE +`qr_regenerated`, KHÔNG destructive); `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`; vue-tsc 0; vitest GREEN (baseline + TC FE mới). Grep-guard: 0 occurrence token thô trong `change_summary`/`notes` của `emit_qr_regenerated`.
 
@@ -986,7 +986,7 @@ File BE: thêm class `TestQrRegenerateRateLimit` vào `assetcore/tests/test_imm0
 
 ### III.6.d-FE429 — Vòng 27 B: FE map 429 → bucket VI trên rotate (FR-00-87/88) — **NEW**
 
-File FE: `frontend/src/api/errors.test.ts` (httpStatusToCode) + `frontend/src/views/asset/assetDetailQrRegenerate.test.ts` (mở rộng — cạnh TC B-2 hiện có). Spec: [`06 §II.3e-RATELIMIT`](./06_Frontend_Design.md) + [`02 FR-00-87/88`](./02_Analysis_Design.md).
+File FE: `frontend/src/api/tests/errors.test.ts` (httpStatusToCode) + `frontend/src/views/asset/tests/AssetDetailView.qrRegenerate.test.ts` (mở rộng — cạnh TC B-2 hiện có). Spec: [`06 §II.3e-RATELIMIT`](./06_Frontend_Design.md) + [`02 FR-00-87/88`](./02_Analysis_Design.md).
 
 | TC (FE vitest) | Kịch bản | Expect |
 |---|---|---|
@@ -1073,7 +1073,7 @@ File BE: class `TestGenerateUniqueQrToken` trong `assetcore/tests/test_imm00.py`
 
 ### III.6.f — Vòng 21 B: Open-redirect safety trên login deep-link (BR-00-32) — **NEW**
 
-File FE: helper `frontend/src/utils/navigation.ts::isSafeInternalRedirect` (NEW export, thuần) + block redirect-safety trong `frontend/src/views/auth/LoginView.test.ts`. **FE-only** — KHÔNG đổi BE/DocType/route/schema/patch; `bench`/`test_imm00` baseline KHÔNG đụng. Spec contract: [`06 §II.4c`](./06_Frontend_Design.md) + [`02 BR-00-32`](./02_Analysis_Design.md). **RED-first** (helper chưa tồn tại → import fail / assert đỏ → impl → GREEN).
+File FE: helper `frontend/src/utils/navigation.ts::isSafeInternalRedirect` (NEW export, thuần) + block redirect-safety trong `frontend/src/views/auth/tests/LoginView.test.ts`. **FE-only** — KHÔNG đổi BE/DocType/route/schema/patch; `bench`/`test_imm00` baseline KHÔNG đụng. Spec contract: [`06 §II.4c`](./06_Frontend_Design.md) + [`02 BR-00-32`](./02_Analysis_Design.md). **RED-first** (helper chưa tồn tại → import fail / assert đỏ → impl → GREEN).
 
 **Cốt lõi hạ tầng test:** unit-test helper thuần KHÔNG cần DOM (gọi `isSafeInternalRedirect(raw)` trực tiếp → boolean). Test LoginView 2 call-site: (a) **onMounted đã-auth** — mount với `auth.isAuthenticated=true` + `route.query.redirect=<payload>` → assert `router.push` nhận `/dashboard` (REJECT) hoặc payload (ACCEPT); (b) **sau-login-OK** — mock `auth.login()→true` + `route.query.redirect=<payload>` → submit → assert `router.push` đích đúng. Mock `useRoute`/`useRouter` (pattern hiện có trong `LoginView.test.ts`).
 
@@ -1667,7 +1667,7 @@ Source JSON (`assetcore/assetcore/workflow/ac_asset_lifecycle_workflow.json`) �
 
 ### TC-00-WF-SURFACE — `allowed_transitions` server-driven get_asset + FE render (CR-WF-00-LIFECYCLE-SURFACE, Vòng 41 / FR-00-109 / BR-00-58) — **NEW**
 
-> Spec: [`04_Backend_Design.md §II.1.7-SURFACE + ADR-IMM00-LIFECYCLE-SURFACE`](./04_Backend_Design.md) + [`05_API_Specification.md §get_asset`](./05_API_Specification.md). File BE `test_imm00.py`, FE `assetDetailTransitionAuthz.test.ts` + `AssetDetailView.test.ts`.
+> Spec: [`04_Backend_Design.md §II.1.7-SURFACE + ADR-IMM00-LIFECYCLE-SURFACE`](./04_Backend_Design.md) + [`05_API_Specification.md §get_asset`](./05_API_Specification.md). File BE `test_imm00.py`, FE `AssetDetailView.transitionAuthz.test.ts` + `AssetDetailView.test.ts`.
 
 **TC-00-WF-SURFACE-01 — `_surfaceable_asset_transitions` DRIVER cho reconcile-test (single-SSoT, no 2nd copy):** Trong `TC-00-WF-RECON-01` (`test_asset_lifecycle_map_matches_workflow`) THAY biểu thức inline `set(nexts) − exc_codom` bằng gọi `_surfaceable_asset_transitions(s)` → assert `_surfaceable_asset_transitions(s) == sorted(wf_codomain[s])` cho mọi state `s`. Chứng minh helper PURE = Desk workflow codomain (GỒM 2 cạnh Thanh lý `Active/Out of Service → Decommissioned`). *(Không tạo bản-sao-thứ-2 bảng transition — dẫn xuất từ `_VALID_ASSET_TRANSITIONS` + `_LIFECYCLE_EXCEPTION_EDGES`.)*
 
@@ -1678,7 +1678,7 @@ Source JSON (`assetcore/assetcore/workflow/ac_asset_lifecycle_workflow.json`) �
 **TC-00-WF-SURFACE-04 — `get_asset` emit field:** GET `get_asset(name)` với asset ở status non-terminal + caller có `asset.write` → response chứa key `allowed_transitions` = list đúng theo status (subset, sorted, no Decommissioned). Caller read-only → `allowed_transitions == []`. (Parity 2 cờ overdue: field dẫn-xuất, KHÔNG lưu DB.)
 
 **TC-00-WF-SURFACE-05 — FE vitest (server-driven, no hardcode):**
-- `AssetDetailView.test.ts` / `assetDetailTransitionAuthz.test.ts`: mock `store.currentAsset.allowed_transitions` → nút "→ <state>" render **đúng bằng** list mock (KHÔNG phụ thuộc `lifecycle_status` thô, KHÔNG phụ thuộc bảng hardcode đã xóa). Cập nhật mock `currentAsset` (`lifecycle_status: 'Active'`) THÊM `allowed_transitions: ['Under Maintenance','Under Repair','Calibrating','Out of Service']`.
+- `AssetDetailView.test.ts` / `AssetDetailView.transitionAuthz.test.ts`: mock `store.currentAsset.allowed_transitions` → nút "→ <state>" render **đúng bằng** list mock (KHÔNG phụ thuộc `lifecycle_status` thô, KHÔNG phụ thuộc bảng hardcode đã xóa). Cập nhật mock `currentAsset` (`lifecycle_status: 'Active'`) THÊM `allowed_transitions: ['Under Maintenance','Under Repair','Calibrating','Out of Service']`.
 - T6 (affordance-leak guard, thay đổi contract): server `[]` (read-only) → `currentAsset.allowed_transitions = []` → **KHÔNG render** nút →state nào (block ẩn theo `allowed_transitions?.length`). *(Chứng minh gate chuyển từ client-cap sang server-field; capability filter chứng minh ở BE TC-03.)*
 - Happy-path + FE-2 (403 → `notify.fromError`) của CR-WF-00-TRANSITION-AUTHZ (Vòng 39) GIỮ NGUYÊN (endpoint `transition_status` vẫn gate server).
 - Guard chống tái phạm: `grep`/AST khẳng định `AssetDetailView.vue` KHÔNG còn `const TRANSITIONS` (0 bảng transition hardcode FE).
@@ -1687,7 +1687,7 @@ Source JSON (`assetcore/assetcore/workflow/ac_asset_lifecycle_workflow.json`) �
 ### DoD (không regression 8 file tham chiếu map)
 `bench --site miyano run-tests` cho `imm00 / imm08 / imm09 / imm11 / imm14 / test_depreciation_oos` → `Ran N OK` THẬT (đọc dòng cuối). Chuỗi phải còn hợp lệ: CM `Cannot Repair`→`Out of Service`→`Decommission` (qua IMM-14) · PM `Under Maintenance`→`Active` · Cal→`Active`. 8 file tham chiếu map: `test_imm00, test_imm00_smoke, test_imm08, test_imm09, test_imm11, test_imm14, test_depreciation_oos, _asset_cleanup`. **KHÔNG** `git commit/push`; **KHÔNG** `bench migrate` (đổi workflow chỉ cần `reload_workflow`/backfill live — HARD-STOP user duyệt working tree).
 
-> **DoD bổ sung Vòng 41 (CR-WF-00-LIFECYCLE-SURFACE):** BE `bench --site miyano run-tests test_imm00` (`Ran N OK` — gồm reconcile TC-00-WF-RECON-01 nay driven bởi `_surfaceable_asset_transitions` + TC-00-WF-SURFACE-01..04 + guards R32/R39 cũ). FE `npm test` (vitest) `AssetDetailView` + `assetDetailTransitionAuthz.test.ts` XANH + `vue-tsc --noEmit` sạch. `⚠️ api/imm00.py + services/imm00.py` edit ⇒ gunicorn reload để LIVE (HARD-STOP user); `bench run-tests` fresh-import KHÔNG cần reload. Guard: `AssetDetailView.vue` KHÔNG còn `const TRANSITIONS` (0 bảng transition hardcode FE).
+> **DoD bổ sung Vòng 41 (CR-WF-00-LIFECYCLE-SURFACE):** BE `bench --site miyano run-tests test_imm00` (`Ran N OK` — gồm reconcile TC-00-WF-RECON-01 nay driven bởi `_surfaceable_asset_transitions` + TC-00-WF-SURFACE-01..04 + guards R32/R39 cũ). FE `npm test` (vitest) `AssetDetailView` + `AssetDetailView.transitionAuthz.test.ts` XANH + `vue-tsc --noEmit` sạch. `⚠️ api/imm00.py + services/imm00.py` edit ⇒ gunicorn reload để LIVE (HARD-STOP user); `bench run-tests` fresh-import KHÔNG cần reload. Guard: `AssetDetailView.vue` KHÔNG còn `const TRANSITIONS` (0 bảng transition hardcode FE).
 
 ## XIII. TRANSFER-AUTHZ — gate `confirm_receipt` + server-driven CTA flags (CR-WF-00-TRANSFER-AUTHZ, Vòng 48 / FR-00-TRF-02 / BR-00-TRF-02)
 
@@ -1721,7 +1721,7 @@ Source JSON (`assetcore/assetcore/workflow/ac_asset_lifecycle_workflow.json`) �
 
 ## XIV. TRANSFER-CANCEL-AUTHZ — gate `cancel_transfer_request` + audit-on-cancel + flag `can_cancel` (CR-WF-00-CANCEL-AUTHZ, Vòng 41 / FR-00-TRF-03 / BR-00-TRF-03)
 
-> Spec: 04 §II.1.13-CANCELAUTHZ / ADR-IMM00-CANCEL-AUTHZ · 05 §III.12-CANCELAUTHZ · 06 §II.3a-CANCELAUTHZ. Test file: `assetcore/tests/test_imm00.py` (BE — class MỚI `TestTransferCancelAuthz`, mirror `TestTransferReceiveAuthzAndFlags` `:690`) + `assetTransferDetailCtaGate.test.ts` (FE). Helper tái dùng `_mk_transfer(status)` / `_mk_user(email, roles)` từ class receive.
+> Spec: 04 §II.1.13-CANCELAUTHZ / ADR-IMM00-CANCEL-AUTHZ · 05 §III.12-CANCELAUTHZ · 06 §II.3a-CANCELAUTHZ. Test file: `assetcore/tests/test_imm00.py` (BE — class MỚI `TestTransferCancelAuthz`, mirror `TestTransferReceiveAuthzAndFlags` `:690`) + `AssetTransferDetailView.ctaGate.test.ts` (FE). Helper tái dùng `_mk_transfer(status)` / `_mk_user(email, roles)` từ class receive.
 
 ### TC-00-TRF-CANCEL-01 — RED-first: base user KHÔNG có cap → `cancel_transfer_request` raise PermissionError (đóng lỗ P1 missing-authz)
 - **Setup**: phiếu `Asset Transfer` status `Pending Approval`; `frappe.set_user(<base AssetCore System User, KHÔNG Commissioning role>)`.
@@ -1970,7 +1970,7 @@ Fixture rỗng ⇒ `0 == 0` XANH vacuous. Mỗi TC row-scope phải **seed ≥ 2
 - `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections` **XANH** (11 TC, **0 assert bị sửa**).
 - `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_tree` **XANH**.
 - `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_doctype_connectivity` **XANH** (không sửa file).
-- `npx vitest run src/components/common/RelatedRecords.test.ts src/api` **XANH**; `npx vue-tsc --noEmit` 0 lỗi.
+- `npx vitest run src/components/common/tests/RelatedRecords.test.ts src/api` **XANH**; `npx vue-tsc --noEmit` 0 lỗi.
 - `git diff --name-only` **chỉ** chứa: `assetcore/api/connections.py` · `assetcore/services/connections.py` · `assetcore/services/shared/connection_meta.py` · `assetcore/tests/test_connections_tree.py` · `frontend/src/api/connections.ts` · (nếu suite thật lệch) file guard count · docs vòng này.
 - Guard count (`_EXPECTED_TEST_COUNT` @`tests/test_mobile_oas.py:212` · `_GUARD_SUITE_SUM` @`tests/test_mobile_docset.py:956`): cập theo **DELTA**, đọc số **trên đĩa** ngay trước khi sửa — số trong spec/STATE luôn có thể stale (đọc 2026-07-27: `1024` / `1167`). Endpoint này **không** có mirror OAS ⇒ nếu file test mới không thuộc guard-suite thì **KHÔNG** đụng 3 hằng.
 - ⏱ Mọi lệnh `bench run-tests` đặt timeout tool **≥ 600000ms** — kill giữa chừng = `tearDownClass` không chạy = **nhiễm DB**, KHÔNG phải bug sản phẩm.
@@ -1979,7 +1979,7 @@ Fixture rỗng ⇒ `0 == 0` XANH vacuous. Mỗi TC row-scope phải **seed ≥ 2
 ### XVIII.4 AC-CR-88 (vòng 2/5 — FE): test RENDER cho `RelatedRecords.vue` (INV-CONNFE-1..11)
 
 > Spec thực thi: [`06 §VIII.4.2`](./06_Frontend_Design.md) · quyết định: [`ADR-IMM00-CONNECTIONS-TREE.md` §10](./ADR-IMM00-CONNECTIONS-TREE.md).
-> **File**: `frontend/src/components/common/RelatedRecords.test.ts` (**VIẾT LẠI** — test cũ khoá card chrome + dòng "Tổng 3" nay đã bị D-FE-1 gỡ) · `frontend/src/api/connections.test.ts` (**CHỈ APPEND** ca helper; 4 describe cũ về `DOCTYPE_ROUTE`/`DOCTYPE_DETAIL_ROUTE` **không được sửa một assert nào** — chúng là guard chống link chết).
+> **File**: `frontend/src/components/common/tests/RelatedRecords.test.ts` (**VIẾT LẠI** — test cũ khoá card chrome + dòng "Tổng 3" nay đã bị D-FE-1 gỡ) · `frontend/src/guards/connectionsApi.guard.test.ts` (**CHỈ APPEND** ca helper; 4 describe cũ về `DOCTYPE_ROUTE`/`DOCTYPE_DETAIL_ROUTE` **không được sửa một assert nào** — chúng là guard chống link chết).
 > Lệnh chấm: `cd frontend && npx vitest run` (0 fail) + `npx vue-tsc --noEmit` (0 lỗi). **KHÔNG** `npm run build` (= deploy live).
 
 **Fixture chuẩn (dựng trong file test, KHÔNG phải bản đồ sản phẩm):** `PAYLOAD_20` = 1 payload phủ **toàn bộ 20 khoá** của `DOCTYPE_ROUTE`, mỗi ô có `label_vi` tiếng Việt + `total>0` + ≥1 dòng `items[]`. Việc nhãn VI nằm trong fixture là hợp lệ (SSoT thật vẫn là `connection_meta.LABEL_VI` ở BE — INV-CONN-7 canh phía BE).
@@ -2002,7 +2002,7 @@ Fixture rỗng ⇒ `0 == 0` XANH vacuous. Mỗi TC row-scope phải **seed ≥ 2
 | **TC-CONNFE-14** | Nhóm toàn ô `total:0` ⇒ **0** phần tử bấm được ∧ **0** `conn-row` trong nhóm ∧ có `conn-empty-summary` chứa nhãn **tiếng Việt** của các ô rỗng | INV-CONNFE-2 | A6 |
 | **TC-CONNFE-15** | Ô `{can_create:false, create_route_hint:''}` ⇒ trong **phạm vi ô đó** không tồn tại `[data-testid="conn-create"]` (test còn đúng sau vòng 4) | INV-CONNFE-11 | A7 |
 | **TC-CONNFE-16** | Trạng thái phụ trợ: đang tải ⇒ `conn-loading`; API reject ⇒ `conn-error` + nút «Thử lại» ⇒ click gọi lại `getConnections` và render thành công; `groups: []` ⇒ câu tiếng Việt có nghĩa; **không** exception thoát ra ngoài component | — | A8 |
-| **TC-CONNFE-17** | *(unit, append vào `connections.test.ts`)* `connectionLabel` 3 bậc · `connectionCounts` (badge `100+` · band rỗng khi `shown===0` · `truncated` suy ra khi BE cũ) · `deepLinkQuery` (`{}` giữ nguyên `{}` · loại value mảng · ép `String(number)`) · `canSeeAll` (3 điều kiện) | INV-CONNFE-6..9 | A9 |
+| **TC-CONNFE-17** | *(unit, append vào `connectionsApi.guard.test.ts`)* `connectionLabel` 3 bậc · `connectionCounts` (badge `100+` · band rỗng khi `shown===0` · `truncated` suy ra khi BE cũ) · `deepLinkQuery` (`{}` giữ nguyên `{}` · loại value mảng · ép `String(number)`) · `canSeeAll` (3 điều kiện) | INV-CONNFE-6..9 | A9 |
 
 **Chống test giả xanh (đọc trước khi khai DONE):**
 - TC-CONNFE-01 phải **loop `Object.keys(DOCTYPE_ROUTE)`**, không liệt kê tay 20 chuỗi — thêm doctype vào bảng route mà quên nhãn phải **đỏ tự động**.
@@ -2014,7 +2014,7 @@ Fixture rỗng ⇒ `0 == 0` XANH vacuous. Mỗi TC row-scope phải **seed ≥ 2
 ### XVIII.5 AC-CR-89 (vòng 3/5 — FE): TAB riêng + mount lười ở 5 màn Detail (INV-CONNTAB-1..12)
 
 > Quyết định: [`ADR-IMM00-CONNECTIONS-TREE.md` §11](./ADR-IMM00-CONNECTIONS-TREE.md) (D-TAB-1..12) · spec thực thi: [`06 §VIII.5`](./06_Frontend_Design.md) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) (FR-00-CONN-02 / BR-00-CONN-18..24).
-> **File test**: `frontend/src/views/detailRelatedTab.test.ts` (**MỚI** — guard vị trí + mount lười + ẩn thân trang + prop + nhãn, dùng chung cho 5 màn) · `frontend/src/components/common/DetailTabBar.test.ts` (**MỚI** — unit a11y/RWD) · `frontend/src/views/asset/assetDetailTabBarResponsive.test.ts` (**CẬP NHẬT** — 6 tab, class chấm trên `DetailTabBar.vue`) · `frontend/src/views/detailReadForbiddenGate.test.ts` (**KHÔNG SỬA MỘT ASSERT NÀO** — nó là bằng chứng A7).
+> **File test**: `frontend/src/views/detailRelatedTab.test.ts` (**MỚI** — guard vị trí + mount lười + ẩn thân trang + prop + nhãn, dùng chung cho 5 màn) · `frontend/src/components/common/tests/DetailTabBar.test.ts` (**MỚI** — unit a11y/RWD) · `frontend/src/views/asset/tests/AssetDetailView.tabBarResponsive.test.ts` (**CẬP NHẬT** — 6 tab, class chấm trên `DetailTabBar.vue`) · `frontend/src/integration/detailReadForbiddenGate.integration.test.ts` (**KHÔNG SỬA MỘT ASSERT NÀO** — nó là bằng chứng A7).
 > Lệnh chấm: `cd frontend && npx vitest run` (0 fail toàn suite) + `npx vue-tsc --noEmit` (0 lỗi). **KHÔNG** `npm run build` (= deploy live).
 
 **Hằng số dùng chung của file test (SSoT của guard — thêm màn Detail thứ 6 phải thêm vào đây):**
@@ -2039,9 +2039,9 @@ const DETAIL_VIEWS = [
 | **TC-CONNTAB-06** | Đổi tab qua-lại 1 vòng ⇒ spy nạp chi tiết gọi **đúng 1** lần: PM `fetchWorkOrder`, Sự cố `getIncident` | INV-CONNTAB-8 | A4 |
 | **TC-CONNTAB-07** | *(loop 5 màn, stub `RelatedRecords` ghi lại props)* mở tab liên quan ⇒ `findComponent(Stub).props()` khớp **đúng** cặp: `AC Asset`/`store.currentAsset.name` · `PM Work Order`/`wo.name` · `Asset Repair`/`wo.name` · `IMM Asset Calibration`/`props.id` · `Incident Report`/`name` | INV-CONNTAB-9 | A5 |
 | **TC-CONNTAB-08** | Nhãn tab: `DETAIL_RELATED_TABS` = đúng `[Chi tiết, Bản ghi liên quan]`; DOM tab bar của **cả 5** màn ⇒ text ⊂ tập nhãn VI đã duyệt, **không** chứa bất kỳ `doctype` nào của `DETAIL_VIEWS`, **không** chứa `[A-Za-z]{3,}` ngoài danh sách VI cho phép (ví dụ hợp lệ duy nhất ở màn Tài sản: nhãn cũ giữ nguyên) | INV-CONNTAB-10 | A6 |
-| **TC-CONNTAB-09** | Gác: (a) trạng thái đang tải ⇒ `[data-testid="detail-tab-bar"]` **không tồn tại** ở cả 5 màn; (b) 403 in-envelope (fixture của `detailReadForbiddenGate`) ⇒ **không** tab bar ∧ **không** `related-records`; (c) `detailReadForbiddenGate.test.ts` chạy lại **xanh, 0 assert bị sửa** | INV-CONNTAB-12 | A7 |
+| **TC-CONNTAB-09** | Gác: (a) trạng thái đang tải ⇒ `[data-testid="detail-tab-bar"]` **không tồn tại** ở cả 5 màn; (b) 403 in-envelope (fixture của `detailReadForbiddenGate`) ⇒ **không** tab bar ∧ **không** `related-records`; (c) `detailReadForbiddenGate.integration.test.ts` chạy lại **xanh, 0 assert bị sửa** | INV-CONNTAB-12 | A7 |
 | **TC-CONNTAB-10** | *(unit `DetailTabBar.test.ts`)* `role="tablist"` **1** phần tử; mỗi nút `role="tab"` + `type="button"`; **đúng 1** nút `aria-selected="true"` và nó là tab đang chọn; click nút phát `update:modelValue` với **đúng** `key`; container class chứa `overflow-x-auto`; nút chứa `shrink-0` ∧ `whitespace-nowrap` | INV-CONNTAB-11 | A8 |
-| **TC-CONNTAB-11** | *(cập nhật `assetDetailTabBarResponsive.test.ts`)* `AssetDetailView.vue` khai **6** khoá tab (5 cũ + `related`) ∧ nhãn `Bản ghi liên quan` có mặt; phần class cuộn ngang (`overflow-x-auto` · `shrink-0`/`whitespace-nowrap`) chấm trên **`DetailTabBar.vue`**; bỏ `overflow-x-auto` ở component ⇒ test **phải đỏ** (tự kiểm bằng cách sửa tạm rồi hoàn nguyên) | INV-CONNTAB-11 | A9 |
+| **TC-CONNTAB-11** | *(cập nhật `AssetDetailView.tabBarResponsive.test.ts`)* `AssetDetailView.vue` khai **6** khoá tab (5 cũ + `related`) ∧ nhãn `Bản ghi liên quan` có mặt; phần class cuộn ngang (`overflow-x-auto` · `shrink-0`/`whitespace-nowrap`) chấm trên **`DetailTabBar.vue`**; bỏ `overflow-x-auto` ở component ⇒ test **phải đỏ** (tự kiểm bằng cách sửa tạm rồi hoàn nguyên) | INV-CONNTAB-11 | A9 |
 | **TC-CONNTAB-12** | *(sentinel biên thay đổi)* `RelatedRecords.vue` **không** chứa `tab-panel` / `DetailTabBar`; `api/connections.ts` **không** chứa `activeTab` — hợp đồng vòng 1+2 còn đóng băng. *(Đây là **proxy**; bằng chứng chính của A10 là `git diff --name-only` ở DoD.)* | — | A10 |
 | **TC-CONNTAB-13** | Màn Tài sản: mount ⇒ tab mặc định `info`, `getConnections` **0** lần (trước vòng này là **1** — đây là điểm đo rõ nhất của cải thiện); mở tab `related` ⇒ **1** lần ∧ panel `info` **không** còn chứa `related-records` | INV-CONNTAB-3/4 | A2 |
 | **TC-CONNTAB-14** | Màn CM: chuỗi `v-if` cũ còn nguyên — `store.loading && !wo` ⇒ khung xương ∧ **0** tab bar; `loadBlocked` ⇒ `detail-load-error` ∧ **0** tab bar; `wo` ⇒ có tab bar ∧ lưới `md:grid-cols-5` nằm **trong** `tab-panel-detail` | INV-CONNTAB-12 | A7 |
@@ -2054,7 +2054,7 @@ const DETAIL_VIEWS = [
 - **Style của `v-show`**: khi panel đang hiện, `attributes('style')` có thể là `undefined` hoặc `''` ⇒ assert `not.toContain('display: none')`, **không** assert bằng `toBe('')`.
 - **TC-CONNTAB-05 đọc `element.value` từ DOM**, không đọc `vm.techNotes`: ref sống sót không chứng minh input còn giá trị nếu panel bị unmount rồi tạo lại.
 - **TC-CONNTAB-01 phải loop `DETAIL_VIEWS`**, không viết 5 `it()` chép tay — thêm màn Detail thứ 6 mà quên tab phải **đỏ tự động** (đó là toàn bộ giá trị của guard này).
-- **TC-CONNTAB-09(c)**: nếu `detailReadForbiddenGate.test.ts` đỏ, **sửa view**, tuyệt đối không sửa assert của nó — đỏ ở đó nghĩa là tab bar đang render trên phiếu bị từ chối đọc (nút tab chết).
+- **TC-CONNTAB-09(c)**: nếu `detailReadForbiddenGate.integration.test.ts` đỏ, **sửa view**, tuyệt đối không sửa assert của nó — đỏ ở đó nghĩa là tab bar đang render trên phiếu bị từ chối đọc (nút tab chết).
 - **Đếm file test**: toàn suite phải đi từ ≥268 lên ≥273 file; suite giảm hoặc đứng yên ⇒ có file bị ghi đè nhầm.
 
 ---
@@ -2140,18 +2140,18 @@ const DETAIL_VIEWS = [
 ### XVIII.7 AC-CR-91 (vòng 5/5 — FE): «Xem tất cả» dẫn tới danh sách **ĐÃ LỌC** (INV-CONNFE5-1..11 · INV-CONN-16/17)
 
 > Quyết định: [ADR §13](./ADR-IMM00-CONNECTIONS-TREE.md) · spec FE: [`06 §VIII.7`](./06_Frontend_Design.md).
-> **File test FE**: `frontend/src/router/connectionsListParity.test.ts` (**MỚI** — guard tĩnh) + `api/connections.test.ts` (**append** + **1 assert sửa**) + `components/common/RelatedRecords.test.ts` (**append**) + test render 2 màn wire.
+> **File test FE**: `frontend/src/guards/connectionsListParity.guard.test.ts` (**MỚI** — guard tĩnh) + `api/connectionsApi.guard.test.ts` (**append** + **1 assert sửa**) + `components/common/RelatedRecords.test.ts` (**append**) + test render 2 màn wire.
 > **File test BE**: `assetcore/tests/test_connections_tree.py` (**chỉ append 2 TC**). **Payload BE 0 thay đổi** ⇒ `test_connections.py` (11 TC) **không sửa một dòng nào**.
 
 #### XVIII.7.1 Vì sao 4 vòng test xanh vẫn để lọt 13/16 ô
 
 `INV-CONNFE-6` chỉ đòi *"ô có ≥ 1 khoá lọc"* — nó đếm **sự tồn tại của khoá**, không hỏi **khoá đó có ai đọc không**. Nút vẫn render, `router.push` vẫn đúng đối số, test vẫn xanh — trong khi màn đích **bỏ qua** query. Đây là *test đúng mệnh đề sai*: mệnh đề cần là **"khoá tới được nơi có người đọc"**.
 
-Vòng 4 đã bịt đúng lỗ này cho nhánh **tạo** (`connectionsCreateParity.test.ts`: đối chiếu khoá ⇄ `route.query.<key>` trong **chính** file view). Vòng 5 mang **nguyên khuôn** đó sang nhánh **danh sách**. Bài học chung: *deep-link chỉ được chấm xanh khi guard đọc tới file view của route đích* — không có đường tắt nào rẻ hơn mà đúng.
+Vòng 4 đã bịt đúng lỗ này cho nhánh **tạo** (`connectionsCreateParity.guard.test.ts`: đối chiếu khoá ⇄ `route.query.<key>` trong **chính** file view). Vòng 5 mang **nguyên khuôn** đó sang nhánh **danh sách**. Bài học chung: *deep-link chỉ được chấm xanh khi guard đọc tới file view của route đích* — không có đường tắt nào rẻ hơn mà đúng.
 
-#### XVIII.7.2 Guard tĩnh MỚI — `frontend/src/router/connectionsListParity.test.ts`
+#### XVIII.7.2 Guard tĩnh MỚI — `frontend/src/guards/connectionsListParity.guard.test.ts`
 
-Mirror `connectionsCreateParity.test.ts`: đọc `src/router/index.ts` bằng phân tích văn bản → cắt block route theo `path: '<p>'` → lấy file view từ `component: () => import('@/…')` → `readFileSync` file view → assert.
+Mirror `connectionsCreateParity.guard.test.ts`: đọc `src/router/index.ts` bằng phân tích văn bản → cắt block route theo `path: '<p>'` → lấy file view từ `component: () => import('@/…')` → `readFileSync` file view → assert.
 
 | TC | Nội dung | INV |
 |---|---|---|
@@ -2164,7 +2164,7 @@ Mirror `connectionsCreateParity.test.ts`: đọc `src/router/index.ts` bằng ph
 > ⚠️ **Cách TC-CONNLIST-03 được phép ĐỎ:** một view trong allowlist bắt đầu đọc `route.query.asset` ⇒ **đỏ có chủ đích** ⇒ người sửa phải **thăng hạng** doctype đó sang `DOCTYPE_LIST_TARGET` (allowlist chỉ được **giảm**, không được phình). Đỏ ở đây **không** phải guard hỏng.
 > ⚠️ `routeBlock()` cắt tới `path: '` kế tiếp ⇒ **thứ tự khai route quan trọng**. `/incidents/list` phải được tìm bằng chuỗi **chính xác** `path: '/incidents/list'` (đừng khớp tiền tố `/incidents`), và `/rca` đừng khớp nhầm `/rca/:id`. Dùng so khớp **nguyên chuỗi có nháy đóng**.
 
-#### XVIII.7.3 Test thuần (`api/connections.test.ts` — append + **1 assert sửa**)
+#### XVIII.7.3 Test thuần (`api/connectionsApi.guard.test.ts` — append + **1 assert sửa**)
 
 | TC | Nội dung | INV |
 |---|---|---|
@@ -2228,7 +2228,7 @@ Hai TC này đóng đinh chính hai giả định mà `listTarget` dựa vào. V
 ### XVIII.8 AC-CR-93 (FE): **chỉ render ô có dữ liệu** + ô rỗng gộp một dòng/nhóm (INV-CONNFE6-1..9)
 
 > Quyết định: [ADR §14](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR93-1..7 · §14.7 danh mục supersede · §14.8 breakage) · spec thực thi: [`06 §VIII.8`](./06_Frontend_Design.md) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) (FR-00-CONN-04 / BR-00-CONN-35..41).
-> **File test**: `frontend/src/components/common/RelatedRecords.test.ts` (**append 7 TC + đúng 1 TC sửa** — TC-FE-CONN-10 `:283`, xem §XVIII.8.4) · `frontend/src/api/connections.test.ts` (**chỉ append** 4 TC helper thuần; **0** assert cũ bị sửa).
+> **File test**: `frontend/src/components/common/tests/RelatedRecords.test.ts` (**append 7 TC + đúng 1 TC sửa** — TC-FE-CONN-10 `:283`, xem §XVIII.8.4) · `frontend/src/guards/connectionsApi.guard.test.ts` (**chỉ append** 4 TC helper thuần; **0** assert cũ bị sửa).
 > **Quy ước số hiệu (chốt để không sinh hệ thứ ba)**: TC render/unit của họ Connections đánh số **tiếp** theo *file test đã ship* — `TC-FE-CONN-24..30` (render) và `TC-FE-CONN-40..43` (unit). Hệ `TC-CONNFE-xx` / `TC-CONNFE5-xx` ở §XVIII.4/§XVIII.7 là **tên tài liệu của vòng 2/5**, giữ nguyên để truy vết, **không** dùng cho TC mới.
 > Lệnh chấm: `cd frontend && npx vitest run` (0 fail toàn suite) + `npx vue-tsc --noEmit` (0 lỗi). **KHÔNG** `npm run build` (= deploy live) · **KHÔNG** chạy suite BE (vòng FE-thuần; phải chạy = scope sai).
 
@@ -2254,7 +2254,7 @@ Fixture 2 ô **không đủ**: acceptance đòi *giảm ≥ 84%* và *số tiêu
 | **TC-FE-CONN-29** | Payload **mọi** ô `total:0` (groups **không** rỗng) ⇒ **0** `conn-item` ∧ text chứa `Chưa có bản ghi nào liên quan tới hồ sơ này.` ∧ `findAll('[data-testid="conn-empty-summary"]').length >= 1` ∧ `(vm as {total:number}).total === 0` | INV-CONNFE6-7 | AC5 |
 | **TC-FE-CONN-30** | Trạng thái phụ trợ **không** được nói "chưa có": đang tải (promise chưa resolve) ⇒ **0** `conn-empty-summary`; API reject ⇒ **0** `conn-empty-summary` ∧ vẫn có nút «Thử lại»; `groups: []` ⇒ câu VI ∧ **0** `conn-empty-summary` | INV-CONNFE6-7 | AC5 |
 
-#### XVIII.8.3 Test HELPER thuần (`api/connections.test.ts` — chỉ append)
+#### XVIII.8.3 Test HELPER thuần (`api/connectionsApi.guard.test.ts` — chỉ append)
 
 | TC | Nội dung | INV |
 |---|---|---|
@@ -2288,8 +2288,8 @@ Fixture 2 ô **không đủ**: acceptance đòi *giảm ≥ 84%* và *số tiêu
 ### XVIII.9 AC-CR-94 (FE + 1 nhánh BE): deep-link **ĐẾN ĐÍCH** 2 màn LỊCH + `count == drill` **cross-endpoint** (INV-CONN-18..22 · INV-CONNFE7-1..8)
 
 > Quyết định: [`ADR-IMM00-CONNECTIONS-TREE.md` §15](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR94-1..9) · FE: [`06 §VIII.9`](./06_Frontend_Design.md) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) FR-00-CONN-05 / BR-00-CONN-42..49 · hợp đồng drill: [`05 §III.24.8`](./05_API_Specification.md).
-> **File test**: `assetcore/tests/test_connections_tree.py` (**append 2 TC + sửa ĐÚNG 1 assert vacuous**, xem §XVIII.9.4) · `frontend/src/api/connections.test.ts` (**chỉ append**) · `frontend/src/views/pm/pmScheduleListDeepLink.test.ts` + `frontend/src/views/calibration/calibrationScheduleListDeepLink.test.ts` (**MỚI** — hoặc append vào 2 file drilldown có sẵn).
-> **CẤM sửa**: `frontend/src/router/connectionsListParity.test.ts` (guard xanh **là** bằng chứng thăng hạng) · `assetcore/tests/test_connections.py` (11 TC hợp đồng cũ).
+> **File test**: `assetcore/tests/test_connections_tree.py` (**append 2 TC + sửa ĐÚNG 1 assert vacuous**, xem §XVIII.9.4) · `frontend/src/guards/connectionsApi.guard.test.ts` (**chỉ append**) · `frontend/src/views/pm/tests/PmScheduleListView.deepLink.test.ts` + `frontend/src/views/calibration/calibrationScheduleListDeepLink.test.ts` (**MỚI** — hoặc append vào 2 file drilldown có sẵn).
+> **CẤM sửa**: `frontend/src/guards/connectionsListParity.guard.test.ts` (guard xanh **là** bằng chứng thăng hạng) · `assetcore/tests/test_connections.py` (11 TC hợp đồng cũ).
 > **Quy ước số hiệu (tiếp theo §XVIII.8, không sinh hệ thứ ba)**: BE `TC-CONN-T-25/26` · FE render `TC-FE-CONN-31..36` · FE unit `TC-FE-CONN-44/45`.
 
 #### XVIII.9.1 Fixture BE — **ràng buộc schema phải tôn trọng, nếu không cháy 1 vòng**
@@ -2316,7 +2316,7 @@ Thêm **một** asset riêng (`ConnTree Asset Sched`) vào `setUpClass` hiện c
 
 #### XVIII.9.3 Test FE
 
-**Unit thuần (`api/connections.test.ts` — append):**
+**Unit thuần (`api/connectionsApi.guard.test.ts` — append):**
 
 | TC | Assert |
 |---|---|
@@ -2350,7 +2350,7 @@ Thêm **một** asset riêng (`ConnTree Asset Sched`) vào `setUpClass` hiện c
 - **BE, module-isolated, `timeout` tool ≥ 600000ms** (kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ ĐỎ GIẢ):
   `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_tree` (25 → **27** OK) và `--module assetcore.tests.test_connections` (**11** OK, file **không** sửa).
 - Nếu BE đã đụng `services/imm11.py` ⇒ chạy thêm `--module assetcore.tests.test_imm11` (no-regress cho 3 nhánh `overdue`/`due_soon`/`due_before` + vendor-scope).
-- **FE**: `npx vitest run` 0 ĐỎ, delta **≥ +5 test** so với baseline **đọc từ đĩa** (đo 2026-07-28: **280 file / 2660 test**); `npx vue-tsc --noEmit` 0 lỗi; guard `connectionsListParity.test.ts` xanh **không sửa**.
+- **FE**: `npx vitest run` 0 ĐỎ, delta **≥ +5 test** so với baseline **đọc từ đĩa** (đo 2026-07-28: **280 file / 2660 test**); `npx vue-tsc --noEmit` 0 lỗi; guard `connectionsListParity.guard.test.ts` xanh **không sửa**.
 - **DoD chấm bằng test, KHÔNG curl** — `.py` prod vừa đổi mà gunicorn chạy `--preload` ⇒ mọi kết luận HTTP trước khi USER `bench restart` là **vô nghĩa** (LL-DEPLOY-07/08). Liệt kê file `.py` đã đụng trong bàn giao để USER reload.
 - **3 counter guard: delta 0** — `_EXPECTED_TEST_COUNT` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL` chỉ đếm 7 module guard mobile-OAS (`test_mobile_docset.py:499-809`); `test_connections_tree.py` **không** thuộc tập đó ⇒ **chạm vào là sai**.
 - ⛔ **KHÔNG** `git commit/push` · **KHÔNG** `bench migrate` · **KHÔNG** `bench restart` · **KHÔNG** `npm run build`.
@@ -2396,9 +2396,9 @@ File: `assetcore/tests/test_connections_list_promotion.py` (**mới** — **cấ
 
 | TC | Bất biến | Nơi chấm |
 |---|---|---|
-| **TC-CONNFE8-01** | INV-CONNFE8-1 | `router/connectionsListParity.test.ts` xanh **không sửa** + assert `|DOCTYPE_LIST_TARGET| == 15` ∧ `LIST_TARGET_NO_FILTER` == đúng 5 phần tử (tập liệt kê) |
-| **TC-CONNFE8-02** | INV-CONNFE8-2 | `api/connections.test.ts` — `listTarget` cho **cả 4** doctype mới với anchor đúng ⇒ `{path, query:{asset:X}}` |
-| **TC-CONNFE8-03** | INV-CONNFE8-3 | `api/connections.test.ts` — 4 payload **ngoại lai THẬT**: `{name:'FCR-…'}` · `{vendor:'SUP-…'}` · `{master_item:'MODEL-…'}` · `{linked_incident:'INC-…'}` ⇒ **`null`** |
+| **TC-CONNFE8-01** | INV-CONNFE8-1 | `router/connectionsListParity.guard.test.ts` xanh **không sửa** + assert `|DOCTYPE_LIST_TARGET| == 15` ∧ `LIST_TARGET_NO_FILTER` == đúng 5 phần tử (tập liệt kê) |
+| **TC-CONNFE8-02** | INV-CONNFE8-2 | `api/connectionsApi.guard.test.ts` — `listTarget` cho **cả 4** doctype mới với anchor đúng ⇒ `{path, query:{asset:X}}` |
+| **TC-CONNFE8-03** | INV-CONNFE8-3 | `api/connectionsApi.guard.test.ts` — 4 payload **ngoại lai THẬT**: `{name:'FCR-…'}` · `{vendor:'SUP-…'}` · `{master_item:'MODEL-…'}` · `{linked_incident:'INC-…'}` ⇒ **`null`** |
 | **TC-CONNFE8-04** | INV-CONNFE8-4/5/6 | 4 file mount (1/màn): mount với `route.query.asset='AC-ASSET-X'` ⇒ **lời gọi thứ nhất** của spy API/store đã mang khoá đúng (`final_asset` cho `/commissioning`; `asset` cho 3 màn) ∧ **không** mang khoá trạng thái nào của §VIII.10.5 |
 | **TC-CONNFE8-05** | INV-CONNFE8-7 | DOM chứa `Thiết bị: <tên hoặc mã>` — assert **chuỗi tiếng Việt**, không assert riêng mã |
 | **TC-CONNFE8-06** | INV-CONNFE8-8 | Bấm bỏ chip ⇒ `router.replace` được gọi **không** kèm `asset` ∧ lời gọi API kế tiếp **không** mang khoá asset |
@@ -2409,8 +2409,8 @@ File: `assetcore/tests/test_connections_list_promotion.py` (**mới** — **cấ
 
 | Đột biến | Kỳ vọng |
 |---|---|
-| Xoá `route.query.asset` khỏi **bất kỳ** 1/4 view | **≥2** ĐỎ: (1) guard tĩnh `connectionsListParity.test.ts:68-81` — doctype đã ở `DOCTYPE_LIST_TARGET` mà file view **không** chứa `route.query.asset`; (2) TC-CONNFE8-04 của màn đó (lời gọi đầu không mang khoá) |
-| Đổi `sourceKeys` của `Asset Commissioning` → `['vendor']` | ĐỎ ở `connectionsListParity.test.ts:83-103` (`vendor` là `Link → AC Supplier`, không phải `AC Asset`) |
+| Xoá `route.query.asset` khỏi **bất kỳ** 1/4 view | **≥2** ĐỎ: (1) guard tĩnh `connectionsListParity.guard.test.ts:68-81` — doctype đã ở `DOCTYPE_LIST_TARGET` mà file view **không** chứa `route.query.asset`; (2) TC-CONNFE8-04 của màn đó (lời gọi đầu không mang khoá) |
+| Đổi `sourceKeys` của `Asset Commissioning` → `['vendor']` | ĐỎ ở `connectionsListParity.guard.test.ts:83-103` (`vendor` là `Link → AC Supplier`, không phải `AC Asset`) |
 | Đưa 1 doctype ngược từ `DOCTYPE_LIST_TARGET` về `LIST_TARGET_NO_FILTER` | ĐỎ ở `:109-118` (allowlist chỉ-giảm: view **đã** đọc `route.query.asset`) |
 | Bỏ `docstatus != 2` khỏi `list_commissioning` | ĐỎ ở TC-CONN-P-05 |
 | Đổi `ac_asset_dashboard` anchor `final_asset` → `asset` | ĐỎ ở TC-CONN-P-07 |
@@ -2420,7 +2420,7 @@ File: `assetcore/tests/test_connections_list_promotion.py` (**mới** — **cấ
 - **BE, module-isolated, `timeout` tool ≥ 600000ms** (kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ ĐỎ GIẢ):
   `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_list_promotion` (**8** OK) · `--module assetcore.tests.test_connections_tree` (**27** OK, file **không** sửa) · `--module assetcore.tests.test_connections` (**11** OK, file **không** sửa).
 - **`git diff --name-only` phía BE: 0 file `.py` prod** — chỉ 1 file test mới. Có file prod `.py` trong diff ⇒ ra khỏi A-biên ⇒ ĐỎ.
-- **FE**: `npx vitest run` 0 ĐỎ, delta **≥ +8 test** so với baseline **đọc từ đĩa** (**282 file / 2682 test**, đo 2026-07-28); `npx vue-tsc --noEmit` 0 lỗi; guard `connectionsListParity.test.ts` xanh **không sửa**.
+- **FE**: `npx vitest run` 0 ĐỎ, delta **≥ +8 test** so với baseline **đọc từ đĩa** (**282 file / 2682 test**, đo 2026-07-28); `npx vue-tsc --noEmit` 0 lỗi; guard `connectionsListParity.guard.test.ts` xanh **không sửa**.
 - **Mutation check §XVIII.10.3 chạy thật ít nhất 2 dòng đầu** và **revert** — báo cáo tên test đã ĐỎ (không chỉ nói "guard sống").
 - **3 counter guard: delta 0** — `_EXPECTED_TEST_COUNT` (1024) / `_GUARD_SUITE_SUM` (1167) / `_MOBILE_OAS_TOTAL` (1193) chỉ đếm 7 module guard mobile-OAS; file test mới **không** thuộc tập đó ⇒ **chạm vào là sai**. Đọc lại 3 số **từ đĩa** trước khi kết luận.
 - **KHÔNG phát sinh blocker `bench restart` mới**: vòng này 0 file `.py` prod ⇒ live-HTTP không đổi. Nợ restart của các vòng **trước** vẫn còn (thuộc USER) — QA **không** được gán lỗi live cũ cho vòng này.
@@ -2496,7 +2496,7 @@ File: `assetcore/tests/test_connections_list_promotion.py` (**mới** — **cấ
 
 > **CR**: `AC-CR-100` (đề mục PM gọi «AC-CR-96» — số đã bị chiếm; bảng đối chiếu [ADR §8.0](./ADR-IMM00-TRUNCATION-SSOT.md)). Quyết định: **ADR-IMM00-TRUNCATION-SSOT §8**. FR-00-TL-01 / BR-00-TL-01..09: [02 §IV.40](./02_Analysis_Design.md). API: [05 §III.25](./05_API_Specification.md). FE: [06 §VIII.11](./06_Frontend_Design.md).
 >
-> **Biên test**: **1 file FE mới** `frontend/src/views/asset/assetDetailTimelinePagination.test.ts` + **1 class BE mới** trong `assetcore/tests/test_imm00.py`. **KHÔNG** sửa guard cũ (`relatedRecordsTabParity.test.ts`, `assetDetail*.test.ts`, `test_mobile_oas`, `test_mobile_docset`). 3 counter guard mobile: **delta 0**.
+> **Biên test**: **1 file FE mới** `frontend/src/views/asset/assetDetailTimelinePagination.test.ts` + **1 class BE mới** trong `assetcore/tests/test_imm00.py`. **KHÔNG** sửa guard cũ (`relatedRecordsTabParity.guard.test.ts`, `assetDetail*.test.ts`, `test_mobile_oas`, `test_mobile_docset`). 3 counter guard mobile: **delta 0**.
 
 ### XIX.1 Fixture tối thiểu (BE)
 
@@ -2522,7 +2522,7 @@ File: `assetcore/tests/test_connections_list_promotion.py` (**mới** — **cấ
 
 ### XIX.3 TC frontend (FE Bước-4) — test **mount**, không grep
 
-Khuôn: `frontend/src/views/asset/assetDetailTransitionAuthz.test.ts` (mock store/router/capabilities). `getAssetTimeline` là `vi.fn()` **đếm được** + **kiểm tham số**.
+Khuôn: `frontend/src/views/asset/tests/AssetDetailView.transitionAuthz.test.ts` (mock store/router/capabilities). `getAssetTimeline` là `vi.fn()` **đếm được** + **kiểm tham số**.
 
 | TC | Kịch bản (mock) | Kỳ vọng | Acceptance |
 |---|---|---|---|
@@ -2570,7 +2570,7 @@ Khuôn: `frontend/src/views/asset/assetDetailTransitionAuthz.test.ts` (mock stor
 
 | ID | Bất biến | Cách chấm |
 |---|---|---|
-| **INV-OPH-1** | Mount `AssetDetailView` → click `[data-testid=tab-related]` ⇒ **đúng 1** `[asset-op-history]` chứa **đúng 3** `[op-history-section]`, `data-branch` = `pm,cm,incident` **theo thứ tự**; ~~`[op-history-title]`~~ → **`.text()` của `[op-history-toggle]`** của 3 section chứa «Kết quả bảo trì» / «Lần sửa chữa đã hoàn thành» / «Sự cố đã ghi nhận». *(⚠️ **CẢI CHÍNH 2026-07-30 / `AC-CR-115`**: testid `op-history-title` **không tồn tại trên đĩa** — chuỗi tiêu đề nằm trong `op-history-toggle` `AssetOperationalHistory.vue:327`. Test hiện có đã chấm đúng cách này (`assetOperationalHistory.test.ts:146`); doc là chỗ sai, không phải mã.)* | vitest render |
+| **INV-OPH-1** | Mount `AssetDetailView` → click `[data-testid=tab-related]` ⇒ **đúng 1** `[asset-op-history]` chứa **đúng 3** `[op-history-section]`, `data-branch` = `pm,cm,incident` **theo thứ tự**; ~~`[op-history-title]`~~ → **`.text()` của `[op-history-toggle]`** của 3 section chứa «Kết quả bảo trì» / «Lần sửa chữa đã hoàn thành» / «Sự cố đã ghi nhận». *(⚠️ **CẢI CHÍNH 2026-07-30 / `AC-CR-115`**: testid `op-history-title` **không tồn tại trên đĩa** — chuỗi tiêu đề nằm trong `op-history-toggle` `AssetOperationalHistory.vue:327`. Test hiện có đã chấm đúng cách này (`AssetOperationalHistory.test.ts:146`); doc là chỗ sai, không phải mã.)* | vitest render |
 | **INV-OPH-2** | **0 chi phí mở máy**: sau khi vào tab, mỗi mock `getAssetPMHistory`/`getAssetRepairHistory`/`getAssetIncidentHistory` có `toHaveBeenCalledTimes(0)` ∧ `[op-history-row]` = **0**. Bung section *i* ⇒ mock *i* = **1**, hai mock kia = **0**. | vitest + `vi.fn()` |
 | **INV-OPH-3** | **Cache**: bung → thu → bung lại ⇒ mock **vẫn 1**. | vitest |
 | **INV-OPH-4** | **Cache khoá theo thiết bị**: đổi prop `assetName` A→B rồi bung ⇒ mock gọi **lại** (2 lần, tham số lần 2 = B) ∧ **không** còn dòng của A trong DOM. | vitest |
@@ -2591,7 +2591,7 @@ Khuôn: `frontend/src/views/asset/assetDetailTransitionAuthz.test.ts` (mock stor
 
 ### XX.2 Test matrix
 
-**FE — `frontend/src/components/asset/assetOperationalHistory.test.ts`** (TC-OPH-F1..F14)
+**FE — `frontend/src/components/asset/tests/AssetOperationalHistory.test.ts`** (TC-OPH-F1..F14)
 
 | TC | Nội dung | INV |
 |---|---|---|
@@ -2647,8 +2647,8 @@ Khuôn: `frontend/src/views/asset/assetDetailTransitionAuthz.test.ts` (mock stor
 ## XXI. AC-CR-105 — «Tạo từ ngữ cảnh cha» hết là nút chết: `create_prefill` LIVE + token `CREATE_CAPABILITY` + chip cho ô 0 bản ghi (INV-CONN105-1..4 · INV-CONN4-1/2/3/7/10)
 
 > Quyết định: [ADR §18](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR105-1..9) · hợp đồng API: [`05 §III.24.11`](./05_API_Specification.md) · code shape BE: [`04 §V.10`](./04_Backend_Design.md) · FE: [`06 §VIII.14`](./06_Frontend_Design.md) · nghiệp vụ: [`02 §IV.42`](./02_Analysis_Design.md) FR-00-CONN-06 / BR-00-CONN-67..76.
-> **File test**: `assetcore/tests/test_connections_tree.py` (**append 6 TC** `t29..t34` + **2** TC hiện có sửa **đã khai trước**) · `frontend/src/components/common/RelatedRecords.test.ts` (**append** + **2 dòng** breakage `:772-773`) · `frontend/src/api/connections.test.ts` (**chỉ append**) · `frontend/src/api/connectionsLegacyKeysRetired.acr92.test.ts` (**9→10** + tập optional **rỗng**).
-> **CẤM sửa**: `assetcore/tests/test_connections.py` (11 TC hợp đồng cũ) · `frontend/src/router/connectionsListParity.test.ts` · `frontend/src/router/connectionsCreateParity.test.ts` · `TC-FE-CONN-24/25/27/28/29/30` · **7 assert in-summary của TC-FE-CONN-26** (`RelatedRecords.test.ts:764-770`) và **hàng TC-FE-CONN-26 ở §XVIII.8.2 — không sửa một chữ**.
+> **File test**: `assetcore/tests/test_connections_tree.py` (**append 6 TC** `t29..t34` + **2** TC hiện có sửa **đã khai trước**) · `frontend/src/components/common/tests/RelatedRecords.test.ts` (**append** + **2 dòng** breakage `:772-773`) · `frontend/src/guards/connectionsApi.guard.test.ts` (**chỉ append**) · `frontend/src/guards/connectionsLegacyKeys.guard.test.ts` (**9→10** + tập optional **rỗng**).
+> **CẤM sửa**: `assetcore/tests/test_connections.py` (11 TC hợp đồng cũ) · `frontend/src/guards/connectionsListParity.guard.test.ts` · `frontend/src/guards/connectionsCreateParity.guard.test.ts` · `TC-FE-CONN-24/25/27/28/29/30` · **7 assert in-summary của TC-FE-CONN-26** (`RelatedRecords.test.ts:764-770`) và **hàng TC-FE-CONN-26 ở §XVIII.8.2 — không sửa một chữ**.
 > **Quy ước số hiệu**: BE `t29..t34` (tiếp theo `t28`, tổng **29 → 35** TC). FE render **TC-FE-CONN-60..64**, FE unit **TC-FE-CONN-70..72** — nhảy khoảng cố ý: dải 31..45 đã bị AC-CR-94/95 dùng ở cả doc lẫn mã, chọn dải mới để **không** phải tra chéo khi đọc lỗi đỏ.
 
 ### XXI.1 Fixture BE — **tái dùng tối đa**, thêm đúng 1 asset + 1 sự cố
@@ -2695,11 +2695,11 @@ Khuôn: `frontend/src/views/asset/assetDetailTransitionAuthz.test.ts` (mock stor
 1. **`assertEqual` trên cả dict prefill, không `assertIn`**: `assertIn("asset", prefill)` xanh cả khi BE gửi kèm `asset_ref` — đúng thứ vòng này cấm. `assertNotIn` cho 5 khoá cấm là **bắt buộc**, không phải tô điểm.
 2. **Mệnh đề (3) của D-CR105-2 KHÔNG được biến thành assert**: viết `can_create is True ⇒ prefill != {}` sẽ ĐỎ ở đúng 3 doctype **hợp lệ** ⇒ người sửa tiếp theo sẽ "chữa" bằng cách bịa khoá prefill (`asset_ref`!) hoặc tắt nút. TC nào đỏ theo kiểu đó ⇒ **sửa TC**, KHÔNG sửa BE.
 3. **Parity 3 điểm phải DERIVE**: viết 3 chuỗi hằng cạnh nhau rồi so với nhau là **chép**, không phải parity — luôn xanh, không bao giờ bắt được drift. Và parser **fail-closed**: "không tìm thấy ⇒ bỏ qua" là guard chết (tiền lệ §XVIII.8.5).
-4. **CẤM Python regex `frontend/src/router/routeAccess.ts`**: `:141` viết `'doc' + 'ument.write'` (nối chuỗi để né lint chặn `document.write`) ⇒ regex literal **không** khớp và guard sẽ kết luận sai. Vế FE-gate đã đóng bằng **import giá trị TS** ở `connectionsCreateParity.test.ts:18` — đừng làm lại ở Python.
+4. **CẤM Python regex `frontend/src/router/routeAccess.ts`**: `:141` viết `'doc' + 'ument.write'` (nối chuỗi để né lint chặn `document.write`) ⇒ regex literal **không** khớp và guard sẽ kết luận sai. Vế FE-gate đã đóng bằng **import giá trị TS** ở `connectionsCreateParity.guard.test.ts:18` — đừng làm lại ở Python.
 5. **Đếm PHẦN TỬ, không đếm chữ** (FE): `w.text().includes('Tạo phiếu sửa chữa')` xanh cả khi chip nằm sai chỗ (trong `<p>`) hoặc render 16 lần. Đếm `findAll('[data-testid="conn-empty-actions"] [data-testid="conn-create"]').length` và so với số ô tính **từ fixture**.
 6. **`vue-tsc` là một phần của oracle**: bỏ `?` khỏi `create_prefill` mà quên bổ sung fixture ⇒ `vitest` vẫn xanh (runtime không kiểm kiểu) nhưng hợp đồng chưa được siết. `npx vue-tsc --noEmit` **0 lỗi** là điều kiện cần.
 7. **Không assert số tuyệt đối của suite** (**286** file FE / **29** TC BE — đo từ đĩa 2026-07-30; số **284** ở §XX.3 đã stale sau vòng 1 run-5): đo từ đĩa, báo cáo **trước → sau**, chấm theo **delta**.
-8. **Guard FE `connectionsCreateParity.test.ts` PARSE `CREATE_CONTEXT` bằng văn bản** (`:117-128`, cắt tới `'\n}'` cột 0): sau khi thêm `query_keys`, **đếm lại** số route nó parse được (`beRoutes.length` phải là **8**). Guard cắt khối sớm ⇒ kiểm ít route hơn mà **vẫn xanh** — kiểu yếu-đi-âm-thầm không có triệu chứng. Chi tiết luật viết mã: `04 §V.10.3` bẫy 7.
+8. **Guard FE `connectionsCreateParity.guard.test.ts` PARSE `CREATE_CONTEXT` bằng văn bản** (`:117-128`, cắt tới `'\n}'` cột 0): sau khi thêm `query_keys`, **đếm lại** số route nó parse được (`beRoutes.length` phải là **8**). Guard cắt khối sớm ⇒ kiểm ít route hơn mà **vẫn xanh** — kiểu yếu-đi-âm-thầm không có triệu chứng. Chi tiết luật viết mã: `04 §V.10.3` bẫy 7.
 9. **Mutation-check khi land (BE)**: (a) đổi khoá prefill sang `ctx.parents[source]` ⇒ t30 ĐỎ; (b) tính `prefill` **trước** khi kiểm quyền ⇒ t29 ĐỎ (prefill mồ côi); (c) đổi `CREATE_CAPABILITY["Asset Repair"] = "repair.write"` ⇒ t33 **và** t34 ĐỎ; (d) hardcode khoá `"asset"` cho mọi hub ⇒ t31 ĐỎ; (e) bồi khoá thứ 11 ⇒ t01 ĐỎ. **5 đột biến ⇒ 5 lần đỏ**; không đỏ = test template.
 
 ### XXI.5 DoD vòng AC-CR-105 (QA chấm — đọc baseline TỪ ĐĨA, **KHÔNG curl**)
@@ -2721,7 +2721,7 @@ Khuôn: `frontend/src/views/asset/assetDetailTransitionAuthz.test.ts` (mock stor
 >
 > ⚠️ **Đọc trước khi chấm — 3 điều dễ chấm sai:**
 > 1. `§XX.3` dòng «Ngoài biên» từng nói dải cắt = **VÒNG 5, không làm là PASS**. **HẾT HIỆU LỰC**: từ vòng này **không có dải = FAIL**. «Tải thêm» thì ngược lại — **có** «Tải thêm» = **FAIL** (`D-OPH-19`).
-> 2. `assetOperationalHistory.test.ts:298-307` **PHẢI được sửa** (nó assert `not.toContain('Đang xem')`). Đây là **đổi hợp đồng có văn bản** (`D-OPH-20`), **KHÔNG** tính là "test cũ chuyển đỏ" của AC9. Danh sách đỏ-dự-kiến khai trước ở [ADR §10.5](./ADR-IMM00-ASSET-OP-HISTORY.md) — file thứ 3 bị sửa = **scope creep**.
+> 2. `AssetOperationalHistory.test.ts:298-307` **PHẢI được sửa** (nó assert `not.toContain('Đang xem')`). Đây là **đổi hợp đồng có văn bản** (`D-OPH-20`), **KHÔNG** tính là "test cũ chuyển đỏ" của AC9. Danh sách đỏ-dự-kiến khai trước ở [ADR §10.5](./ADR-IMM00-ASSET-OP-HISTORY.md) — file thứ 3 bị sửa = **scope creep**.
 > 3. Vòng này **0 dòng `.py` prod** ⇒ **0 blocker reload mới**. Nếu invariant BE mới ĐỎ ⇒ **bug BE thật**, ghi vào backlog + báo PM/BA; **KHÔNG** ai được sửa `services/*.py` để làm nó xanh (`BR-00-OPH-30`).
 
 ### XXII.1 Invariants (INV-OPH-19..30) — chấm được bằng test, không bằng mắt
@@ -2745,7 +2745,7 @@ Khuôn: `frontend/src/views/asset/assetDetailTransitionAuthz.test.ts` (mock stor
 
 > **Cách đếm delta (AC9)**: đơn vị là **`it()` block**, không phải hàng TC trong bảng. Bảng dưới cho **8 TC mới** (`TC-FE-OPH-14..21`) ⇒ tối thiểu **8 `it()` mới**; TC nào có ≥2 mệnh đề độc lập (vd `TC-FE-OPH-17`, `TC-FE-OPH-21`) **nên** tách thành 2 `it()` để khi đỏ biết ngay mệnh đề nào chết. `TC-FE-OPH-09` là **SỬA**, không tính vào delta.
 
-**FE — `frontend/src/components/asset/assetOperationalHistory.test.ts`** (sửa 1 TC + thêm `TC-FE-OPH-14..18`, `TC-FE-OPH-21`)
+**FE — `frontend/src/components/asset/tests/AssetOperationalHistory.test.ts`** (sửa 1 TC + thêm `TC-FE-OPH-14..18`, `TC-FE-OPH-21`)
 
 | TC | Nội dung | INV | AC |
 |---|---|---|---|
@@ -2757,7 +2757,7 @@ Khuôn: `frontend/src/views/asset/assetDetailTransitionAuthz.test.ts` (mock stor
 | **TC-FE-OPH-18** | Nhánh có dải ⇒ **đúng 1** `[op-history-see-all]` (href mang `?asset=`); nhánh `total=0` ⇒ **0** dải ∧ **0** see-all ∧ **1** `[op-history-empty]` | 23 · 25 | AC4 · AC5 |
 | **TC-FE-OPH-21** | **Một số, một nguồn**: số trong `[op-history-count]` == `N` trong dải (fixture 10/34 ⇒ badge `'34'` ∧ dải chứa `/34`); ca nghịch `total=3 / rows=5` (BE trả tổng nhỏ hơn số dòng) ⇒ badge **`'5'`** ∧ **0** dải (`Math.max` chặn số âm — không bao giờ in «còn -2 chưa hiển thị») | 19 · 22 | AC1 |
 
-**FE — `frontend/src/views/asset/assetDetailRelatedTab.test.ts`** (thêm `TC-FE-OPH-19..20`)
+**FE — `frontend/src/views/asset/tests/AssetDetailView.relatedTab.test.ts`** (thêm `TC-FE-OPH-19..20`)
 
 | TC | Nội dung | INV | AC |
 |---|---|---|---|
@@ -2810,7 +2810,7 @@ Khuôn: `frontend/src/views/asset/assetDetailTransitionAuthz.test.ts` (mock stor
 
 | Mã | Invariant | Chấm bằng |
 |---|---|---|
-| **INV-OPH-37** | **0 request vô vọng.** `capState(cap) === 'denied'` ⇒ bung nhánh: `fetchPMHistory`/`fetchRepairHistory`/`fetchIncidentHistory` (spy tầng transport `getAssetPMHistory`/`getAssetRepairHistory`/`getAssetIncidentHistory`) được gọi **0** lần; thu rồi bung lại vẫn **0**. | `assetOperationalHistory.test.ts` |
+| **INV-OPH-37** | **0 request vô vọng.** `capState(cap) === 'denied'` ⇒ bung nhánh: `fetchPMHistory`/`fetchRepairHistory`/`fetchIncidentHistory` (spy tầng transport `getAssetPMHistory`/`getAssetRepairHistory`/`getAssetIncidentHistory`) được gọi **0** lần; thu rồi bung lại vẫn **0**. | `AssetOperationalHistory.test.ts` |
 | **INV-OPH-38** | **Khối `locked` không có lối ra giả.** Trong CHÍNH `[op-history-section]` của nhánh bị khoá: **1** `[op-history-locked]` ∧ **0** `[op-history-retry]` ∧ **0** `[op-history-see-all]` ∧ **0** `[op-history-count]` ∧ **0** `[op-history-error]` ∧ **0** `[op-history-empty]` ∧ **0** `[op-history-row]`. Đếm **trong section**, KHÔNG trong toàn wrapper. | idem |
 | **INV-OPH-39** | **Microcopy trung tính (đo bằng chuỗi).** `.text()` của `[op-history-locked]`: **0** `Lỗi`/`lỗi` · **0** `403` · **0** `FORBIDDEN` · **0** `AUTH-403` · **0** `PM Task Log`/`Asset Repair`/`Incident Report` · **0** `Chưa có` · khớp **nguyên văn** 1 trong 3 câu SSoT + câu 2 dùng chung. | idem |
 | **INV-OPH-40** | **Self-heal caps stale ⇒ CÙNG khối.** cap `granted` mà API reject bằng `new ApiError('…', { code: ErrorCode.FORBIDDEN, httpStatus: 403 })` ⇒ **1** `[op-history-locked]` ∧ **0** `[op-history-error]` ∧ **0** `[op-history-retry]`. Lặp lại với `httpStatus: 403` + `code` khác (vd `UNKNOWN`) ⇒ **vẫn** locked (`isForbiddenError` nhận cả 2 tín hiệu). | idem |
@@ -2836,7 +2836,7 @@ Khuôn: `frontend/src/views/asset/assetDetailTransitionAuthz.test.ts` (mock stor
 - `frappe.set_user(u)` trong `try`, `frappe.set_user("Administrator")` trong `finally`; xoá user trong teardown (`force=True, ignore_permissions=True`).
 - Asset dùng làm tham số **không cần tồn tại** cho ca 403 (gate chạy TRƯỚC truy vấn) ⇒ **không** tạo asset rác. Ca 200 (TC-06) dùng asset seed sẵn hoặc asset tạo-rồi-xoá trong cùng test; nhớ **asset mới LUÔN có sẵn 1 ALE `qr_generated`** (`ac_asset.py:83`).
 
-### XXIII.4 Test case FE — `frontend/src/components/asset/assetOperationalHistory.test.ts`
+### XXIII.4 Test case FE — `frontend/src/components/asset/tests/AssetOperationalHistory.test.ts`
 
 | TC | Nội dung |
 |---|---|
@@ -2854,7 +2854,7 @@ Khuôn: `frontend/src/views/asset/assetDetailTransitionAuthz.test.ts` (mock stor
 ### XXIII.5 Test hiện có phải giữ XANH **không sửa** (nếu đỏ ⇒ ra ngoài biên)
 
 - `assetcore/tests/test_asset_operational_history_contract.py` — parity `fields` @source ⇄ `05 §III.26.3`: vòng này **0** đổi `fields`/`filters`/`order_by`/`page_size`/khoá response ⇒ **phải xanh không sửa**. Đỏ = có người đổi hợp đồng đọc ⇒ **ĐỎ VÒNG**.
-- `frontend/src/stores/assetHistoryTruncation.test.ts` — 3 store chỉ **thêm** 1 ref, **không** đổi logic total/truncated ⇒ phải xanh; sửa nó = dấu hiệu đụng ngoài biên.
+- `frontend/src/stores/tests/assetHistoryTruncation.test.ts` — 3 store chỉ **thêm** 1 ref, **không** đổi logic total/truncated ⇒ phải xanh; sửa nó = dấu hiệu đụng ngoài biên.
 - `assetcore/tests/test_rowscope_scope_guard.py` · `test_rowscope_docperm_gate.py` — thêm gate tường minh ở `imm08.get_asset_history` là **cộng** thêm gate, không gỡ ⇒ phải xanh.
 - `assetcore/tests/test_connections_tree.py` — `connection_meta.py` chỉ **thêm** 1 bảng, **0** đổi `LABEL_VI`/`PREVIEW_FIELDS`/`CREATE_CAPABILITY` ⇒ phải xanh.
 

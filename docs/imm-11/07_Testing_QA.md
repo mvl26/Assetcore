@@ -179,7 +179,7 @@ File `assetcore/tests/test_imm11.py` (✅ Live — `unittest.TestCase`, helper `
 | `TestCalibrationSubmitGate` | `submit_calibration` + before_submit | Decision Table | 1 / 1 (`test_submit_blocked_without_measurements`, `test_submit_succeeds_with_measurement_and_result`) | ✅ Live |
 | `TestCalibrationPass` | `handle_calibration_pass` (BR-11-04 next_cal date) | BVA | 1 / 0 | ⬜ Planned |
 | `TestCalibrationFail` | `handle_calibration_fail` (OOS + CAPA) | Decision Table | 2 / 0 | ⬜ Planned |
-| `TestCalibrationFailDueNow` | `handle_calibration_fail` → Schedule due-now (BR-11-08b) | Decision Table + BVA + Path | 7 method (TC-CAL-FAIL-DUE-01..07; RED-prove 01/02/04) + FE `calFailDueNow.test.ts` 10 | ✅ Live |
+| `TestCalibrationFailDueNow` | `handle_calibration_fail` → Schedule due-now (BR-11-08b) | Decision Table + BVA + Path | 7 method (TC-CAL-FAIL-DUE-01..07; RED-prove 01/02/04) + FE `CalibrationScheduleListView.calFailDueNow.test.ts` 10 | ✅ Live |
 | `TestLookback` | `perform_lookback_assessment` | EP (Active/Decommissioned) + Path | 1 / 2 | ⬜ Planned |
 | `TestAddMeasurement` | `add_measurement` auto Pass/Fail | BVA tolerance | 2 / 1 | ⬜ Planned |
 | `TestUpdateCalibrationMeasurements` | `update_calibration` `measurements` child-diff replace-set (BR-11-16, data-loss fix) | Decision Table + BVA + Error guessing | 5 / 4 (TC-11-MEASDIFF-01..10; RED-first 01) | ⬜ Planned |
@@ -380,7 +380,7 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 | BR-11-06 | Decommissioned → suspend Schedule | *(Cần khảo sát — test chưa định danh)* | EP | ⬜ |
 | BR-11-07 | gate `validate_asset_for_operations` (trừ recalibration) | `TestAssetGate` | Decision Table | 1 / 1 |
 | BR-11-08 | SoT predicate biên + count==drill + mint-gap | `TestCalibrationSoTPredicate`, `TestCalibrationCountDrillParity` (test_imm11) + `test_dashboard` parity | BVA + EP | nhiều |
-| BR-11-08b | FAIL → Schedule due-now (asset FAIL vào overdue/due-soon, hết mask ON_SCHEDULE) | `TestCalibrationFailDueNow` (TC-CAL-FAIL-DUE-01..07; RED-prove 01/02/04) ✅ Live + FE `calFailDueNow.test.ts` ✅ | Decision Table + BVA + Path | 7 / 2 |
+| BR-11-08b | FAIL → Schedule due-now (asset FAIL vào overdue/due-soon, hết mask ON_SCHEDULE) | `TestCalibrationFailDueNow` (TC-CAL-FAIL-DUE-01..07; RED-prove 01/02/04) ✅ Live + FE `CalibrationScheduleListView.calFailDueNow.test.ts` ✅ | Decision Table + BVA + Path | 7 / 2 |
 | BR-11-09 | De-dup theo asset | `TestCalibrationSoTDedup` | EP | 1 / 1 |
 | BR-11-10 | Stale-clear (hết active schedule → Not Required) | `TestCheckCalibrationExpiryRollup` (TC-11-ROLLUP-STALE) | Decision Table | 1 / 1 |
 | BR-11-11 | FAILED-preserve terminal (OoS) | `TestCheckCalibrationExpiryRollup` (TC-11-ROLLUP-FAILED*) | Decision Table | 1 / 2 |

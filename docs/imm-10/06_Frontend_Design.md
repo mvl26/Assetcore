@@ -88,7 +88,7 @@ ComplianceCaseDetail
 | BR-10-04 — đóng case yêu cầu 100% WO closed | Action "Đóng case" disabled với tooltip giải thích |
 | BR-10-06 — CAPA preventive bắt buộc cho severity ≥ High | Tab CAPA hiển thị warning nếu chưa link CAPA |
 
-Validation message tiếng Việt — refer i18n key `imm10.*` trong `frontend/src/i18n/`.
+Validation message tiếng Việt — refer i18n key `imm10.*` trong `frontend/src/locales/`.
 
 ---
 

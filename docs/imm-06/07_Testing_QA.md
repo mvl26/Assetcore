@@ -308,7 +308,7 @@ File `assetcore/tests/test_imm06.py`. Đọc hằng SSoT `_SESSION_VALID_TRANSIT
 - `test_cancel_from_verified_rejected` — doc ở Verified → `cancel_session` ném `BAD_STATE` (BR-06-12; guard đã mở rộng chặn Verified).
 
 **FE vitest `sessionDetailCtaGating` (Vòng 7):**
-File `frontend/src/views/training/sessionDetailCtaGating.test.ts` (theo mẫu `pmWorkOrderCtaGating.test.ts`). Assert:
+File `frontend/src/views/training/tests/SessionDetailView.ctaGating.test.ts` (theo mẫu `PMWorkOrderDetailView.ctaGating.test.ts`). Assert:
 - grep computed `canConfirm/canStart/canComplete/canVerify/canClose/canCancel` = **0 match** hardcode `state.value === '<StatusString>'` (chỉ dùng `allowedTransitions.includes(...)`).
 - Planned + `allowed_transitions=['Confirmed','In Progress','Cancelled']` + canConduct → `canStart===true` (nút Bắt đầu hiện).
 - Verified + `allowed_transitions=['Closed']` → `canCancel===false`.
@@ -350,8 +350,8 @@ File `assetcore/tests/test_imm06.py`. Đọc hằng SSoT `_COMPETENCY_VALID_TRAN
 **Test audit trail (AC6):**
 - `test_signoff_emits_lifecycle_event` / `test_revoke_emits_lifecycle_event` / `test_recertify_emits_lifecycle_event` — sau mỗi CTA, tồn tại record audit (`_log_competency_audit` → Lifecycle Event `competency_signoff/revoked/recertified`).
 
-**FE vitest `competencyCtaGate.test.ts` (AC5 — GATE-8/LL-FE-51):**
-File `frontend/src/views/training/competencyCtaGate.test.ts` (mẫu `sessionDetailCtaGating.test.ts`/`firmwareCrCtaGate.test.ts`). Assert:
+**FE vitest `CompetencyDetailView.ctaGate.test.ts` (AC5 — GATE-8/LL-FE-51):**
+File `frontend/src/views/training/tests/CompetencyDetailView.ctaGate.test.ts` (mẫu `SessionDetailView.ctaGating.test.ts`/`FirmwareCrDetailView.ctaGate.test.ts`). Assert:
 - grep computed `canSignoff/canRevoke/canRecertify` = **0 match** hardcode `workflow_state === '<StatusString>'` / `[...].includes(workflow_state)` (chỉ `allowedTransitions.includes('<Action>') && can_<action>`).
 - Matrix state × cờ: `Pending Assessment` + `allowed_transitions=['Sign-off']` + `can_signoff=true` → nút `cta-signoff` hiện; `can_signoff=false` → ẩn (hint "không đủ quyền").
 - `Expiring` + `allowed=['Recertify','Revoke']` + caps → `cta-recertify` ∧ `cta-revoke` hiện; `cta-signoff` ẩn.
@@ -389,7 +389,7 @@ File `frontend/src/views/training/competencyCtaGate.test.ts` (mẫu `sessionDeta
 - **Assert** `_COMPETENCY_EXCEPTION_EDGES` KHÔNG chứa `Suspend`/`Restore` label (`("Active","Tạm ngưng")`, `("Suspended","Khôi phục")` ∉ EXCEPTION_EDGES).
 - **RED-before demo**: tạm gỡ `Suspend` khỏi `map[Active]` (hoặc `Restore` khỏi `map[Suspended]`) → sym-diff mọc `("Active","Tạm ngưng")`/`("Suspended","Khôi phục")` ∉ EXCEPTION_EDGES → test RED. Restore map → GREEN.
 
-**FE vitest `competencyCtaGate.test.ts` (mở rộng Vòng 26):**
+**FE vitest `CompetencyDetailView.ctaGate.test.ts` (mở rộng Vòng 26):**
 - `Active` + `allowed=["Revoke","Suspend"]` + `can_suspend=true` → `cta-suspend` hiện; `can_suspend=false` → ẩn.
 - `Suspended` + `allowed=["Restore","Revoke"]` + `can_restore=true` → `cta-restore` ∧ `cta-revoke` hiện; `cta-signoff`/`cta-recertify` ẩn.
 - grep: `canSuspend`/`canRestore` computed = **0 match** hardcode `workflow_state === '<X>'` (chỉ `allowedTransitions.includes('Suspend'|'Restore') && can_*`).

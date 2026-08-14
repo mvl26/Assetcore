@@ -246,7 +246,7 @@ File: `assetcore/services/imm08.py`
 - **Consequences**:
   - FE PM Detail: khi `message_code==IMM08-CHECKLIST-EMPTY` hiển thị hint "Chưa gắn bảng kiểm mẫu" + disable nút "Xác nhận hoàn thành" (khác toast "điền nốt mục" của INCOMPLETE). Xem `06_Frontend_Design.md`.
   - **Kèm** ADR anti-drop: mã `IMM08_CHECKLIST_IDX_UNKNOWN` (BR-08-20) cho drift idx payload — cùng nguyên tắc "làm lỗi loud, không câm". Precedence 3 mã: EMPTY(0-dòng) > IDX_UNKNOWN(≥1-dòng + idx lệch) > INCOMPLETE(≥1-dòng + idx khớp + thiếu result) — **mutually exclusive by row-count + payload-vs-rows**.
-  - **Đánh đổi**: +1 (hoặc +2 với BR-08-20) mã trong `messages.py` + regen `frontend/src/i18n/messages.ts` (`gen_fe_messages.py`). KHÔNG schema/migrate.
+  - **Đánh đổi**: +1 (hoặc +2 với BR-08-20) mã trong `messages.py` + regen `frontend/src/locales/messages.ts` (`gen_fe_messages.py`). KHÔNG schema/migrate.
 
 **Constants (đầu file, mirror imm12 §40-50):**
 ```python
@@ -749,7 +749,7 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
 
 `http_status=400` ⇒ `_bucket_for` (`utils/notify.py:53`) map sang **`ErrorCode.INVALID_PARAMS`** — **không**
 thêm bucket mới (ADR-IMM08-FILTERKEY-02). Sau khi thêm: chạy `python3 scripts/gen_fe_messages.py` rồi
-`python3 scripts/gen_fe_messages.py --check` phải **OK** (parity `frontend/src/i18n/messages.ts`).
+`python3 scripts/gen_fe_messages.py --check` phải **OK** (parity `frontend/src/locales/messages.ts`).
 
 ### 4.4.5 Ranh giới đo được
 

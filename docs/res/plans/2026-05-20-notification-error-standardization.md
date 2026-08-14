@@ -17,7 +17,7 @@
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │   SOURCE OF TRUTH — Python dict + TypeScript const (generated) │
-│   assetcore/utils/messages.py   ⇄   frontend/src/i18n/messages.ts │
+│   assetcore/utils/messages.py   ⇄   frontend/src/locales/messages.ts │
 └───────────────────────────────────────────────────────────────┘
         ↓ raise/lookup                       ↓ lookup/render
 ┌──────────────────────────┐       ┌──────────────────────────────┐
@@ -61,7 +61,7 @@
 - `assetcore/utils/messages.py` — **NEW** central message registry (Python). Class `MSG` chứa hằng số mã lỗi; dict `MESSAGES` chứa `{code: {title, template, action_hint, severity, http_status}}`.
 - `assetcore/utils/notify.py` — **NEW** helpers `nthrow()` (raise ServiceError + lookup), `nmsg()` (msgprint chuẩn — chỉ dùng trong Frappe Desk legacy), `format_message(code, ctx)`.
 - `assetcore/tests/test_notification_framework.py` — **NEW** unit test: lookup, template render, context missing, fallback `SYS-500`, envelope shape.
-- `scripts/gen_fe_messages.py` — **NEW** generator: parse `utils/messages.py` → emit `frontend/src/i18n/messages.ts`.
+- `scripts/gen_fe_messages.py` — **NEW** generator: parse `utils/messages.py` → emit `frontend/src/locales/messages.ts`.
 
 ### Frontend (sửa)
 
@@ -73,8 +73,8 @@
 
 ### Frontend (tạo mới)
 
-- `frontend/src/i18n/messages.ts` — **GENERATED** từ `scripts/gen_fe_messages.py`; KHÔNG chỉnh tay.
-- `frontend/src/i18n/messages.types.ts` — **NEW** type definitions: `Severity`, `MessageEntry`, `MessageCode`.
+- `frontend/src/locales/messages.ts` — **GENERATED** từ `scripts/gen_fe_messages.py`; KHÔNG chỉnh tay.
+- `frontend/src/locales/messages.types.ts` — **NEW** type definitions: `Severity`, `MessageEntry`, `MessageCode`.
 - `frontend/src/composables/useNotify.ts` — **NEW** `useNotify()` wrapper: `show(code, ctx)`, `fromError(e)`, `confirm(code, ctx)`; phân nhánh toast/modal theo severity.
 - `frontend/src/components/common/NotificationModal.vue` — **NEW** blocking dialog cho `severity: critical`.
 - `frontend/src/__tests__/useNotify.spec.ts` — **NEW** unit test render template, fromError mapping, severity routing.
@@ -319,8 +319,8 @@ except ServiceError as e:
 
 **Files:**
 - Create: `scripts/gen_fe_messages.py`
-- Create: `frontend/src/i18n/messages.ts` (generated)
-- Create: `frontend/src/i18n/messages.types.ts`
+- Create: `frontend/src/locales/messages.ts` (generated)
+- Create: `frontend/src/locales/messages.types.ts`
 
 - [ ] **Step 1**: Viết generator parse `utils/messages.py` qua AST (không import — tránh phụ thuộc Frappe), emit `messages.ts`.
 - [ ] **Step 2**: Output shape:
@@ -342,7 +342,7 @@ export const MESSAGES: Record<MessageCode, MessageEntry> = {
 ```
 
 - [ ] **Step 3**: Thêm hook vào `package.json`: `"gen:messages": "python ../scripts/gen_fe_messages.py"`.
-- [ ] **Step 4**: Thêm CI check: chạy generator, `git diff --exit-code frontend/src/i18n/messages.ts` → fail nếu out-of-sync.
+- [ ] **Step 4**: Thêm CI check: chạy generator, `git diff --exit-code frontend/src/locales/messages.ts` → fail nếu out-of-sync.
 - [ ] **Step 5**: Document quy trình: "Thêm mã mới → sửa `utils/messages.py` → `npm run gen:messages` → commit cả 2 file".
 
 ---
@@ -699,7 +699,7 @@ def nthrow_in_hook(message_code, **ctx):
 | 1.2 | `assetcore/services/shared/errors.py`, `assetcore/utils/notify.py` | ServiceError thêm `context`+`message_code` (backwards-compat); `nthrow(MSG.XXX, **ctx)`, `nthrow_in_hook(MSG.XXX, **ctx)` cho DocType hook, `render()` cho composer |
 | 1.3 | `assetcore/utils/response.py` | `_err()` thêm kwargs `message_code`, `context`, `action_hint`, `severity`, `title` |
 | 1.3b | `assetcore/utils/api_handler.py` | NEW shared `handle()` + `parse_json()`. Existing per-api `_handle()` chưa migrate (incremental Phase 4). IMM-04 `_handle` đã hydrate message_code làm reference impl |
-| 1.4 | `scripts/gen_fe_messages.py`, `frontend/src/i18n/messages.ts`, `frontend/src/i18n/messages.types.ts`, `frontend/package.json` | AST-parse generator (không cần Frappe runtime). `npm run gen:messages` |
+| 1.4 | `scripts/gen_fe_messages.py`, `frontend/src/locales/messages.ts`, `frontend/src/locales/messages.types.ts`, `frontend/package.json` | AST-parse generator (không cần Frappe runtime). `npm run gen:messages` |
 | 2.1 | `frontend/src/api/errors.ts` | ApiError thêm `messageCode/context/actionHint/severity/title`. Backwards-compat constructor overload |
 | 2.2 | `frontend/src/api/helpers.ts`, `frontend/src/api/axios.ts` | unwrap() trong helpers hydrate ApiError từ MESSAGES; axios interceptor 417/422 `makeBusinessRuleError()` resolve registry |
 | 2.3 | `frontend/src/composables/useNotify.ts`, `frontend/src/composables/useToast.ts`, `frontend/src/components/common/ToastContainer.vue` | useNotify.show/fromError/fromOk/confirm; toast type thêm title+actionHint render |
@@ -735,5 +735,5 @@ cd frontend && npm run lint
 ### Notes for next pickup
 
 - `nthrow_in_hook` đã sẵn sàng cho DocType validate/on_submit migration — set `frappe.local.response["message_code"]` để axios `makeBusinessRuleError()` hydrate envelope khi 417 throw.
-- `frontend/src/i18n/messages.ts` là GENERATED. Mọi thay đổi message bắt buộc đi qua `assetcore/utils/messages.py` + `npm run gen:messages`. Add CI check `git diff --exit-code` để chống drift.
+- `frontend/src/locales/messages.ts` là GENERATED. Mọi thay đổi message bắt buộc đi qua `assetcore/utils/messages.py` + `npm run gen:messages`. Add CI check `git diff --exit-code` để chống drift.
 - Phase 4-5 hoàn toàn incremental — mỗi module migrate trong PR riêng, không cần coordinate.

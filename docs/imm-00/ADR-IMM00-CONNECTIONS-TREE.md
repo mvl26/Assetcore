@@ -3,7 +3,7 @@
 | Mục | Giá trị |
 |---|---|
 | Status | **Accepted** — 2026-07-27 · **EXTENDS** (không supersede) `ADR-IMM00-LIST-SCOPE` §4b + `ADR-IMM00-TRUNCATION-SSOT` D1/D2/D4/D5/D6 · **§10 bổ sung 2026-07-28** (hợp đồng hiển thị FE — vòng 2/5, KHÔNG đổi một chữ nào của D1–D10) · **§11 bổ sung 2026-07-28** (vòng đời TAB + mount lười — vòng 3/5; **supersede DUY NHẤT** mệnh đề "badge tab đọc `total`" của D-FE-1, xem §11.5) · **§12 bổ sung 2026-07-28** («Tạo từ ngữ cảnh cha» — vòng 4/5; **supersede D8 điều kiện 3+4** và đính chính mệnh đề prefill của D8, xem §12.7) · **§13 bổ sung 2026-07-28** («Xem tất cả» dẫn tới danh sách ĐÃ LỌC — vòng 5/5; **supersede §12.8** (đề mục vòng 5 cũ) + đính chính CÀI ĐẶT `linkFilters` theo D-FE-6 quy tắc 1, xem §13.6) · **§14/§15/§16 bổ sung 2026-07-28** (AC-CR-93 gộp ô rỗng · AC-CR-94 deep-link ĐẾN ĐÍCH 2 màn lịch · AC-CR-95 thăng hạng 4 màn đích) · **§17 bổ sung 2026-07-28** (AC-CR-92 dọn nợ hợp đồng: ô **12 → 9 khoá**, `capped: bool` → `total_capped: int`, RATIFY cổng I/O — **BREAKING**; **supersede D3 §7 · D-FE-3 · lịch gỡ §III.24.5**, **hạ cấp D-CR4-4 phần BE** xuống `[CHƯA CÀI]`, xem §17.7) · **§18 bổ sung 2026-07-30** (AC-CR-105 — LAND phần BE của §12: khoá thứ 10 `create_prefill` + token `CREATE_CAPABILITY`; **NÂNG CẤP D-CR4-4/D-CR4-5 từ `[CHƯA CÀI — BE]` → LIVE** (ô **9 → 10 khoá**), **đính chính hình thức INV-CONN4-1** (chuỗi `⟺` ba vế là SAI — xem D-CR105-2), **NARROW D-CR93-4** (dòng gộp vẫn 0 affordance, chip nằm ở khối SIBLING `conn-empty-actions` — đóng blocker STATE #2); **KHÔNG** chạm P4 vòng đời (D-CR4-3) / `create_incident` (D-CR4-7) / EC-12-05 (D-CR4-8) — xem §18.6) |
-| Scope | `assetcore/api/connections.py` · `assetcore/services/connections.py` (MỚI) · `assetcore/services/shared/connection_meta.py` (MỚI) · **vòng 2**: `frontend/src/api/connections.ts` (helper hiển thị thuần) + `frontend/src/components/common/RelatedRecords.vue` · **vòng 3**: `frontend/src/components/common/DetailTabBar.vue` (MỚI) + 5 màn Detail (`views/asset/AssetDetailView.vue` · `views/pm/PMWorkOrderDetailView.vue` · `views/cm/CMWorkOrderDetailView.vue` · `views/calibration/CalibrationDetailView.vue` · `views/incident/IncidentDetailView.vue`) · **vòng 4**: `services/shared/connection_meta.py` + `services/connections.py` + `assetcore/api/imm00.py` (**chỉ** `create_incident`) + `assetcore/services/imm12.py` (**chỉ** cổng EC-12-05) + `assetcore/utils/messages.py` (**chỉ** +1 mã) + `frontend/src/api/connections.ts` + `frontend/src/components/common/RelatedRecords.vue` · **vòng 5**: `frontend/src/api/connections.ts` + `frontend/src/components/common/RelatedRecords.vue` + `frontend/src/views/incident/IncidentListView.vue` + `frontend/src/views/incident/RCAListView.vue` + `frontend/src/router/connectionsListParity.test.ts` (MỚI) + `assetcore/tests/test_connections_tree.py` (**chỉ thêm** invariant — payload BE KHÔNG đổi) |
+| Scope | `assetcore/api/connections.py` · `assetcore/services/connections.py` (MỚI) · `assetcore/services/shared/connection_meta.py` (MỚI) · **vòng 2**: `frontend/src/api/connections.ts` (helper hiển thị thuần) + `frontend/src/components/common/RelatedRecords.vue` · **vòng 3**: `frontend/src/components/common/DetailTabBar.vue` (MỚI) + 5 màn Detail (`views/asset/AssetDetailView.vue` · `views/pm/PMWorkOrderDetailView.vue` · `views/cm/CMWorkOrderDetailView.vue` · `views/calibration/CalibrationDetailView.vue` · `views/incident/IncidentDetailView.vue`) · **vòng 4**: `services/shared/connection_meta.py` + `services/connections.py` + `assetcore/api/imm00.py` (**chỉ** `create_incident`) + `assetcore/services/imm12.py` (**chỉ** cổng EC-12-05) + `assetcore/utils/messages.py` (**chỉ** +1 mã) + `frontend/src/api/connections.ts` + `frontend/src/components/common/RelatedRecords.vue` · **vòng 5**: `frontend/src/api/connections.ts` + `frontend/src/components/common/RelatedRecords.vue` + `frontend/src/views/incident/IncidentListView.vue` + `frontend/src/views/incident/RCAListView.vue` + `frontend/src/guards/connectionsListParity.guard.test.ts` (MỚI) + `assetcore/tests/test_connections_tree.py` (**chỉ thêm** invariant — payload BE KHÔNG đổi) |
 | CR liên quan | **AC-CR-87** (vòng 1/5 — BE, ĐÃ LAND) · **AC-CR-88** (vòng 2/5 — FE tiêu thụ, §10) · **AC-CR-89** (vòng 3/5 — FE tab + mount lười, §11) · **AC-CR-90** (vòng 4/5 — BE+FE «Tạo từ ngữ cảnh cha», §12) · **AC-CR-91** (vòng 5/5 — FE deep-link «Xem tất cả» có lọc, §13) · **AC-CR-93** (FE gộp ô rỗng, §14) · **AC-CR-94** (deep-link đến đích 2 màn lịch, §15) · **AC-CR-95** (thăng hạng 4 màn đích, §16) · **AC-CR-92** (dọn nợ hợp đồng ô 12→9 khoá + `total_capped`, §17 — **BREAKING**, land SAU 93/94/95 vì §13.6 hoãn) · **AC-CR-105** (§18 — LAND phần BE của §12: `create_prefill` + `CREATE_CAPABILITY` + chip «+ Tạo …» cho ô 0 bản ghi; **ĐÓNG nợ AC-CR-90(b)** của §17.8; nợ CÒN LẠI tách tên riêng **AC-CR-90(c)** = P4 vòng đời per-doctype, §18.7) · kế thừa CR-69 (truncation) · CR-01 (int-not-bool) |
 | SSoT code | `services/shared/connection_meta.py` (bảng tĩnh) · `services/connections.py` (logic + allowlist derive) · 12 file `*_dashboard.py` (đồ thị liên kết — SSoT gốc, GIỮ NGUYÊN) · **route SSoT vẫn ở FE**: `frontend/src/api/connections.ts::DOCTYPE_ROUTE` / `DOCTYPE_DETAIL_ROUTE` |
 | Cập nhật | 2026-07-30 (§18 — AC-CR-105) |
@@ -561,7 +561,7 @@ defineEmits<{ (e: 'update:modelValue', key: string): void }>()
 
 - Container: `role="tablist"` + `data-testid="detail-tab-bar"` + `class="flex gap-1 mb-4 border-b border-slate-200 overflow-x-auto"`.
 - Mỗi nút: `type="button"` + `role="tab"` + `:aria-selected="t.key === modelValue"` + `:data-testid="'tab-' + t.key"` + `class` chứa `shrink-0 whitespace-nowrap`.
-- **Vì sao `overflow-x-auto` + `shrink-0` là hợp đồng, không phải trang trí**: đó là điều kiện của TC-RWD-07 (tab cuối vẫn với tới được trên mobile). Chuyển tab bar của `AssetDetailView` sang component này ⇒ hợp đồng cuộn ngang **chuyển theo** component; guard `assetDetailTabBarResponsive.test.ts` phải trỏ vào `DetailTabBar.vue` cho phần class và giữ literal danh sách tab ở view (§11.4 hàng cuối).
+- **Vì sao `overflow-x-auto` + `shrink-0` là hợp đồng, không phải trang trí**: đó là điều kiện của TC-RWD-07 (tab cuối vẫn với tới được trên mobile). Chuyển tab bar của `AssetDetailView` sang component này ⇒ hợp đồng cuộn ngang **chuyển theo** component; guard `AssetDetailView.tabBarResponsive.test.ts` phải trỏ vào `DetailTabBar.vue` cho phần class và giữ literal danh sách tab ở view (§11.4 hàng cuối).
 - **Không** cài roving-tabindex/mũi tên trái-phải trong vòng này: nút là `<button>` **thật** nên đã vào được bằng phím `Tab` và kích hoạt bằng `Enter`/`Space`. Mẫu ARIA đầy đủ (mũi tên + `aria-controls`) là `[ROADMAP]` — xem §11.6.
 - **Không** đặt `aria-controls` trỏ tới panel liên quan: panel dùng `v-if` ⇒ khi tab chưa mở, id đó **không tồn tại** ⇒ tham chiếu treo (tệ hơn là không có).
 
@@ -590,7 +590,7 @@ Chưa tải xong / bị chặn đọc (403 CR-74) / không có bản ghi ⇒ **t
 | Hiệu chuẩn | `:700` | trong `<template v-else>` (`:471`–`:702`) của chuỗi `loading` (`:457`) → `loadFailed` (`:460`) | `!loading ∧ !loadFailed` (chính `<template v-else>`) | thân của template đó; panel chính mang `class="space-y-5"` (trang dùng `space-y-5` ở cấp cha) |
 | Sự cố | `:498` `v-if="!loading && form.status"` | `!loading ∧ form.status` | **y hệt** `!loading && form.status` | các khối thân trang `:492`–`:716` (stepper · dải ảnh hưởng bệnh nhân · `err` · chuỗi `loading`/`loadBlocked` `:511`/thẻ chi tiết `:523`); modal `:719`+ nằm **ngoài**; panel chính mang `class="space-y-5"` |
 
-**Bất biến kèm theo (A7)**: `src/views/detailReadForbiddenGate.test.ts` phải **xanh mà không sửa một assert nào**. Nó chấm 403-in-envelope: PM/CM theo `data-testid` CTA, Hiệu chuẩn/Sự cố theo **nhãn chữ của mọi `<button>`** — nhãn tab («Chi tiết», «Bản ghi liên quan») không nằm trong tập nhãn CTA đó, **và** ở trạng thái 403 tab bar không render (điều kiện gác không thoả). Nếu test này đỏ ⇒ đã nới điều kiện gác sai, **không phải** test sai.
+**Bất biến kèm theo (A7)**: `src/integration/detailReadForbiddenGate.integration.test.ts` phải **xanh mà không sửa một assert nào**. Nó chấm 403-in-envelope: PM/CM theo `data-testid` CTA, Hiệu chuẩn/Sự cố theo **nhãn chữ của mọi `<button>`** — nhãn tab («Chi tiết», «Bản ghi liên quan») không nằm trong tập nhãn CTA đó, **và** ở trạng thái 403 tab bar không render (điều kiện gác không thoả). Nếu test này đỏ ⇒ đã nới điều kiện gác sai, **không phải** test sai.
 
 ### D-TAB-6 — Cặp `doctype` / `name` **giữ nguyên** từng màn (đổi = mở nhầm hồ sơ)
 
@@ -659,7 +659,7 @@ Guard A1 quét mã nguồn 5 file bằng vòng lặp trên mảng đường dẫ
 | INV-CONNTAB-9 | Prop truyền vào `RelatedRecords` khớp **đúng** cặp `doctype`/`name` của từng màn (đọc từ stub) | mở nhầm hồ sơ trong khối liên quan |
 | INV-CONNTAB-10 | Nhãn tab của cả 5 màn ⊂ tập nhãn tiếng Việt đã duyệt; **0** tên DocType thô, **0** chuỗi Anh trong tab bar | LL-FE-53 tái phát |
 | INV-CONNTAB-11 | `DetailTabBar` render `role="tablist"`; mỗi nút `role="tab"` + `type="button"` + `aria-selected` **đúng** tab đang chọn (đúng 1 nút `true`); container có `overflow-x-auto`; nút có `shrink-0`/`whitespace-nowrap` | vỡ a11y hoặc vỡ hợp đồng cuộn ngang TC-RWD-07 |
-| INV-CONNTAB-12 | Điều kiện gác cũ (chưa tải / bị chặn đọc) ⇒ **0** phần tử `[data-testid="detail-tab-bar"]`; `detailReadForbiddenGate.test.ts` xanh **không sửa assert** | tab chết trên phiếu không đọc được |
+| INV-CONNTAB-12 | Điều kiện gác cũ (chưa tải / bị chặn đọc) ⇒ **0** phần tử `[data-testid="detail-tab-bar"]`; `detailReadForbiddenGate.integration.test.ts` xanh **không sửa assert** | tab chết trên phiếu không đọc được |
 
 ### 11.3 Boundaries (Always / Never) — vòng 3
 
@@ -685,13 +685,13 @@ Guard A1 quét mã nguồn 5 file bằng vòng lặp trên mảng đường dẫ
 | `<KeepAlive>` quanh panel liên quan (mount lười + giữ sống) | Phá INV-CONNTAB-6 (panel phải **biến mất** khỏi DOM) và giữ dữ liệu cũ sau khi người dùng vừa tạo/đổi bản ghi ở tab chính |
 | Gọi endpoint đếm riêng để có badge ngay | Thêm request eager (đúng thứ vòng này xoá) + thêm hợp đồng BE ⇒ vượt A10. Badge là `[ROADMAP]` |
 | Mỗi màn tự viết tab bar (không tách component) | Năm bản a11y ⇒ năm đường trôi; TC-RWD-07 sẽ chỉ đúng ở một màn. Một component = một hợp đồng |
-| Giữ tab bar cũ của `AssetDetailView` (không migrate sang `DetailTabBar`) | Hai hợp đồng tab song song trên cùng một sản phẩm; guard responsive phải nhân đôi. Chi phí migrate = 1 file, đã biết trước là `assetDetailTabBarResponsive.test.ts` phải cập nhật (breakage **hợp lệ**, khai báo trước — A9) |
+| Giữ tab bar cũ của `AssetDetailView` (không migrate sang `DetailTabBar`) | Hai hợp đồng tab song song trên cùng một sản phẩm; guard responsive phải nhân đôi. Chi phí migrate = 1 file, đã biết trước là `AssetDetailView.tabBarResponsive.test.ts` phải cập nhật (breakage **hợp lệ**, khai báo trước — A9) |
 
 ### 11.5 Supersede & hệ quả
 
 - **Supersede (duy nhất)**: mệnh đề của §10 D-FE-1 *"con số là badge tab đọc từ expose"* → thay bằng **D-TAB-4** (vòng 3 không có badge). Phần còn lại của D-FE-1 (root duy nhất · không chrome · `defineExpose`) **giữ nguyên hiệu lực**.
 - **Kết thúc hệ quả tạm của vòng 2**: từ vòng này khối liên quan **có tiêu đề trở lại** — chính là tên tab «Bản ghi liên quan».
-- **Breakage đã biết & hợp lệ**: `assetDetailTabBarResponsive.test.ts` phải cập nhật (danh sách 6 tab; phần class cuộn ngang chuyển sang chấm trên `DetailTabBar.vue`). Đây là **cập nhật guard theo thiết kế mới**, không phải nới lỏng guard: sau khi sửa, guard vẫn phải đỏ nếu ai bỏ `overflow-x-auto`/`shrink-0` hoặc bỏ một tab.
+- **Breakage đã biết & hợp lệ**: `AssetDetailView.tabBarResponsive.test.ts` phải cập nhật (danh sách 6 tab; phần class cuộn ngang chuyển sang chấm trên `DetailTabBar.vue`). Đây là **cập nhật guard theo thiết kế mới**, không phải nới lỏng guard: sau khi sửa, guard vẫn phải đỏ nếu ai bỏ `overflow-x-auto`/`shrink-0` hoặc bỏ một tab.
 - **Không đổi hợp đồng BE**: 0 dòng dưới `assetcore/`; `get_connections` giữ nguyên shape, chỉ **được gọi ít hơn**.
 
 ### 11.6 Backlog mở sau vòng 3
@@ -916,7 +916,7 @@ Gỡ `capped` + `count` + `label` ở **BE và FE cùng lúc** (D3 §7) + bỏ n
 
 ## 13. «Xem tất cả» phải dẫn tới danh sách **ĐÃ LỌC** — vòng 5/5 (AC-CR-91)
 
-> **Phạm vi vòng 5**: `frontend/src/api/connections.ts` · `frontend/src/components/common/RelatedRecords.vue` · `frontend/src/views/incident/IncidentListView.vue` · `frontend/src/views/incident/RCAListView.vue` · `frontend/src/router/connectionsListParity.test.ts` (MỚI) · `assetcore/tests/test_connections_tree.py` (**chỉ thêm** invariant).
+> **Phạm vi vòng 5**: `frontend/src/api/connections.ts` · `frontend/src/components/common/RelatedRecords.vue` · `frontend/src/views/incident/IncidentListView.vue` · `frontend/src/views/incident/RCAListView.vue` · `frontend/src/guards/connectionsListParity.guard.test.ts` (MỚI) · `assetcore/tests/test_connections_tree.py` (**chỉ thêm** invariant).
 > **Hợp đồng BE payload GIỮ NGUYÊN**: `services/connections.py` **0 khoá** thêm/bớt/đổi nghĩa.
 
 ### 13.1 Context riêng của vòng 5 — bằng chứng audit (đo 2026-07-28, @source)
@@ -947,7 +947,7 @@ Bốn vòng trước đã làm ô liên kết *nói thật* (preview 5 dòng, nh
 - **(a) Lệch tầng tên gọi — 4 ô.** BE phát **fieldname của DocType** (`asset_ref`, `final_asset`, `critical_asset`); màn danh sách đọc **khoá query nghiệp vụ** (`asset`). `?asset_ref=AC-ASSET-…` là query **vô hại và vô dụng**: Vue Router nhận, view bỏ qua, người dùng thấy **toàn bộ** phiếu của cả viện sau khi vừa bấm vào ô ghi "6". Đây **CHÍNH XÁC** loại nhầm lẫn mà §12.7 đã đính chính một lần cho nhánh *tạo* (D8 → D-CR4-4/5) — nhưng nhánh *danh sách* thì chưa ai đính chính, nên nó sống tiếp.
 - **(b) Màn đích chưa có khả năng lọc — 9 ô.** Không có khoá nào dịch được, vì view không đọc gì cả. Đây **không** phải lỗi dịch khoá; dựng nút ở đây là hứa suông dù có dịch bao nhiêu lần.
 
-**Vì sao 4 vòng test xanh vẫn không bắt được:** INV-CONNFE-6 chỉ đòi *"có ≥1 khoá lọc"* — nó đếm **sự tồn tại của khoá**, không kiểm tra **khoá đó có ai đọc không**. Cùng một lỗ hổng đã được bịt cho nhánh *tạo* ở vòng 4 bằng `connectionsCreateParity.test.ts` (đối chiếu khoá ⇄ `route.query.<key>` trong chính file view). Vòng 5 mang đúng khuôn đó sang nhánh *danh sách*.
+**Vì sao 4 vòng test xanh vẫn không bắt được:** INV-CONNFE-6 chỉ đòi *"có ≥1 khoá lọc"* — nó đếm **sự tồn tại của khoá**, không kiểm tra **khoá đó có ai đọc không**. Cùng một lỗ hổng đã được bịt cho nhánh *tạo* ở vòng 4 bằng `connectionsCreateParity.guard.test.ts` (đối chiếu khoá ⇄ `route.query.<key>` trong chính file view). Vòng 5 mang đúng khuôn đó sang nhánh *danh sách*.
 
 ### 13.2 Sai lệch thứ hai phát hiện khi audit — `linkFilters` phản D-FE-6 (Self-Correction)
 
@@ -958,7 +958,7 @@ if (deep && Object.keys(deep).length > 0) return { ...deep }   // ⇐ `{}` RƠI 
 // … chiếu scalar từ item.filters
 ```
 
-D-FE-6 quy tắc 1 nói **ngược lại**: `deep_link_filters !== undefined` ⇒ dùng NGUYÊN nó **kể cả `{}`**, **CẤM** fallback sang `filters`. Sai lệch này bị **ossify** bởi chính test `connections.test.ts` (`'deep_link_filters rỗng ⇒ fallback filters (backend cũ)'`), và INV-CONNFE-7 chỉ xanh vì fixture đặt **cả hai** về `{}`.
+D-FE-6 quy tắc 1 nói **ngược lại**: `deep_link_filters !== undefined` ⇒ dùng NGUYÊN nó **kể cả `{}`**, **CẤM** fallback sang `filters`. Sai lệch này bị **ossify** bởi chính test `connectionsApi.guard.test.ts` (`'deep_link_filters rỗng ⇒ fallback filters (backend cũ)'`), và INV-CONNFE-7 chỉ xanh vì fixture đặt **cả hai** về `{}`.
 
 Hậu quả thật: BE mới strip sạch khoá (`_safe_deep_link` loại khoá ngoài allowlist ⇒ `deep_link_filters = {}`) trong khi `filters` legacy vẫn còn `{asset_ref: 'AC-…'}` ⇒ FE fallback ⇒ dựng nút ⇒ `?asset_ref=…` ⇒ **danh sách không lọc**. Đúng lớp bug vòng này đóng, và nó nằm ở nhánh mà INV-CONN-15 (cache đồ thị theo site) đã cảnh báo là **đã từng xảy ra ở production**.
 
@@ -1126,7 +1126,7 @@ Thay vào đó BE **đóng đinh hai giả định** mà `listTarget` đang dự
 | **Giữ nút cho mọi doctype, thêm cảnh báo "danh sách chưa lọc được"** | Vẫn tiêu một cú bấm + một lần chuyển trang để nói "không làm được". Ô đã có preview 5 dòng — im lặng ở đây **đắt hơn** một dòng cảnh báo. |
 | **Bỏ nút, chỉ giữ preview** (không dịch khoá) | Vứt luôn 3 ô đang chạy đúng và cả 6 ô chỉ cần đổi tên khoá. Chi phí dịch là **một bản đồ**; lợi ích là 9/16 ô hoạt động. |
 | **Wire lọc `asset` cho cả 9 màn `LIST_TARGET_NO_FILTER`** | 9 màn × (state + chip + watch + API + test) vượt xa biên vòng, và 4 màn còn cần BE thêm tham số. Vòng 5 wire **2** màn có đủ hạ tầng BE+store; phần còn lại vào backlog có tên. |
-| **Guard động (mount thật từng màn rồi kiểm URL)** | Chậm, giòn, và **không** bắt được ca "view đọc query nhưng chưa ai khai vào bản đồ". Guard **tĩnh** đọc mã nguồn bắt được cả hai chiều — đúng khuôn đã chứng minh ở `connectionsCreateParity.test.ts`. |
+| **Guard động (mount thật từng màn rồi kiểm URL)** | Chậm, giòn, và **không** bắt được ca "view đọc query nhưng chưa ai khai vào bản đồ". Guard **tĩnh** đọc mã nguồn bắt được cả hai chiều — đúng khuôn đã chứng minh ở `connectionsCreateParity.guard.test.ts`. |
 
 ### 13.6 Supersede & đính chính
 
@@ -1490,7 +1490,7 @@ Vì sao đây là **đúng chỗ** để sửa:
 
 - `DOCTYPE_LIST_TARGET` 9 → **11**; `LIST_TARGET_NO_FILTER` 11 → **9**; phân hoạch `DOCTYPE_ROUTE` = **20** giữ nguyên, giao = ∅.
 - Hai entry mới **bắt buộc** khai `sourceKeys` theo Link field THẬT: `'PM Schedule'` → `['asset_ref']`, `'IMM Calibration Schedule'` → `['asset']` (verify schema: cả hai là `Link → AC Asset`, `reqd=1`).
-- **Guard `router/connectionsListParity.test.ts` KHÔNG được sửa.** Nó xanh **là** bằng chứng thăng hạng đúng (allowlist chỉ-giảm, INV-CONNFE5-3/4). Nếu phải nới guard để xanh ⇒ đang làm sai vế (a) hoặc khai sai `sourceKeys`.
+- **Guard `router/connectionsListParity.guard.test.ts` KHÔNG được sửa.** Nó xanh **là** bằng chứng thăng hạng đúng (allowlist chỉ-giảm, INV-CONNFE5-3/4). Nếu phải nới guard để xanh ⇒ đang làm sai vế (a) hoặc khai sai `sourceKeys`.
 
 ### D-CR94-8 — Assert "ô rỗng" phải **không vacuous**
 
@@ -1562,7 +1562,7 @@ Vì sao đây là **đúng chỗ** để sửa:
 - Đọc 3 counter guard + baseline FE **từ đĩa** trước khi chấm delta.
 
 **Never**
-- **KHÔNG** sửa `router/connectionsListParity.test.ts` (allowlist chỉ-giảm; guard xanh **là** bằng chứng).
+- **KHÔNG** sửa `router/connectionsListParity.guard.test.ts` (allowlist chỉ-giảm; guard xanh **là** bằng chứng).
 - **KHÔNG** sửa `assetcore/tests/test_connections.py` (11 TC hợp đồng cũ — bất biến từ vòng 1).
 - **KHÔNG** đổi/thêm/bớt khoá payload `get_connections`, **KHÔNG** đụng `services/connections.py` / `connection_meta.py` / `*_dashboard.py`.
 - **KHÔNG** thêm tham số `asset=` cho `list_calibration_schedules` (kênh `filters` đã là hợp đồng).
@@ -1676,7 +1676,7 @@ Cột DB                          :  final_asset | asset | asset | asset_ref (FC
 | `/capas` | `asset` | tham số `asset` | `api/imm00.list_capas` | `asset` |
 | `/cm/firmware` | `asset` | tham số `asset` | `api/imm00.list_firmware_crs` | `asset_ref` (BE map `:2902`) |
 
-**Vì sao URL chỉ một tên:** `LIST_TARGET_ANCHOR` (`:285`) là bảng "khoá URL → DocType mà giá trị thuộc về", và guard `connectionsListParity.test.ts:83-103` dùng nó để chứng minh giá trị đem dịch **là** mã thiết bị. Cho phép `?final_asset=` trên URL là mở một khoá URL thứ hai cho **cùng một** sự thật ⇒ hai đường vào, và link người dùng bookmark/chia sẻ hết đồng nhất. **Cấm** thêm khoá vào `LIST_TARGET_ANCHOR` trong vòng này.
+**Vì sao URL chỉ một tên:** `LIST_TARGET_ANCHOR` (`:285`) là bảng "khoá URL → DocType mà giá trị thuộc về", và guard `connectionsListParity.guard.test.ts:83-103` dùng nó để chứng minh giá trị đem dịch **là** mã thiết bị. Cho phép `?final_asset=` trên URL là mở một khoá URL thứ hai cho **cùng một** sự thật ⇒ hai đường vào, và link người dùng bookmark/chia sẻ hết đồng nhất. **Cấm** thêm khoá vào `LIST_TARGET_ANCHOR` trong vòng này.
 
 ### D-CR95-3 — `sourceKeys` khai **chính xác 1 khoá/doctype**, lấy từ schema, **không** gộp "cho chắc"
 
@@ -1746,7 +1746,7 @@ Người dùng vẫn tự bật được sau đó — khi đó `count != số d�
 
 - `DOCTYPE_LIST_TARGET` 11 → **15**; `LIST_TARGET_NO_FILTER` 9 → **5**; phân hoạch `|DOCTYPE_ROUTE|` = **20** giữ nguyên, giao = ∅.
 - `LIST_TARGET_NO_FILTER` còn đúng **5**: `AC Asset` (ca liên kết xuôi `{name:…}`, D-CR5-4) · `AC Supplier` · `IMM Device Model` · `IMM Critical Spare Watchlist` (anchor `critical_asset`) · `AC Spare Part`.
-- **KHÔNG** sửa `router/connectionsListParity.test.ts`. Guard xanh **là** bằng chứng thăng hạng đúng; phải nới guard để xanh ⇒ đang làm sai vế (a) hoặc khai sai `sourceKeys`.
+- **KHÔNG** sửa `router/connectionsListParity.guard.test.ts`. Guard xanh **là** bằng chứng thăng hạng đúng; phải nới guard để xanh ⇒ đang làm sai vế (a) hoặc khai sai `sourceKeys`.
 - Docblock của **cả hai** bảng phải cập nhật cùng lúc (bảng "lý do từng dòng" trong `LIST_TARGET_NO_FILTER` là hợp đồng đọc được — để lại 4 dòng đã rời là nói dối bằng comment).
 
 ### D-CR95-10 — 3 counter guard: delta **0** (đính chính đề mục, xem §16.7)
@@ -1816,7 +1816,7 @@ File test BE **mới** của vòng này **không** thuộc 7 module trong `_GUAR
 - Đọc baseline FE + 3 counter guard **từ đĩa** trước khi chấm delta.
 
 **Never**
-- **KHÔNG** sửa `router/connectionsListParity.test.ts` (guard xanh **là** bằng chứng).
+- **KHÔNG** sửa `router/connectionsListParity.guard.test.ts` (guard xanh **là** bằng chứng).
 - **KHÔNG** sửa `assetcore/tests/test_connections.py` (11 TC hợp đồng vòng 1) và **KHÔNG** sửa `test_connections_tree.py` (27 TC — vòng này dùng **file mới**).
 - **KHÔNG** đổi/thêm/bớt khoá payload `get_connections`; **KHÔNG** đụng `services/connections.py` / `shared/connection_meta.py` / mọi `*_dashboard.py`.
 - **KHÔNG** sửa **bất kỳ** file prod `.py` (cả 4 đường BE đã đủ — sửa BE vòng này = ra khỏi A-biên và kéo theo blocker `bench restart`).
@@ -1877,7 +1877,7 @@ File test BE **mới** của vòng này **không** thuộc 7 module trong `_GUAR
 - **Phạm vi (A-biên — chấm bằng `git diff --name-only`)**:
   - BE: `assetcore/services/connections.py` · `assetcore/api/connections.py` (**chỉ** docstring 12→9 khoá + ghi chú cổng I/O) · `assetcore/tests/test_connections.py` · `assetcore/tests/test_connections_tree.py`.
   - FE: `frontend/src/api/connections.ts` · `frontend/src/components/common/RelatedRecords.vue` (nếu cần) · 7 file `.test.ts` dựng fixture ô (§17.2.3).
-  - **Sạch tuyệt đối**: `services/shared/connection_meta.py` · 12 file `*_dashboard.py` · 5 màn Detail · `router/index.ts` · `router/connectionsListParity.test.ts` · `router/connectionsCreateParity.test.ts` · `docs/mobile/openapi/*.yaml` · 3 counter guard (delta **0**, D-CR92-9).
+  - **Sạch tuyệt đối**: `services/shared/connection_meta.py` · 12 file `*_dashboard.py` · 5 màn Detail · `router/index.ts` · `router/connectionsListParity.guard.test.ts` · `router/connectionsCreateParity.guard.test.ts` · `docs/mobile/openapi/*.yaml` · 3 counter guard (delta **0**, D-CR92-9).
   - ⛔ **KHÔNG** `git commit/push/merge` · **KHÔNG** `bench migrate` / `bench restart` · **KHÔNG** `npm run build` (= deploy live, LL-DEPLOY-09) · **KHÔNG** reset DB.
 
 ### 17.1 Context — vì sao dọn bây giờ, và ba thứ đo được trên đĩa
@@ -1939,7 +1939,7 @@ Nhóm và ô là **hai câu hỏi khác nhau**: nhãn nhóm được khai bằng
 ### D-CR92-5 — Gỡ `filters` (BE) và **xoá hẳn** `scalarFilters` + `linkFilters` (FE)
 
 `deep_link_filters` là **chiếu an-toàn-query-string** của `filters` (D7) và đã đủ cho 100% đường dùng sản phẩm: `listTarget()` (§13, §16) đọc nó, `RelatedRecords.vue` không đọc `filters` một chỗ nào. Giữ `filters` chỉ để lại một khoá mà **FE bị cấm dùng** — và đúng chỗ đó là nơi lỗi vòng 5 đã sinh ra: fallback `filters` **hồi sinh** đúng khoá mà `_safe_deep_link` vừa strip ⇒ dựng nút ⇒ danh sách không lọc (§13.2 / D-CR5-3).
-FE vì thế xoá **cả hai** hàm: `scalarFilters` (không còn đầu vào) và `linkFilters` (0 caller sản phẩm — bằng chứng: chỉ `connections.test.ts` gọi). Xoá hàm cùng vòng với xoá khoá, nếu không nó là **nhánh chết chờ hồi sinh**: người sau thấy hàm còn đó sẽ tin là còn hợp đồng.
+FE vì thế xoá **cả hai** hàm: `scalarFilters` (không còn đầu vào) và `linkFilters` (0 caller sản phẩm — bằng chứng: chỉ `connectionsApi.guard.test.ts` gọi). Xoá hàm cùng vòng với xoá khoá, nếu không nó là **nhánh chết chờ hồi sinh**: người sau thấy hàm còn đó sẽ tin là còn hợp đồng.
 
 ### D-CR92-6 — RATIFY **cổng I/O**: lời gọi ORM ở `api/connections.py::_row_scoped_rows` là **NGOẠI LỆ CÓ TÊN, CÓ GUARD** của D9 — đóng blocker #2 mà **không dời mã**
 
@@ -1967,7 +1967,7 @@ Ranh giới của luật: **cấm đọc THEO TẬP** (list/count/sql) ở servi
 **Quyết định:**
 1. Bộ khoá chuẩn của ô là **9** (D-CR92-1) — `create_prefill` **không** vào. Thêm nó ở vòng dọn nợ sẽ trộn hai việc trái chiều (gỡ 4 / thêm 1) trong một breaking change, và làm mất đúng cái oracle set-equality vừa dựng.
 2. `05 §III.24.7.a` / `07 §XVIII.6` bị **hạ cấp** xuống `[CHƯA CÀI — BE]` (§17.7), **không xoá** (quyết định vẫn đúng, chỉ chưa thực hiện).
-3. FE **giữ** `create_prefill?: Record<string,string>` **optional** + `CREATE_PREFILL_QUERY_KEYS` + `connectionsCreateParity.test.ts`: đây là nửa FE của một quyết định đã ratify, và `createTarget()` đã suy biến **đúng** về `{ path }` khi khoá vắng (0 query rác — TC-CONNFE4-04). Xoá đi rồi ngày mai land lại là hai lần đổi hợp đồng thay vì một.
+3. FE **giữ** `create_prefill?: Record<string,string>` **optional** + `CREATE_PREFILL_QUERY_KEYS` + `connectionsCreateParity.guard.test.ts`: đây là nửa FE của một quyết định đã ratify, và `createTarget()` đã suy biến **đúng** về `{ path }` khi khoá vắng (0 query rác — TC-CONNFE4-04). Xoá đi rồi ngày mai land lại là hai lần đổi hợp đồng thay vì một.
 4. Hệ quả **phải nói thật trong ghi chú phát hành**: nút «Tạo …» hiện mở màn tạo **TRỐNG** — «Tạo từ ngữ cảnh cha» của AC-CR-90 **chưa có** ở web. Backlog `AC-CR-90(b)` (§17.8), **không** cấp số CR mới để khỏi rời ledger khỏi quyết định gốc.
 
 ### D-CR92-8 — Cửa sổ deploy: **thứ tự là ràng buộc**, và client mới đọc **phòng thủ** một khoá
@@ -2028,7 +2028,7 @@ Ranh giới của luật: **cấm đọc THEO TẬP** (list/count/sql) ở servi
 | `linkFilters` · `scalarFilters` | **xoá hàm** + xoá import/TC gọi nó |
 | Fixture ô trong 7 file test | bỏ 4 khoá legacy, thêm `total_capped: 0` |
 
-7 file dựng fixture ô (đo 2026-07-28): `api/connections.test.ts` · `components/common/RelatedRecords.test.ts` · `views/asset/assetDetailRelatedTab.test.ts` · `views/pm/pmDetailRelatedTab.test.ts` · `views/cm/cmDetailRelatedTab.test.ts` · `views/calibration/calibrationDetailRelatedTab.test.ts` · `views/incident/incidentDetailRelatedTab.test.ts`.
+7 file dựng fixture ô (đo 2026-07-28): `api/connectionsApi.guard.test.ts` · `components/common/RelatedRecords.test.ts` · `views/asset/AssetDetailView.relatedTab.test.ts` · `views/pm/PMWorkOrderDetailView.relatedTab.test.ts` · `views/cm/CMWorkOrderDetailView.relatedTab.test.ts` · `views/calibration/CalibrationDetailView.relatedTab.test.ts` · `views/incident/IncidentDetailView.relatedTab.test.ts`.
 
 #### 17.2.4 Guard tĩnh FE chống hồi sinh
 
@@ -2049,8 +2049,8 @@ Quét **mọi** `frontend/src/**/*.{ts,vue}` (kể cả `*.test.ts`) và đòi *
 | **INV-CONNFE9-2** | 0 hit 5 mẫu regex ở §17.2.4 trong `frontend/src` (allowlist 1 file) | guard tĩnh FE |
 | **INV-CONNFE9-3** | RENDER: ô `{total:100, total_capped:1, items:5, truncated:1}` ⇒ `[data-testid=conn-count]` **=== `'100+'`** ∧ `[data-testid=conn-meta]` chứa `'Đang xem 5/100+'`; **0** badge `'100'` trần, **0** chuỗi từ phép trừ (`'còn 95'`) | `RelatedRecords.test.ts` (**mount**) |
 | **INV-CONNFE9-4** | RENDER: ô `{total:7, total_capped:0}` ⇒ badge `'7'` | `RelatedRecords.test.ts` |
-| **INV-CONNFE9-5** | `total_capped` **VẮNG MẶT** ⇒ `countBadge` trả `'7'` (không crash, không `'7+'`) | `connections.test.ts` |
-| **INV-CONNFE9-6** | `previewMeta` không suy `truncated` từ `items.length` (mutation: bỏ `truncated` khỏi ô có 5/7 ⇒ dải **mất**, không tự đoán) | `connections.test.ts` |
+| **INV-CONNFE9-5** | `total_capped` **VẮNG MẶT** ⇒ `countBadge` trả `'7'` (không crash, không `'7+'`) | `connectionsApi.guard.test.ts` |
+| **INV-CONNFE9-6** | `previewMeta` không suy `truncated` từ `items.length` (mutation: bỏ `truncated` khỏi ô có 5/7 ⇒ dải **mất**, không tự đoán) | `connectionsApi.guard.test.ts` |
 
 **Không suy giảm (bất biến cũ phải vẫn xanh):** `t04` (1 `list_fn`/ô · 0 COUNT) · `t06` (`len(items) == min(total, PREVIEW_LIMIT)` mọi hub) · `t15`/`t23` (deep-link 1 khoá dùng được) · `t22` (thiếu DocPerm ⇒ ẩn hẳn ô) · `t25`/`t26` (`count == drill` cross-endpoint) · INV-CONN-22 (ô rỗng vẫn có mặt) · `test_connections.py` **11 TC** (trong đó `test_counts_run_under_session_user_not_administrator` **0 dòng sửa**).
 
@@ -2104,13 +2104,13 @@ Quét **mọi** `frontend/src/**/*.{ts,vue}` (kể cả `*.test.ts`) và đòi *
 |---|---|
 | **Status** | **Accepted** — 2026-07-30 · **THỰC HIỆN** D-CR4-2 / D-CR4-4 / D-CR4-5 (phần BE, bị `[CHƯA CÀI]` từ §17.7) · **đính chính hình thức** INV-CONN4-1 (D-CR105-2) · **NARROW** D-CR93-4 (D-CR105-7) · **KHÔNG** thực hiện D-CR4-3 / D-CR4-7 / D-CR4-8 (§18.6) |
 | **Phạm vi BE** | `services/shared/connection_meta.py` (+`CREATE_CAPABILITY`, +`CreateContext.query_keys`) · `services/connections.py` (**chỉ** `_create_affordance` + 1 khoá trong dict ô + docstring `9 → 10 khoá`) · `api/connections.py` (**CHỈ docstring** hợp đồng `9 → 10 khoá` tại `:112-118` — **0 dòng logic**; không sửa = **cite-drift**, luật `04 §V.9.3`; file này **đã** nằm trong danh sách chờ reload từ run-3 ⇒ **0 nợ reload mới**) · `assetcore/tests/test_connections_tree.py` (+6 TC, **2** TC hiện có sửa có khai báo) |
-| **Phạm vi FE** | `frontend/src/api/connections.ts` (`create_prefill` bỏ `?`, +`emptyCells`) · `frontend/src/components/common/RelatedRecords.vue` (khối `conn-empty-actions`) · `frontend/src/api/connectionsLegacyKeysRetired.acr92.test.ts` (9→10 · tập optional → **rỗng**) · `frontend/src/components/common/RelatedRecords.test.ts` (+TC; **2 dòng** breakage khai trước) · `frontend/src/api/connections.test.ts` (append) |
+| **Phạm vi FE** | `frontend/src/api/connections.ts` (`create_prefill` bỏ `?`, +`emptyCells`) · `frontend/src/components/common/RelatedRecords.vue` (khối `conn-empty-actions`) · `frontend/src/guards/connectionsLegacyKeys.guard.test.ts` (9→10 · tập optional → **rỗng**) · `frontend/src/components/common/tests/RelatedRecords.test.ts` (+TC; **2 dòng** breakage khai trước) · `frontend/src/guards/connectionsApi.guard.test.ts` (append) |
 | **Sạch tuyệt đối** | `api/imm08|imm09|imm11|imm12|purchase.py` · `services/imm12.py` · `services/shared/rbac.py` · `utils/messages.py` · `frontend/src/router/index.ts` · `frontend/src/router/routeAccess.ts` · 12 file `*_dashboard.py` · 5 màn Detail · `docs/mobile/openapi/*` |
 | **Migrate / OAS** | **0 DocType mới ⇒ 0 `bench migrate`** · `get_connections` **không** có mirror OAS (verify 2026-07-30: `grep -c connections docs/mobile/openapi/*.yaml` = **0**) ⇒ 3 counter guard **delta 0** (`_EXPECTED_TEST_COUNT` **1024** `tests/test_mobile_oas.py:212` · `_GUARD_SUITE_SUM` **1167** · `_MOBILE_OAS_TOTAL` **1193**) |
 
 ### 18.1 Context — vì sao vòng này tồn tại (đo trên đĩa 2026-07-30)
 
-1. **Hợp đồng chết đúng một khoá.** `grep -rn "create_prefill" assetcore/` = **0 hit**. `services/connections.py:431-441` phát **9** khoá; `tests/test_connections_tree.py:63 _ITEM_KEYS_V2` khai **9**. Trong khi đó FE **đã** cài xong toàn bộ đường tiêu thụ từ 2026-07-28: `api/connections.ts:111` `create_prefill?`, `:402` `CREATE_PREFILL_QUERY_KEYS`, `:432` `createTarget`, guard `router/connectionsCreateParity.test.ts`. ⇒ Người dùng bấm «Tạo phiếu sửa chữa» trên hồ sơ `AC-ASSET-…` và **màn tạo mở ra TRỐNG**: phải gõ lại đúng mã vừa đứng trên đó, gõ sai thì phiếu treo **sai thiết bị** (vết vòng đời NĐ98 sai chủ thể). Đây là nợ AC-CR-90(b), đã được nêu tên ở §17.8.
+1. **Hợp đồng chết đúng một khoá.** `grep -rn "create_prefill" assetcore/` = **0 hit**. `services/connections.py:431-441` phát **9** khoá; `tests/test_connections_tree.py:63 _ITEM_KEYS_V2` khai **9**. Trong khi đó FE **đã** cài xong toàn bộ đường tiêu thụ từ 2026-07-28: `api/connections.ts:111` `create_prefill?`, `:402` `CREATE_PREFILL_QUERY_KEYS`, `:432` `createTarget`, guard `router/connectionsCreateParity.guard.test.ts`. ⇒ Người dùng bấm «Tạo phiếu sửa chữa» trên hồ sơ `AC-ASSET-…` và **màn tạo mở ra TRỐNG**: phải gõ lại đúng mã vừa đứng trên đó, gõ sai thì phiếu treo **sai thiết bị** (vết vòng đời NĐ98 sai chủ thể). Đây là nợ AC-CR-90(b), đã được nêu tên ở §17.8.
 2. **Capability vẫn là *giá trị*, chưa là *token*.** `services/connections.py:338` còn `frappe.has_permission(linked_dt, ptype="create")`. Giá trị hôm nay **trùng** `rbac.can("pm.create")` (`CAPABILITY_MAP["pm.create"] == ("PM Work Order","create")`, sinh tại `services/shared/rbac.py:99-103` từ `_DOMAIN_PRIMARY:67`), nhưng trùng ≠ ràng buộc: đổi binding của token thì gate API đổi, route-guard FE đổi, còn ô liên quan **im lặng giữ nguyên** — khuôn "RBAC dead-gate" đã có tiền lệ P1 trong sổ.
 3. **Nút tạo không có chỗ đứng.** Từ AC-CR-93 (§14) ô `total == 0` **không** còn khối riêng, mà chỉ được nêu tên trong dòng gộp «Chưa có: …» — và D-CR93-4 quy định dòng gộp là **text tĩnh, 0 affordance**. Nhưng ô cần «Tạo …» **hầu như luôn** là ô 0 bản ghi ⇒ hai quyết định loại trừ nhau. Đây là **blocker #2 trong STATE run-4** ("Xung đột D-CR93-4 ⇄ INV-CONNFE4-5/AC-CR-90"), và nó chặn cả BE (có nên tính `can_create` nữa không) lẫn FE. §18 chốt dứt điểm bằng D-CR105-7.
 
@@ -2173,7 +2173,7 @@ Hai ca đầu là **nút sống, không prefill** — người dùng vẫn tới
 - **INV-CONN4-2** (BE, thuần Python): `∀ (dt, token) ∈ CREATE_CAPABILITY ⇒ rbac.CAPABILITY_MAP[token] == (dt, "create")` ∧ `dt ∈ CREATE_CONTEXT` ∧ `len(CREATE_CAPABILITY) == 5`.
 - **INV-CONN4-3** (BE, 3 điểm): (1) chuỗi cap tại **chính hàm tạo** của module API — `rbac.require("…")` trong thân hàm **hoặc** hằng `_CAP_*` mà thân hàm dùng; (2) `CREATE_CAPABILITY[dt]`; (3) `requiredCapabilities` của route `CREATE_CONTEXT[dt].route` đọc từ `frontend/src/router/index.ts`. **Ba giá trị bằng nhau.** Bảng neo (module, hàm, dạng) khai trong test để phép "derive" là tiền định, không phải quét đoán.
 - **Parse phải FAIL-CLOSED**: không tìm thấy hàm / không tìm thấy route / `requiredCapabilities` không parse được thành list literal ⇒ **test ĐỎ**, tuyệt đối không `skip`/`continue`. Một parser trả "không tìm thấy" rồi bỏ qua là guard **xanh giả** — đúng lớp lỗi §XVIII.8.5 đã ghi.
-- ⚠️ **BẪY ĐÃ BIẾT — `frontend/src/router/routeAccess.ts:141` viết `'doc' + 'ument.write'`** (nối chuỗi để không kích lint/scanner chặn `document.write`). Vì vậy: **CẤM** guard Python regex chuỗi literal trong `routeAccess.ts`. Vế "capability mà FE dùng để gác nút" đã được đóng ở FE bằng **import giá trị TS** (`router/connectionsCreateParity.test.ts:18` `import { CREATE_ROUTE_CAP }`, so với meta parse `:41-45`) — đó là chỗ ĐÚNG để so, vì chỉ TS mới đánh giá được biểu thức. Guard BE chỉ đọc `router/index.ts` và chỉ cho **5** doctype khai token (`Asset Document` — doctype mang bẫy — **không** thuộc tập đó).
+- ⚠️ **BẪY ĐÃ BIẾT — `frontend/src/router/routeAccess.ts:141` viết `'doc' + 'ument.write'`** (nối chuỗi để không kích lint/scanner chặn `document.write`). Vì vậy: **CẤM** guard Python regex chuỗi literal trong `routeAccess.ts`. Vế "capability mà FE dùng để gác nút" đã được đóng ở FE bằng **import giá trị TS** (`router/connectionsCreateParity.guard.test.ts:18` `import { CREATE_ROUTE_CAP }`, so với meta parse `:41-45`) — đó là chỗ ĐÚNG để so, vì chỉ TS mới đánh giá được biểu thức. Guard BE chỉ đọc `router/index.ts` và chỉ cho **5** doctype khai token (`Asset Document` — doctype mang bẫy — **không** thuộc tập đó).
 
 ### D-CR105-7 — **NARROW D-CR93-4**: dòng gộp vẫn 0 affordance, chip đứng ở khối SIBLING
 
@@ -2195,7 +2195,7 @@ Hai ca đầu là **nút sống, không prefill** — người dùng vẫn tới
 ### D-CR105-8 — FE: khoá thành BẮT BUỘC + 3 lớp gate giữ fail-CLOSED
 
 - `ConnectionItem.create_prefill` **bỏ dấu `?`** (`api/connections.ts:111`) ⇒ tập khoá optional của interface trở thành **RỖNG**. Mỗi khoá optional là một nhánh fallback, và mỗi nhánh fallback là một chỗ hợp đồng lệch âm thầm (§17 D-CR92-3).
-  > **Hệ quả cơ học phải làm cùng vòng**: mọi factory dựng `ConnectionItem` literal trong test phải thêm `create_prefill: {}`, nếu không `npx vue-tsc --noEmit` ĐỎ. Đúng **5** file `.ts/.vue` chạm type này (đo 2026-07-30): `api/connections.ts` · `api/connections.test.ts` · `api/connectionsLegacyKeysRetired.acr92.test.ts` · `components/common/RelatedRecords.vue` · `components/common/RelatedRecords.test.ts`.
+  > **Hệ quả cơ học phải làm cùng vòng**: mọi factory dựng `ConnectionItem` literal trong test phải thêm `create_prefill: {}`, nếu không `npx vue-tsc --noEmit` ĐỎ. Đúng **5** file `.ts/.vue` chạm type này (đo 2026-07-30): `api/connections.ts` · `api/connectionsApi.guard.test.ts` · `api/connectionsLegacyKeys.guard.test.ts` · `components/common/RelatedRecords.vue` · `components/common/RelatedRecords.test.ts`.
 - **3 lớp gate của chip giữ nguyên thứ tự và tính fail-CLOSED** (`createTarget` → `routeExists` → `canAccessCreateRoute`): backend chỉ biết quyền, **không** biết màn nào đã có và route nào gác cap nào. Route chưa khai trong `CREATE_ROUTE_CAP` ⇒ **ẩn chip** (thà thiếu một nút, bắt ĐỎ ở guard parity, còn hơn mời người dùng ghi dữ liệu rồi đá ra `/unauthorized`).
 - **`create_prefill == {}` ⇒ push TRẦN** `router.push({ path })` — **không** gửi `query: {}` (URL mọc dấu `?` vô nghĩa). Khoá ngoài `CREATE_PREFILL_QUERY_KEYS[route]` bị **loại im lặng** ở `createTarget` (`:437-446`) — im lặng là đúng: đó là dữ liệu của tầng khác, không phải lỗi người dùng.
 
@@ -2212,7 +2212,7 @@ Hai ca đầu là **nút sống, không prefill** — người dùng vẫn tới
 | **INV-CONN105-2** | `prefill != {}` ⇒ **đúng 1** cặp; khoá ∈ `CREATE_PREFILL_QUERY_KEYS[route]` của FE **và** ∉ {`asset_ref`,`source_pm_wo`,`incident_report`,`final_asset`,`critical_asset`}; value == mã bản ghi cha | prefill vào khoá màn không đọc = lời hứa giả |
 | **INV-CONN4-2** | `∀ (dt,token) ∈ CREATE_CAPABILITY ⇒ CAPABILITY_MAP[token] == (dt,"create")` ∧ `dt ∈ CREATE_CONTEXT` ∧ đúng **5** khai | token trỏ nhầm doctype/permtype ⇒ gate nói dối |
 | **INV-CONN4-3** | Parity **3 điểm** (API · `CREATE_CAPABILITY` · `router/index.ts`) cho 5 doctype, cả ba **derive từ nguồn**, parse **fail-closed** | đổi cap một tầng, hai tầng kia im lặng |
-| **INV-CONN4-7** | `∀ ô có prefill != {}`: khoá được **chính file `.vue`** của route đọc bằng `route.query.<key>` | (đã có guard FE `connectionsCreateParity.test.ts`) |
+| **INV-CONN4-7** | `∀ ô có prefill != {}`: khoá được **chính file `.vue`** của route đọc bằng `route.query.<key>` | (đã có guard FE `connectionsCreateParity.guard.test.ts`) |
 | **INV-CONN4-10** | Số truy vấn **không tăng**: `lifecycle_status` 1 lần/cây · 1 `get_list`/ô · 0 COUNT | phá ZERO-COST (INV-CONN-6) |
 | **INV-CONN105-3** | FE: `len(group.items) == len(dataCells(group)) + len(emptyCells(group))` trên **mọi** nhóm (phân hoạch, không đếm 2 lần, không sót ô) | mất ô câm — đúng lớp lỗi AC-CR-93 sinh ra để xoá |
 | **INV-CONN105-4** | FE: chip nằm trong `conn-empty-actions` (**sibling**); `conn-empty-summary` có **0** `<button>` / **0** `<a>` / **0** `role="button"`; ô rỗng qua đủ 3 gate ⇒ **đúng 1** chip | vỡ D-CR93-4 hoặc chip lại chết |
@@ -2251,9 +2251,9 @@ Hai ca đầu là **nút sống, không prefill** — người dùng vẫn tới
 | 1 | `tests/test_connections_tree.py:63` `_ITEM_KEYS_V2` | 9 → **10** khoá (+`create_prefill`) | Oracle bộ khoá **phải** đổi cùng vòng với hợp đồng (luật §17.8); giữ 9 là để hợp đồng mới **không có ai canh** — đúng gốc của drift D-CR92-7 |
 | 2 | `tests/test_connections_tree.py:352` `t04` | **bồi** 1 assert: `lifecycle_status` đọc **đúng 1 lần**/cây | Siết chặt hơn, không nới: chống đúng bẫy §12 "đọc lại per-ô ⇒ +19 truy vấn" |
 | 3 | `RelatedRecords.test.ts:772-773` | XOÁ 1 comment + 1 assert wrapper-level `conn-create == 0`; **thay** bằng assert dương: chip **có** và nằm trong `conn-empty-actions` | Assert đó khoá mệnh đề *"không còn ô rỗng ⇒ không còn chỗ treo nút tạo"* — chính mệnh đề D-CR105-7 supersede. **7 assert in-summary `:764-770` giữ nguyên**, hàng TC-26 trong `07 §XVIII.8.2` **0 chữ sửa** |
-| 4 | `connectionsLegacyKeysRetired.acr92.test.ts:80,94-97` | tiêu đề "9 bắt buộc + create_prefill" → **10 bắt buộc**; tập optional `['create_prefill']` → **`[]`** | Guard này canh *"không hồi sinh khoá đã nghỉ hưu"* + *"không mọc khoá optional"*; `create_prefill` rời khỏi danh sách ngoại lệ vì BE **đã** cài |
+| 4 | `connectionsLegacyKeys.guard.test.ts:80,94-97` | tiêu đề "9 bắt buộc + create_prefill" → **10 bắt buộc**; tập optional `['create_prefill']` → **`[]`** | Guard này canh *"không hồi sinh khoá đã nghỉ hưu"* + *"không mọc khoá optional"*; `create_prefill` rời khỏi danh sách ngoại lệ vì BE **đã** cài |
 
-**Ngoài 4 mục trên: 0 assert nào được sửa.** `test_connections.py` (11 TC hợp đồng cũ), `connectionsListParity.test.ts`, `connectionsCreateParity.test.ts`, TC-FE-CONN-24/25/27/28/29/30 — **cấm chạm**.
+**Ngoài 4 mục trên: 0 assert nào được sửa.** `test_connections.py` (11 TC hợp đồng cũ), `connectionsListParity.guard.test.ts`, `connectionsCreateParity.guard.test.ts`, TC-FE-CONN-24/25/27/28/29/30 — **cấm chạm**.
 
 ### 18.6 Ranh giới với §12: ba quyết định **KHÔNG** land vòng này
 

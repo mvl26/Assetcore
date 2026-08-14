@@ -252,7 +252,7 @@ State machine BE thật (khớp `imm_12_incident_workflow.json` + `_VALID_TRANSI
 - **Editability form** (5-Why + root_cause + corrective/preventive): editable khi `can_manage_rca && allowed_transitions.includes('Completed')` (⟺ status = `RCA In Progress` — phái sinh từ SERVER, KHÔNG hardcode `=== 'Completed'`). `Completed`/`Cancelled` → read-only.
 - **Nhãn trạng thái** (badge): dùng `rcaStatusLabel(rca.status)` (`constants/labels.ts:437-440` — `RCA Required→'Cần phân tích'`, `RCA In Progress→'Đang phân tích'`, `Completed→'Đã hoàn tất'`, `Cancelled→'Đã hủy'`). ĐÃ có full VI, KHÔNG lộ mã state thô (AC6).
 - **API client mới** trong `api/imm12.ts`: `startRca(payload:{name})`, `cancelRca(payload:{name,reason})` — POST envelope Decision-B (parity `submitRca`). Type `RCADetail` += `allowed_transitions?: string[]` (đã có `:43`) + `can_manage_rca?: number`.
-- **Test** (AC7): `frontend/src/views/incident/rcaDetailCtaGating.test.ts` — mount với các combo `(status, allowed_transitions, can_manage_rca)` assert đúng nút hiện/ẩn + không nút khi terminal + `can_manage_rca=0` disable. `vue-tsc` sạch.
+- **Test** (AC7): `frontend/src/views/incident/tests/RCADetailView.ctaGating.test.ts` — mount với các combo `(status, allowed_transitions, can_manage_rca)` assert đúng nút hiện/ẩn + không nút khi terminal + `can_manage_rca=0` disable. `vue-tsc` sạch.
 
 ---
 

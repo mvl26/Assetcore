@@ -214,7 +214,7 @@ buildSidebarGroupsForRoles(personas, can, isSuperuser) -> SidebarGroup[]   // M�
 - Dọn `ac_persona` cũ trong localStorage nếu còn (không bắt buộc, không gây lỗi nếu để lại — không còn ai đọc).
 
 ### 7.ter.4 User test theo role (kiểm thử "mỗi role thấy khác nhau")
-- Seed `assetcore/scripts/seed_test_users.py` (idempotent): mỗi role chính 1 user, tên người Việt thật, email hợp lệ, gán đúng role. Bao phủ đủ persona để chứng minh giao diện/quyền khác nhau theo role. Gồm cả IT Admin (superuser) + role nghiệp vụ.
+- Seed `assetcore/scripts/seed/seed_test_users.py` (idempotent): mỗi role chính 1 user, tên người Việt thật, email hợp lệ, gán đúng role. Bao phủ đủ persona để chứng minh giao diện/quyền khác nhau theo role. Gồm cả IT Admin (superuser) + role nghiệp vụ.
 
 ### 7.ter.5 Acceptance (bổ sung)
 15. KHÔNG còn persona switcher trong UI (`AppTopBar` không import `usePersona`, không có dropdown/menu persona). Grep `setPersona|canSwitch|personaMenu|ac_persona` trong `src` (trừ test) = rỗng.
@@ -506,7 +506,7 @@ Thiếu quyền phải xử ở **2 lớp luồng chính**:
 35. Non-data user (chỉ `AssetCore System User`, không `Data User`/Manager) gõ `/suppliers`, `/device-models`, `/service-contracts` → guard redirect `Unauthorized` (KHÔNG render list rỗng + message). Data user vào bình thường.
 36. `/depreciation`: persona `doc` (vd `sohaidiuuu@gmail.com`, `buithihonganh@assetcore.test`), `store`, `clinical` → KHÔNG thấy mục nav + gõ URL bị redirect `Unauthorized`. `admin`/`opsmgr`/`workshop`/`tech` → thấy + vào được.
 37. Sidebar ↔ route đồng pha: với mỗi path siết ở 7.septies.2/.3, cap nav (`sidebarNav.ts`) = cap route (`router/index.ts`). Không path nào sidebar-ẩn mà route-mở.
-38. Không regression: mọi test §7.* + `routeAccess.test.ts` + `sidebarNav.test.ts` + `personas.test.ts` xanh; FE typecheck/build pass; `bench run-tests` (rbac/role_profiles) xanh.
+38. Không regression: mọi test §7.* + `routeAccess.test.ts` + `sidebarNav.guard.test.ts` + `personas.test.ts` xanh; FE typecheck/build pass; `bench run-tests` (rbac/role_profiles) xanh.
 
 ### 7.septies.5 Test cases (TDD — bổ sung)
 | ID | Lớp | Mô tả | Kỳ vọng |

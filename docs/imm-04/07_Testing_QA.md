@@ -313,7 +313,7 @@ File **MỚI**: `tests/test_imm04_baseline_fail_path.py` → class **`TestImm04B
 | **TC-04-BLFAIL-07** | AC4 — cổng KHÔNG nới (Re Inspection) | phiếu @Re Inspection còn ≥1 dòng `Fail` | `api.imm04.transition_state(name, "Phê duyệt sau tái kiểm", board_approver=<hợp lệ>)` → cùng envelope như TC-06; `workflow_state=="Re Inspection"`, `docstatus==0` | đường vòng qua Tái kiểm lọt cổng |
 | **TC-04-BLFAIL-08** | AC4 — G03 chạy TRƯỚC G06 | phiếu @Initial Inspection còn `Fail`, **KHÔNG** truyền `board_approver` | `message_code == "IMM04-GATE-G03-BASELINE"` (**KHÔNG** phải `IMM04-GATE-G06-APPROVER`) | thứ tự gate sai ⇒ user bị hỏi người duyệt cho thiết bị chưa đạt |
 | **TC-04-BLFAIL-09** | AC5 — guard cũ còn hiệu lực | phiếu @Initial Inspection | (a) `submit_baseline_checklist(name, [])` → `assertRaises(ServiceError)` `VALIDATION`; (b) phiếu có row seed nhưng `test_result` rỗng + `results=[]` → cùng raise; cả 2: re-get `overall_inspection_result` **KHÔNG** `"Pass"` và **KHÔNG** `"Fail"` | tái mở lỗ silent-completion khi sửa Fail-path |
-| **TC-04-BLFAIL-10** | AC6 — parity message-code | — | `from assetcore.utils.messages import MSG, MESSAGES`: `MSG.IMM04_GATE_G03_BASELINE in MESSAGES`; đọc `frontend/src/i18n/messages.ts` → chuỗi `IMM04-GATE-G03-BASELINE` **có mặt** | FE rơi về toast `SYS-500` "liên hệ IT" |
+| **TC-04-BLFAIL-10** | AC6 — parity message-code | — | `from assetcore.utils.messages import MSG, MESSAGES`: `MSG.IMM04_GATE_G03_BASELINE in MESSAGES`; đọc `frontend/src/locales/messages.ts` → chuỗi `IMM04-GATE-G03-BASELINE` **có mặt** | FE rơi về toast `SYS-500` "liên hệ IT" |
 
 **RED-before / GREEN-after (BẮT BUỘC):**
 1. **RED (trên code hiện tại):** TC-01/02 **FAIL** (`ServiceError` VALIDATION, 0 dòng persist) · TC-03 **FAIL** (`INVALID_PARAMS`) · TC-05 **ERROR/417** · TC-06/07/08 **FAIL** (chưa có `IMM04-GATE-G03-BASELINE`; hiện 417 hoặc lọt cổng) · TC-10 **FAIL** (code chưa tồn tại). TC-04/09 phụ thuộc TC trước. Chứng minh test bắt bug thật.
@@ -378,7 +378,7 @@ File: `tests/test_imm04.py` → class **`TestGateStatusEnforcementParity`** (m�
    bench --site miyano run-tests --module assetcore.tests.test_mobile_oas
    bench --site miyano run-tests --module assetcore.tests.test_mobile_docset
    ```
-   FE: `npx vitest run src/components/commissioning/ApprovalPanel.gate.test.ts` + `npx vue-tsc --noEmit` (0 lỗi).
+   FE: `npx vitest run src/components/commissioning/tests/ApprovalPanel.gate.test.ts` + `npx vue-tsc --noEmit` (0 lỗi).
    ⚠️ **KHÔNG curl** (gunicorn `--preload` ⇒ stale worker, LL-DEPLOY-07). **DoD = run-tests XANH.**
 4. **Zero-behavior-change (AC7):** `git diff` các hàm `transition_state` / `validate_gate_g01` / `validate_gate_g05_g06` / `AssetCommissioning.validate` chỉ được chứa **trích xuất predicate** — **0** nhánh `raise`/`nthrow*` thêm/bớt/đổi điều kiện. Reviewer đọc diff theo tiêu chí này trước khi chấm xong.
 
@@ -527,7 +527,7 @@ File: `tests/test_imm04.py` (class MỚI `TestGenerateQrLabelDeepLink`). RED tr�
 
 **Baseline GIỮ XANH:** `test_imm00` (108+ test — `ensure_asset_qr_token`/`_build_qr_url` không đổi behavior), `test_imm04` (39 commissioning), `test_workflows`, `test_dashboard`.
 
-**FE (vitest):** `frontend/src/components/commissioning/QRLabel.test.ts` — case deep-link:
+**FE (vitest):** `frontend/src/components/commissioning/tests/QRLabel.test.ts` — case deep-link:
 - `encode_qr_url_when_present`: mock `generateQrLabel` trả `qr_url=/a/TOKEN` → `QRCode.toDataURL` gọi với `/a/TOKEN` (KHÔNG phải `qr_value`).
 - `fallback_qr_value_when_url_empty`: `qr_url=null` → encode `qr_value` (tag); nhãn vẫn render, không lỗi.
 - Type-check `vue-tsc` 0 error sau khi `QrLabelData` đổi (`+qr_url?`, `−scan_url`).
@@ -927,7 +927,7 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 | **TC-IMM04-SCOPE-09** | INV-VENDORSCOPE-4 | `test_imm04.py` (chạy lại, **không sửa**) | `TestOverdueSlaLiveInvariant` (`:724+`, gồm `list_commissioning({"overdue":1})` `:786` và `{"overdue":1,"workflow_state":…}` `:861`) XANH ⇒ đường **filter-list form** đi qua engine đếm mới không hồi quy |
 | **TC-IMM04-SCOPE-10** | ADR-…-05 D3 | `test_vendor_scope_intersect.py` hoặc guard | `count_with_or` annotation là `dict | list | None` ∧ gọi được với **list** filters (không `TypeError`) ∧ thân hàm **không** đổi logic |
 
-### VIII.2 FE — xem [`06 §11.4`](./06_Frontend_Design.md): `TC-FE-COMM-SE-01..06` (file mới `commissioningScopedEmpty.test.ts`).
+### VIII.2 FE — xem [`06 §11.4`](./06_Frontend_Design.md): `TC-FE-COMM-SE-01..06` (file mới `CommissioningListView.scopedEmpty.test.ts`).
 
 ### VIII.3 Ràng buộc chấm (BẮT BUỘC — vi phạm = kết quả vô nghĩa)
 
@@ -959,7 +959,7 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 | `assetcore.tests.test_rowscope_docperm_gate` | **22** | ≥ 22 (0 TC mới) | untracked |
 | `assetcore.tests.test_imm04` | **110** | ≥ 110 (0 TC mới) | tracked |
 | `assetcore.tests.test_imm08` · `test_imm09` · `test_imm11` | **196** · **278** · **136** | ≥ nguyên trạng | tracked |
-| `commissioningScopedEmpty.test.ts` | **8** `it()` (8/8 PASS 14:59) | **≥ 10** (+`TC-FE-COMM-SE-07/08`) | untracked |
+| `CommissioningListView.scopedEmpty.test.ts` | **8** `it()` (8/8 PASS 14:59) | **≥ 10** (+`TC-FE-COMM-SE-07/08`) | untracked |
 | Tổng file test FE | **287** `*.test.ts` | ≥ 287 | — |
 
 **Số TC chạy được của mỗi module PHẢI ≥ baseline** — module chạy ra ít TC hơn = có TC bị skip/mất, **không** phải "chạy nhanh hơn".

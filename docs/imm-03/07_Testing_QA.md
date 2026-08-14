@@ -362,7 +362,7 @@ Class `TestAvlAllowedTransitions` + `TestAvlWorkflowEnforcement` (module `imm03`
 
 **AC5 — chạy THẬT:** `bench --site miyano run-tests --module assetcore.tests.test_imm03` → đọc **dòng cuối** `Ran N OK` (KHÔNG skip/false-green). RED-before demo: tạm bỏ `set_avl_conditional` (hoặc bỏ nhánh) → `test_avl_action_endpoint_map_complete` + `test_set_avl_conditional_*` FAIL; restore → GREEN.
 
-**FE vitest** (`avlCtaGating.test.ts` — parity `decisionCtaGate`): mock row `allowed_transitions`:
+**FE vitest** (`AvlListView.ctaGating.test.ts` — parity `decisionCtaGate`): mock row `allowed_transitions`:
 - `['Phê duyệt AVL','Cấp Conditional']` (Draft) → render **Cấp Conditional**; click → mở modal condition_notes; nhập notes + confirm → `store.setAvlConditional(name, notes)` gọi đúng args; notes rỗng → nút confirm disabled.
 - `['Hạ xuống Conditional','Đình chỉ']` (Approved) → render **Hạ xuống Conditional** + Đình chỉ; click Hạ xuống → modal condition_notes → `store.setAvlConditional`.
 - `['Phục hồi Approved']` (Suspended) → nút **Phục hồi Approved** → `approveAvl(name)` (KHÔNG approver arg).
@@ -802,7 +802,7 @@ Decision: ☐ Pass / ☐ Pass with conditions / ☐ Fail (block). *(Hiện: có 
 | TC-PUR-AC6-MGR | integration | `Procurement Manager` full flow create→submit→mark_received→cancel OK |
 | TC-PUR-AC6-USER | integration | `Procurement User` (submit=0): `submit_purchase` → 403; `get_purchase.can_submit==False` (least-privilege đúng); create/update (write=1) vẫn OK |
 
-**FE Vitest `frontend/src/views/purchase/purchaseCtaGate.test.ts`** (parity `firmwareCrCtaGate.test.ts`): mount `PurchaseDetailView` với `getPurchase` mock trả doc `can_*` khác nhau → assert nút Duyệt/Nhận hàng/Huỷ/receipt/Sửa/Xoá hiện-ẩn đúng; doc thiếu cờ (undefined) → 0 nút (degrade an toàn); click nút → gọi đúng handler (submit/markReceived/cancel). `npm run typecheck` (prod) 0 error.
+**FE Vitest `frontend/src/views/purchase/tests/PurchaseDetailView.ctaGate.test.ts`** (parity `FirmwareCrDetailView.ctaGate.test.ts`): mount `PurchaseDetailView` với `getPurchase` mock trả doc `can_*` khác nhau → assert nút Duyệt/Nhận hàng/Huỷ/receipt/Sửa/Xoá hiện-ẩn đúng; doc thiếu cờ (undefined) → 0 nút (degrade an toàn); click nút → gọi đúng handler (submit/markReceived/cancel). `npm run typecheck` (prod) 0 error.
 
 **AC7 xanh THẬT**: `bench run-tests test_purchase` → "Ran N OK" + `test_mobile_capability_map` xanh sau re-freeze; vitest + typecheck 0 error. Live curl chờ USER reload gunicorn (blocked-reload caveat — KHÔNG re-fix 417/404).
 

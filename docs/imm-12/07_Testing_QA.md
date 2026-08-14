@@ -283,11 +283,11 @@ Fixture trong `setUp` phải có cleanup — xem `assetcore-test` LL-TEST-17.
 - **INV-RCA-PARITY-B** (`test_inv_b_desk_role_superset_endpoint_cap`) — resolve `roles_write = frappe.get_all("DocPerm", filters={"parent": rbac.CAPABILITY_MAP["corrective.write"][0], "write": 1}, pluck="role")` (ĐỘNG, KHÔNG hardcode); `required = set(roles_write) | {"AssetCore Super Admin", "System Manager"}`; ∀ action ∈ {Bắt đầu phân tích RCA, Hoàn thành RCA, Hủy RCA}: `allowed_set = {t["allowed"] for t in tr if t["action"]==action}`; assert `required <= allowed_set`. **RED trước fix**: Start/Complete `allowed_set` thiếu `Corrective Manager` → `required - allowed_set == {"Corrective Manager"}` ≠ ∅. **GREEN sau fix.**
 - **INV-RCA-PARITY-C** (`test_inv_c_fixture_equals_source`) — `src = {(t["state"],t["action"],t["next_state"],t["allowed"]) for t in source_json["transitions"]}`; `fx = {…}` từ `fixtures/workflow.json` block "IMM-12 RCA Workflow"; assert `src == fx`.
 - **RED-before demo (bắt buộc trong QA):** gỡ TẠM 1 row `Corrective Manager` (vd "Bắt đầu phân tích RCA") khỏi source+fixture → chạy `bench --site miyano run-tests --module assetcore.tests.test_imm12` → **INV-RCA-PARITY-B FAIL đúng chỗ** (`{'Corrective Manager'}` uncovered cho action Start) → restore → **GREEN**.
-- **Non-regression:** chỉ THÊM role vào transition-group đã có (KHÔNG xoá / KHÔNG tạo group mới) ⇒ `test_workflows` admin-override (Super Admin + System Manager, **22/22**) GIỮ GREEN. `_RCA_VALID_TRANSITIONS` (runtime) KHÔNG đổi ⇒ `TestRCAAllowedTransitions` + `rcaDetailCtaGating.test.ts` KHÔNG regress.
+- **Non-regression:** chỉ THÊM role vào transition-group đã có (KHÔNG xoá / KHÔNG tạo group mới) ⇒ `test_workflows` admin-override (Super Admin + System Manager, **22/22**) GIỮ GREEN. `_RCA_VALID_TRANSITIONS` (runtime) KHÔNG đổi ⇒ `TestRCAAllowedTransitions` + `RCADetailView.ctaGating.test.ts` KHÔNG regress.
 - **DoD:** `bench --site miyano run-tests --module assetcore.tests.test_imm12` → `Ran N OK` THẬT (đọc dòng cuối, không false-green) · `--module assetcore.tests.test_workflows` → `Ran N OK` (admin-override 22/22) · live: user role Corrective Manager mở phiếu RCA ở desk THẤY + BẤM được "Bắt đầu/Hoàn thành" (sau `backfill_workflow_admin.run` / fixture re-import — KHÔNG `bench migrate`). **KHÔNG git commit/push — working tree để USER duyệt.**
 
 ### FE gating test (Round 9, AC7)
-- **File:** `frontend/src/views/incident/rcaDetailCtaGating.test.ts` (vitest). Mount `RCADetailView` với các combo `(status, allowed_transitions, can_manage_rca)`: (a) `RCA Required`+`can_manage=1` → chỉ "Bắt đầu phân tích RCA"+"Hủy RCA"; (b) `RCA In Progress` → "Hoàn thành RCA"+"Hủy RCA"; (c) `Completed`/`Cancelled` (`allowed_transitions=[]`) → KHÔNG nút action; (d) `can_manage_rca=0` → nút disabled/ẩn; (e) badge = `rcaStatusLabel(status)` VI đầy đủ, KHÔNG lộ mã thô; (f) KHÔNG còn `rca.status === 'X'` gate action. `vue-tsc` sạch.
+- **File:** `frontend/src/views/incident/tests/RCADetailView.ctaGating.test.ts` (vitest). Mount `RCADetailView` với các combo `(status, allowed_transitions, can_manage_rca)`: (a) `RCA Required`+`can_manage=1` → chỉ "Bắt đầu phân tích RCA"+"Hủy RCA"; (b) `RCA In Progress` → "Hoàn thành RCA"+"Hủy RCA"; (c) `Completed`/`Cancelled` (`allowed_transitions=[]`) → KHÔNG nút action; (d) `can_manage_rca=0` → nút disabled/ẩn; (e) badge = `rcaStatusLabel(status)` VI đầy đủ, KHÔNG lộ mã thô; (f) KHÔNG còn `rca.status === 'X'` gate action. `vue-tsc` sạch.
 
 ## III.5. Integration — Audit chain integrity
 
@@ -312,7 +312,7 @@ Fixture trong `setUp` phải có cleanup — xem `assetcore-test` LL-TEST-17.
 
 ### III.5.b V4-GATE — FE field-lock + source (BR-12-16 D3 / TC-12-LOCK-SRC)
 
-**File (MỚI):** `frontend/src/views/incident/IncidentCreateView.test.ts`.
+**File (MỚI):** `frontend/src/views/incident/tests/IncidentCreateView.test.ts`.
 
 | Test | Setup | Verify | Trạng thái |
 |---|---|---|---|
@@ -1014,7 +1014,7 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 4. **Mutation #3** (controller giữ lại vòng lặp kiểm 5-Why riêng + `frappe.throw`):
    `TC-12-RCA83-11` **ĐỎ** (`[74] != []`). Hoàn nguyên ⇒ xanh (`grep -c 'frappe.throw(' imm_rca_record.py` ⇒ **0**).
 
-> ⚠️ **TC FE (§IX.3) CHƯA land** — thuộc [FE] Bước-4 (`RCADetailView.vue` + `rcaSubmitFieldErrors.test.ts`).
+> ⚠️ **TC FE (§IX.3) CHƯA land** — thuộc [FE] Bước-4 (`RCADetailView.vue` + `RCADetailView.submitFieldErrors.test.ts`).
 > ⚠️ **Live-verify bằng curl/app CHƯA hợp lệ** cho tới khi USER `bench restart` (gunicorn `--preload` ⇒ worker giữ bản `.py` cũ; LL-DEPLOY-07/08). DoD vòng này chấm bằng `run-tests` module-isolated.
 
 ### IX.6 Guard hợp đồng (đã XANH ở Bước-2, Bước-4 lật `cr83_d` → `cr83_g`)

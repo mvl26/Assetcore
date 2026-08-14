@@ -54,7 +54,7 @@ grep -rn "[^.a-zA-Z_]confirm(" frontend/src/views frontend/src/components --incl
 
 # Bước 2 — BỎ dòng chú thích trước khi đếm (HTML `<!-- -->`, block `/* */`, dòng `//`).
 #   Cài đặt tham chiếu: hàm stripComments() của
-#   frontend/src/components/common/modalOverlayHygiene.test.ts:23
+#   frontend/src/guards/modalOverlayHygiene.guard.test.ts:23
 ```
 
 | Số đo | Giá trị đúng (2026-08-04) |
@@ -342,7 +342,7 @@ Nút mặc định «Xác nhận» / «Huỷ» — chỉ ghi `confirmText` khi c
 
 ---
 
-## §6. Guard ngân sách CHỈ-GIẢM — `frontend/src/components/common/bareConfirmBudget.test.ts` (MỚI, AC-UX-066)
+## §6. Guard ngân sách CHỈ-GIẢM — `frontend/src/guards/bareConfirmBudget.guard.test.ts` (MỚI, AC-UX-066)
 
 ### 6.1 Vì sao cần
 
@@ -351,7 +351,7 @@ Allowlist theo **tên file** (khuôn `modalOverlayHygiene`) không chặn đư�
 ### 6.2 Thuật toán
 
 1. Liệt kê `.vue` dưới `src/views` + `src/components`.
-2. `stripComments()` — **dùng lại nguyên hàm** ở `modalOverlayHygiene.test.ts:23` (HTML `<!-- -->`, block `/* */`, dòng `//`). Không viết bản thứ hai.
+2. `stripComments()` — **dùng lại nguyên hàm** ở `modalOverlayHygiene.guard.test.ts:23` (HTML `<!-- -->`, block `/* */`, dòng `//`). Không viết bản thứ hai.
 3. Đếm khớp `/[^.a-zA-Z_]confirm\(/g` **và** `/\b(?:window|globalThis)\.confirm\(/g` (chặn né guard bằng `window.confirm`).
 4. So với bản đồ `BUDGET: Record<string, number>`.
 
@@ -403,10 +403,10 @@ src/views/purchase/SupplierListView.vue                 1
 
 | File | `window.confirm` | `stubGlobal('confirm'` |
 |---|---|---|
-| `src/components/asset/AssetDepreciationSchedule.test.ts` | 0 | **0** |
-| `src/views/asset/assetTransferDetailCtaGate.test.ts` | 1 *(trong **chú thích**)* | **1** |
-| `src/views/asset/assetTransferDetailEditGate.test.ts` | 0 | **1** |
-| `src/views/purchase/purchaseCtaGate.test.ts` | 1 *(trong **chú thích**)* | **1** |
+| `src/components/asset/tests/AssetDepreciationSchedule.test.ts` | 0 | **0** |
+| `src/views/asset/tests/AssetTransferDetailView.ctaGate.test.ts` | 1 *(trong **chú thích**)* | **1** |
+| `src/views/asset/tests/AssetTransferDetailView.editGate.test.ts` | 0 | **1** |
+| `src/views/purchase/tests/PurchaseDetailView.ctaGate.test.ts` | 1 *(trong **chú thích**)* | **1** |
 
 Stub thật viết là `vi.stubGlobal('confirm', vi.fn(() => true))` — chuỗi `window.confirm` chỉ nằm trong lời chú thích. Lệnh đúng:
 
@@ -418,7 +418,7 @@ grep -c "stubGlobal('confirm'" <file>    # phải = 0 ở cả 4 file
 
 ### 7.2 Khuôn harness (dùng chung cho cả 4 file)
 
-Đã có tiền lệ chạy tốt trong repo — `views/modalBlockingErrorAdoption.test.ts:39-42` (mock `useModal`) và `views/eol/decommissionDetailCtaGate.test.ts:128` (spy `notify.confirm`). Dùng lại, **không sáng tác khuôn thứ ba**:
+Đã có tiền lệ chạy tốt trong repo — `views/modalBlockingError.integration.test.ts:39-42` (mock `useModal`) và `views/eol/DecommissionDetailView.ctaGate.test.ts:128` (spy `notify.confirm`). Dùng lại, **không sáng tác khuôn thứ ba**:
 
 ```ts
 const notifyConfirm = vi.fn().mockResolvedValue(true)   // mặc định: người dùng bấm Xác nhận
@@ -446,9 +446,9 @@ Ca “Huỷ” là ca chống XANH GIẢ: nếu [FE] lỡ bỏ `if (!ok) return`
 | 1 | `BaseModal` **không** có `v-if` nội tại | thiếu `v-if="current"` ⇒ nền mờ phủ toàn app vĩnh viễn |
 | 2 | `dismiss` bình phương-bất biến theo `id` | test “resolve 2 lần” **xanh giả**; ca thật là hàng đợi 2 phần tử (§4.2) |
 | 3 | Tailwind JIT không sinh class ghép động | `z-[10000]` biến mất câm ⇒ hộp thoại hệ thống nằm dưới hộp thoại nghiệp vụ |
-| 4 | `modalOverlayHygiene.test.ts` chốt `toHaveLength(30)` ở **:126** và `toBe(30)` ở **:127**, `toBeLessThanOrEqual(30)` ở **:141** | xoá dòng allowlist mà quên hạ **3** chỗ số ⇒ guard đỏ |
-| 5 | `uiAuditDocParity.test.ts:35` `ROUND_VALUES` — trước bước BA chỉ nhận `{2,3,4,5,6}` | ghi «vòng 7» cho mục mới ⇒ guard **ĐỎ**. **Đã nới thành `{2,…,7}` ở bước BA**; mở vòng 8 phải nới tiếp |
-| 6 | `uiAuditDocParity.test.ts:220` đối chiếu dòng «**Tổng: N mục**» | thêm 3 mục mà quên sửa 63 → 66 ⇒ guard đỏ (**đã sửa ở bước BA**) |
+| 4 | `modalOverlayHygiene.guard.test.ts` chốt `toHaveLength(30)` ở **:126** và `toBe(30)` ở **:127**, `toBeLessThanOrEqual(30)` ở **:141** | xoá dòng allowlist mà quên hạ **3** chỗ số ⇒ guard đỏ |
+| 5 | `uiAuditDocParity.guard.test.ts:35` `ROUND_VALUES` — trước bước BA chỉ nhận `{2,3,4,5,6}` | ghi «vòng 7» cho mục mới ⇒ guard **ĐỎ**. **Đã nới thành `{2,…,7}` ở bước BA**; mở vòng 8 phải nới tiếp |
+| 6 | `uiAuditDocParity.guard.test.ts:220` đối chiếu dòng «**Tổng: N mục**» | thêm 3 mục mà quên sửa 63 → 66 ⇒ guard đỏ (**đã sửa ở bước BA**) |
 | 7 | Sổ AC-UX phải **liên tục từ 001** | cấp số nhảy cóc ⇒ guard đỏ |
 | 8 | `useNotify` là façade — view **không** import `useModal` | thêm 1 lối gọi thứ hai = fork SSoT (ADR-UX-16) |
 | 9 | `whitespace-pre-line` cho `body` | chuỗi có `\n` (`UomConversionView:56`, `PmTemplateListView:175`) dồn thành một dòng |
@@ -466,8 +466,8 @@ Ca “Huỷ” là ca chống XANH GIẢ: nếu [FE] lỡ bỏ `if (!ok) return`
 | `docs/ui-ux/04_…md:71` (§1.2) | **44/31 → 42/28** + công thức; sửa dòng «hạ tầng chết» (nay `useNotify` đã tiêu thụ) |
 | `docs/ui-ux/04_…md:677` (§10.6) | **44 lần / 31 file → 42 / 28**; đích ghi rõ lô 1 = 21; `NotificationModal` chuyển sang **ĐANG LÀM (vòng 7)** |
 | `docs/ui-ux/04_…md:935` (§16) | «44 lần `confirm()` trần» → **42**, trỏ sang tài liệu `06` |
-| `frontend/src/router/uiAuditDocParity.test.ts:34` | `ROUND_VALUES` thêm `'7'` |
-| `frontend/src/components/common/modalOverlayHygiene.test.ts` | allowlist **30 → 29** (xoá đúng dòng `NotificationModal.vue`) + hạ 3 chỗ số ở `:126`/`:127`/`:141` |
+| `frontend/src/guards/uiAuditDocParity.guard.test.ts:34` | `ROUND_VALUES` thêm `'7'` |
+| `frontend/src/guards/modalOverlayHygiene.guard.test.ts` | allowlist **30 → 29** (xoá đúng dòng `NotificationModal.vue`) + hạ 3 chỗ số ở `:126`/`:127`/`:141` |
 
 ---
 
@@ -488,10 +488,10 @@ for f in PurchaseDetailView UomConversionView StockMovementDetailView \
 grep -n "[^.a-zA-Z_]confirm(" src/components/asset/AssetDepreciationSchedule.vue  # rỗng
 
 # 3) Test cũ
-for f in src/components/asset/AssetDepreciationSchedule.test.ts \
-         src/views/asset/assetTransferDetailCtaGate.test.ts \
-         src/views/asset/assetTransferDetailEditGate.test.ts \
-         src/views/purchase/purchaseCtaGate.test.ts; do
+for f in src/components/asset/tests/AssetDepreciationSchedule.test.ts \
+         src/views/asset/tests/AssetTransferDetailView.ctaGate.test.ts \
+         src/views/asset/tests/AssetTransferDetailView.editGate.test.ts \
+         src/views/purchase/tests/PurchaseDetailView.ctaGate.test.ts; do
   grep -c "stubGlobal('confirm'" $f; done                              # 0 0 0 0
 
 # 4) Sổ số hiệu
@@ -531,7 +531,7 @@ Ba đề mục run-6 **đã land**; adoption thực tế **nhỏ hơn** con số
 
 ### ADR-UX-16: View gọi `useNotify().confirm()`, **không** gọi `useModal()` trực tiếp
 - **Status**: Accepted — 2026-08-04
-- **Context**: `04 §1.2` mô tả `useModal` là “hạ tầng đã có nhưng **chết** (0 view tiêu thụ)”, và đề mục vòng này gọi `useModal.ts` là SSoT. Đo lại từ đĩa: `useNotify.ts:127-144` **đã** uỷ nhiệm `confirm` cho `modal.confirm`, và **7 call-site** ở 5 view đã dùng `notify.confirm` (có test: `decommissionDetailCtaGate.test.ts:128`). Hạ tầng **không chết** — nó được dùng **qua façade**. Nếu lô 1 gọi thẳng `useModal()`, repo sẽ có **hai** lối mở cùng một hộp thoại.
+- **Context**: `04 §1.2` mô tả `useModal` là “hạ tầng đã có nhưng **chết** (0 view tiêu thụ)”, và đề mục vòng này gọi `useModal.ts` là SSoT. Đo lại từ đĩa: `useNotify.ts:127-144` **đã** uỷ nhiệm `confirm` cho `modal.confirm`, và **7 call-site** ở 5 view đã dùng `notify.confirm` (có test: `DecommissionDetailView.ctaGate.test.ts:128`). Hạ tầng **không chết** — nó được dùng **qua façade**. Nếu lô 1 gọi thẳng `useModal()`, repo sẽ có **hai** lối mở cùng một hộp thoại.
 - **Decision**: **`useNotify()` là API duy nhất của view.** `useModal` là tầng **hàng đợi**, chỉ `useNotify` và `NotificationModal` được nhập. `ConfirmOpts` thêm `tone?` tuỳ chọn để diễn đạt hành động phá huỷ.
 - **Consequences**: (+) một lối gọi, một chỗ gắn mã thông điệp `MSG`, test có sẵn khuôn spy; (+) sau này đổi tầng render không đụng view; (−) thêm một tầng gián tiếp khi đọc mã; (−) `useNotify` phình dần ⇒ chốt: chỉ nhận thêm field **chuyển tiếp thẳng**, không thêm logic.
 - **Alternatives**: (a) view gọi `useModal()` trực tiếp như đề mục ghi — **loại**: fork lối gọi, mất `MSG`, mâu thuẫn 7 call-site đang chạy; (b) bỏ `useNotify.confirm`, dồn về `useModal` — **loại**: phải sửa 5 view + test đang xanh, đổi hợp đồng đã ổn định để chiều một câu chữ trong đề mục.

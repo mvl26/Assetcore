@@ -478,7 +478,7 @@ BR-14-W2-01 (GATE) · -02 (disposal_method) · -03 (sanitization gate risk C/D) 
 3. CTA "Duyệt giải nhiệm" render **⇔ `can_approve===1`**; bấm → `approveDecommission(name)` → asset `lifecycle_status=Decommissioned`, badge đổi "Đã duyệt", CTA tự ẩn (refetch detail → `can_approve` về 0 với reason "Hồ sơ đã được duyệt."). `can_approve=0` → KHÔNG nút + hiện hint `approve_blocked_reason`.
 4. `DecommissionListView` row-click → `/decommissions/:id` (biên bản). Hồ sơ draft docstatus=0 mồ côi reachable + duyệt được bởi approver. Link asset ở vị trí phụ.
 5. **Không hồi quy quyền:** Super Admin / Compliance Manager / Commissioning Manager (submit=1) mở draft → `can_approve=1`, thấy CTA. Commissioning User (create=1/submit=0) mở CÙNG biên bản → xem được, CTA ẩn, `approve_blocked_reason="Bạn không đủ quyền duyệt giải nhiệm."`. KHÔNG cấp/nới DocPerm.
-6. TDD xanh THẬT: `bench --site miyano run-tests` (test_imm14) → "Ran N OK"; FE `decommissionDetailCtaGate.test.ts` pass + `npm run typecheck` (prod) 0 error.
+6. TDD xanh THẬT: `bench --site miyano run-tests` (test_imm14) → "Ran N OK"; FE `DecommissionDetailView.ctaGate.test.ts` pass + `npm run typecheck` (prod) 0 error.
 
 ## VIII.4. Business rules vòng 17
 

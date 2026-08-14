@@ -1104,7 +1104,7 @@ Severity tuân quy tắc §11.5. Tái dùng mã hệ thống (`AUTH_FORBIDDEN`,
 
 > Content tuân `messages.py` §quy chuẩn — Chủ thể + Hậu quả + Hành động, không từ
 > kỹ thuật, không đổ lỗi user. Sau khi thêm vào `messages.py`, chạy
-> `python scripts/gen_fe_messages.py` để regen `frontend/src/i18n/messages.ts`.
+> `python scripts/gen_fe_messages.py` để regen `frontend/src/locales/messages.ts`.
 
 ### 11.3 BE migration checklist (cho assetcore-be)
 

@@ -274,7 +274,7 @@ Kết quả lọc: 5 quyết định            [Xóa tất cả]   (gỡ filter
 - Error transition thiếu quyền (FORBIDDEN) → `notify.fromError` map VN qua interceptor `axios.ts` (KHÔNG echo traceback).
 - **Degrade an toàn:** `allowed_transitions` rỗng/undefined → 0 nút (KHÔNG dead-control 403, KHÔNG rơi về client-map). `workflow_state ===` chỉ được ở `<StatusBadge>`/quickFilter (nhãn read-only).
 
-**Test (`avlCtaGating.test.ts` — MỞ RỘNG):** row Draft `allowed_transitions=['Phê duyệt AVL','Cấp Conditional']` → render "Cấp Conditional", click → mở modal → confirm với notes → `store.setAvlConditional` gọi đúng `(name, notes)`; row Approved `['Hạ xuống Conditional','Đình chỉ']` → render "Hạ xuống Conditional"; `[]`/undefined → 0 nút. `vue-tsc` clean.
+**Test (`AvlListView.ctaGating.test.ts` — MỞ RỘNG):** row Draft `allowed_transitions=['Phê duyệt AVL','Cấp Conditional']` → render "Cấp Conditional", click → mở modal → confirm với notes → `store.setAvlConditional` gọi đúng `(name, notes)`; row Approved `['Hạ xuống Conditional','Đình chỉ']` → render "Hạ xuống Conditional"; `[]`/undefined → 0 nút. `vue-tsc` clean.
 
 **Boundaries:** Always gate nút theo `allowed_transitions` + bắt buộc nhập condition_notes trước khi gọi `setAvlConditional`; Never hardcode `workflow_state === 'X'` gate nút, Never gửi `approver` từ client, Never gọi `setAvlConditional` với notes rỗng (BE sẽ VALIDATION nhưng FE chặn trước cho UX).
 
@@ -419,7 +419,7 @@ export interface Purchase {
 - **Nút "Tạo phiếu tiếp nhận"** (line 312, IMM-04 `commissioning.create`) + nút "+ New" ở `PurchaseListView`: **[BACKLOG]** ngoài scope vòng này (cần cờ `can_commission`/`can('purchase.create')` riêng).
 - **Handler** `doSubmit`/`doMarkReceived`/`doCancel`/`doDelete`/`doCreateReceipt` giữ nguyên; lỗi 403 (nếu race cờ stale) map qua axios interceptor → message VN, KHÔNG echo traceback. `confirm()` cũ giữ nguyên (không trong scope; có thể nâng `useNotify.confirm` [BACKLOG]).
 
-**Vitest (parity firmwareCrCtaGate.test.ts):** matrix state × cờ — mount PurchaseDetailView với doc `can_*` khác nhau, assert nút hiện/ẩn đúng + thiếu cờ (undefined) → 0 nút (degrade). Xem 07 §III.A.
+**Vitest (parity FirmwareCrDetailView.ctaGate.test.ts):** matrix state × cờ — mount PurchaseDetailView với doc `can_*` khác nhau, assert nút hiện/ẩn đúng + thiếu cờ (undefined) → 0 nút (degrade). Xem 07 §III.A.
 
 ## III. Atomic Components
 
