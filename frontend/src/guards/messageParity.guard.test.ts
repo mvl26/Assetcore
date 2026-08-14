@@ -1,24 +1,24 @@
 // Copyright (c) 2026, AssetCore Team — guard parity mã thông báo BE ↔ FE
 //
 // Class-of-bug đóng ở đây: BE thêm mã mới trong `assetcore/utils/messages.py` nhưng
-// QUÊN chạy `python scripts/gen_fe_messages.py` ⇒ `frontend/src/i18n/messages.ts`
+// QUÊN chạy `python scripts/gen_fe_messages.py` ⇒ `frontend/src/locales/messages.ts`
 // thiếu mã ⇒ `useNotify.fromError()` không tra được registry ⇒ người dùng nhận toast
 // SYS-500 "liên hệ IT" thay vì thông điệp nghiệp vụ thật (đã xảy ra với
 // IMM09-SELF-INSPECT-FORBIDDEN, 2026-07-22).
 //
 // `messages.ts` là AUTO-GENERATED — test ĐỎ ⇒ chạy generator, KHÔNG sửa tay.
 import { describe, it, expect } from 'vitest'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { MSG, MESSAGES } from './messages'
+import { REPO_ROOT } from '@/test/paths'
+import { MSG, MESSAGES } from '@/locales/messages'
 
 // Vitest chạy với root = frontend/ ⇒ registry Python nằm ở ../assetcore/utils/.
 // (Fallback cho trường hợp chạy từ gốc app.)
-const PY_CANDIDATES = [
-  resolve(process.cwd(), '../assetcore/utils/messages.py'),
-  resolve(process.cwd(), 'assetcore/utils/messages.py'),
-]
-const PY_SOURCE = PY_CANDIDATES.find((p) => existsSync(p)) ?? PY_CANDIDATES[0]
+// Đường dẫn lấy từ SSoT `src/test/paths.ts` (SPEC §5.2 N5) — KHÔNG dò
+// `process.cwd()` nữa: cwd đổi theo nơi gọi vitest, dò trượt thì guard đọc
+// hụt registry và xanh giả.
+const PY_SOURCE = resolve(REPO_ROOT, 'assetcore/utils/messages.py')
 
 /** Bóc mọi hằng số mã trong `class MSG:` của registry Python (SSoT). */
 function parsePythonMsgCodes(): string[] {
@@ -37,7 +37,7 @@ function parsePythonMsgCodes(): string[] {
   return codes
 }
 
-describe('parity mã thông báo BE (messages.py) ↔ FE (i18n/messages.ts)', () => {
+describe('parity mã thông báo BE (messages.py) ↔ FE (locales/messages.ts)', () => {
   it('mọi mã trong MSG (Python) đều có mặt trong MESSAGES của FE', () => {
     const pyCodes = parsePythonMsgCodes()
     expect(pyCodes.length, 'parse messages.py không ra mã nào — kiểm tra regex/định dạng').toBeGreaterThan(50)

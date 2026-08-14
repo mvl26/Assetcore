@@ -368,7 +368,7 @@ class TestImm04BaselineFailPath(unittest.TestCase):
 
         self.assertEqual(MSG.IMM04_GATE_G03_BASELINE, _GATE_G03_CODE)
         self.assertIn(MSG.IMM04_GATE_G03_BASELINE, MESSAGES)
-        fe = Path(frappe.get_app_path("assetcore")).parent / "frontend/src/i18n/messages.ts"
+        fe = Path(frappe.get_app_path("assetcore")).parent / "frontend/src/locales/messages.ts"
         text = fe.read_text(encoding="utf-8")
         for code in (_GATE_G03_CODE, "IMM09-SELF-INSPECT-FORBIDDEN"):
             self.assertIn(code, text,

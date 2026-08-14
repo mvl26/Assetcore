@@ -15,7 +15,7 @@
 // Phase 2 (doctype-driven): chỉ cần thay `MESSAGES` import bằng pinia store —
 // API composable không đổi.
 import { ApiError, type Severity } from '@/api/errors'
-import { MESSAGES, MSG } from '@/i18n/messages'
+import { MESSAGES, MSG } from '@/locales/messages'
 import { useModal } from './useModal'
 import { useToast } from './useToast'
 

@@ -6,7 +6,7 @@ Mục đích (Phase 1 — code-first):
 - Tách câu chữ ra khỏi code nghiệp vụ. BA biên tập 1 chỗ duy nhất.
 - BE raise `nthrow(MSG.XXX, **ctx)` → service không hardcode tiếng Việt.
 - FE đọc `MESSAGES[code]` để render lại (Phase 2: tra qua Pinia store doctype-driven).
-- Generator `scripts/gen_fe_messages.py` parse file này → `frontend/src/i18n/messages.ts`.
+- Generator `scripts/gen_fe_messages.py` parse file này → `frontend/src/locales/messages.ts`.
 
 Naming convention `<MODULE>-<KIND>[-<SUBKIND>]`:
 - `SYS-*` lỗi hệ thống (network, internal).
@@ -23,7 +23,7 @@ Quy chuẩn nội dung (xem §5 docs/res/frameworks/miyano-error-framework.md):
 
 Quy trình thêm mã mới:
 1. Sửa file này — thêm `MSG.XXX` constant + entry trong `MESSAGES`.
-2. Chạy `python scripts/gen_fe_messages.py` để regen `frontend/src/i18n/messages.ts`.
+2. Chạy `python scripts/gen_fe_messages.py` để regen `frontend/src/locales/messages.ts`.
 3. Commit cả hai file.
 """
 from __future__ import annotations

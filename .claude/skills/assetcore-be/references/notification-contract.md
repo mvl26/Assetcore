@@ -69,7 +69,7 @@ Naming `<MODULE>-<KIND>[-<SUBKIND>]`: `SYS-*`, `AUTH-*`, `VAL-*`, `BIZ-*`, `UI-*
 
 **Sau khi thêm/sửa mã → BẮT BUỘC regen FE i18n:**
 ```bash
-python scripts/gen_fe_messages.py   # parse messages.py → frontend/src/i18n/messages.ts
+python scripts/gen_fe_messages.py   # parse messages.py → frontend/src/locales/messages.ts
 ```
 Commit CẢ `messages.py` + `messages.ts` cùng lúc. Quên regen = FE render `[var]` / fallback SYS-500.
 

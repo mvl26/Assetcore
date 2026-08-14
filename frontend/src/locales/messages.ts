@@ -2,7 +2,7 @@
 // To regenerate: `python scripts/gen_fe_messages.py`.
 // Source of truth: assetcore/utils/messages.py (Python registry).
 
-import type { MessageEntry } from './messages.types'
+import type { MessageEntry } from './messageTypes'
 
 /** MSG constants — autocomplete-friendly access. */
 export const MSG = {
@@ -324,4 +324,4 @@ export const MESSAGES: Record<string, MessageEntry> = {
   "VAL-REQUIRED": {"action_hint": "Vui lòng điền đầy đủ trước khi lưu.", "http_status": 422, "severity": "warning", "template": "Trường {field} chưa được điền.", "title": "Thiếu thông tin bắt buộc"},
 }
 
-export type { MessageEntry, MessageCode, Severity } from './messages.types'
+export type { MessageEntry, MessageCode, Severity } from './messageTypes'

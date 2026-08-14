@@ -8,7 +8,7 @@ import axios, {
   type AxiosError,
 } from 'axios'
 import { ApiError, ErrorCode, httpStatusToCode } from './errors'
-import { MESSAGES } from '@/i18n/messages'
+import { MESSAGES } from '@/locales/messages'
 import { loginPath, isOnLoginPage } from '@/utils/navigation'
 
 // ─────────────────────────────────────────────────────────────────────────────
