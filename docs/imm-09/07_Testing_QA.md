@@ -1108,7 +1108,7 @@ Bảng TC: [`05 §15.7`](./05_API_Specification.md). BE Bước-4 bồi thêm **
 
 ### XI.4 Test FE (CÙNG VÒNG — A9)
 
-`frontend/src/views/cm/cmDetailCtaGating.test.ts` — **7 TC** `FE-CMCTA-1..7`, bảng ở [`06_Frontend_Design.md`](./06_Frontend_Design.md). TC **`FE-CMCTA-2`** là invariant A9: *không nút CTA nào enabled mà `key` ∉ tập `available_actions` enabled*.
+`frontend/src/views/cm/tests/CMWorkOrderDetailView.availableActions.test.ts` — **7 TC** `FE-CMCTA-1..7`, bảng ở [`06_Frontend_Design.md`](./06_Frontend_Design.md). TC **`FE-CMCTA-2`** là invariant A9: *không nút CTA nào enabled mà `key` ∉ tập `available_actions` enabled*.
 
 ### XI.5 Chống vacuous (BẮT BUỘC ghi bằng chứng vào báo cáo vòng)
 

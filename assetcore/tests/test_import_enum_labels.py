@@ -35,8 +35,9 @@ from assetcore.utils.import_helpers import (
     enum_to_stored,
     get_template_path,
 )
+from assetcore.tests._helpers.paths import FRONTEND_SRC
 
-_FE_SRC = Path(__file__).resolve().parents[2] / "frontend" / "src"
+_FE_SRC = Path(FRONTEND_SRC)
 
 # Cột Select KHÔNG cần nhãn VI — lý do phải nêu rõ, không được thêm bừa.
 _EXEMPT: set[tuple[str, str]] = {

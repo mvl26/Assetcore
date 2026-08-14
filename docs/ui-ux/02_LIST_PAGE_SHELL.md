@@ -43,7 +43,7 @@
 - **KHÔNG** lồng `ErrorState` của `DataTable` (`01 §11` mục 7) bên trong `ListPageShell` ⇒ sẽ có **2** nút «Thử lại», vỡ bất biến A3.
 - **KHÔNG** đổi `data-testid` đang được test khoá, **KHÔNG** đụng bảng §3.1 của tài liệu mẹ (ảnh chụp baseline).
   → **SUPERSEDED bởi ADR-UX-11** (`00 §9`) kể từ lô 1: `00 §3.1` là bảng **SỐNG** — mỗi lô adoption **phải** lật
-  ô «Lỗi+Thử lại» của **đúng** các route trong lô (guard `uiListShellLot1Parity.test.ts` ép 2 chiều). Chỉ bảng
+  ô «Lỗi+Thử lại» của **đúng** các route trong lô (guard `uiListShellLot1Parity.guard.test.ts` ép 2 chiều). Chỉ bảng
   tổng hợp `00 §2.1` còn đóng băng (`ADR-UX-10`).
 - **KHÔNG** dùng class palette thô (`slate-*`, `emerald-*`…) trong `ListPageShell.vue` — guard `INV-UI-1` đỏ ngay.
 
@@ -228,12 +228,12 @@ Ràng buộc cấu trúc:
 - Thẻ gốc **duy nhất** ⇒ fallthrough attrs hoạt động; `data-state` là **hợp đồng chấm A3** (`wrapper.attributes('data-state')`).
 - 4 nhánh body nối bằng **một chuỗi** `v-if / v-else-if / v-else` ⇒ loại trừ **bằng cấu trúc**, không thể cùng tồn tại.
 - Chỉ import từ `./` (`Skeleton.vue`, `EmptyState.vue`, `ErrorState.vue`) — **cấm** import `vue-router`, `@/stores/*`, `@/api/*`, `@/components/common/*`.
-  *(Lý do cứng, không phải khẩu hiệu:* `ProcurementPlanCreate.test.ts:40` mock `vue-router` **chỉ** với `useRouter`; shell import `RouterLink` sẽ làm bộ test đó nổ. Import `common/SkeletonLoader` thì tạo vòng phụ thuộc ngược tầng 0 → tầng 1, vì `SkeletonLoader.vue` đã render qua `ui/Skeleton`.)
+  *(Lý do cứng, không phải khẩu hiệu:* `ProcurementPlanListView.create.test.ts:40` mock `vue-router` **chỉ** với `useRouter`; shell import `RouterLink` sẽ làm bộ test đó nổ. Import `common/SkeletonLoader` thì tạo vòng phụ thuộc ngược tầng 0 → tầng 1, vì `SkeletonLoader.vue` đã render qua `ui/Skeleton`.)
 - Chỉ dùng class `@layer` (`page-container`, `card`) + utility **phi màu** (`p-6`, `overflow-hidden`). 0 class palette thô.
 
 ### 3.5 Barrel `index.ts` — thứ tự BẮT BUỘC
 
-Guard `uiPrimitiveHygiene.test.ts` so `readdirSync().sort()` với `EXPECTED_PRIMITIVES` **theo thứ tự**. Alphabet đặt `ListPageShell` **trước** `Skeleton`:
+Guard `uiPrimitiveHygiene.guard.test.ts` so `readdirSync().sort()` với `EXPECTED_PRIMITIVES` **theo thứ tự**. Alphabet đặt `ListPageShell` **trước** `Skeleton`:
 
 ```ts
 export { default as Badge } from './Badge.vue'
@@ -297,7 +297,7 @@ Và phần `<template>` (2 dòng chữ rỗng **phải là literal tĩnh, cạnh
 | content | `mobile-card-list` `:166-186` + `<table>` `:189-237` vào slot mặc định |
 | pagination | khối `:240-247` vào `#pagination` (giữ nguyên `border-t`) |
 
-> 🔒 **Không được phá:** dòng chứa `router.push('/purchases/new')` `:111` phải **giữ `v-if="can('purchase.create')"` trong cùng cửa sổ ±8 dòng** — `src/router/createButtonAffordance.test.ts:35` quét tĩnh file này.
+> 🔒 **Không được phá:** dòng chứa `router.push('/purchases/new')` `:111` phải **giữ `v-if="can('purchase.create')"` trong cùng cửa sổ ±8 dòng** — `src/guards/createButtonAffordance.guard.test.ts:35` quét tĩnh file này.
 
 ### 4.2 `/user-profiles` — `views/auth/UserProfileListView.vue`
 
@@ -340,8 +340,8 @@ Và phần `<template>` (2 dòng chữ rỗng **phải là literal tĩnh, cạnh
 | empty | **XOÁ** khối chết `:233-235` và khối `:297-309`; `empty-title="Chưa có kế hoạch mua sắm nào"` + `empty-hint="Hãy tạo kế hoạch từ đề xuất đã duyệt, hoặc xoá bộ lọc để xem tất cả."`; `#empty-action` giữ **nguyên 2 nút** («Xóa bộ lọc để xem tất cả» khi có bộ lọc · «+ Tạo kế hoạch đầu tiên» khi `canCreatePlan`) |
 | modal | khối `:313-377` **giữ nguyên, nằm NGOÀI** `ListPageShell` (template nhiều gốc) |
 
-> 🔒 **Không được phá:** `src/views/needs/ProcurementPlanCreate.test.ts` mở modal bằng cách tìm **nút có chữ «Tạo kế hoạch» trong body** (`PageHeader` bị stub nên nút ở header không render) với `fakeStore = { plans: [], loading: false, error: null }`. Trạng thái phải rơi vào **empty** và nút «+ Tạo kế hoạch đầu tiên» phải **render thật** trong `#empty-action`.
-> `src/components/common/currencyInputRollout.test.ts:27` quét `CurrencyInput` cho `createForm.budget_envelope` — nằm trong modal, không đụng.
+> 🔒 **Không được phá:** `src/views/needs/tests/ProcurementPlanListView.create.test.ts` mở modal bằng cách tìm **nút có chữ «Tạo kế hoạch» trong body** (`PageHeader` bị stub nên nút ở header không render) với `fakeStore = { plans: [], loading: false, error: null }`. Trạng thái phải rơi vào **empty** và nút «+ Tạo kế hoạch đầu tiên» phải **render thật** trong `#empty-action`.
+> `src/guards/currencyInputRollout.guard.test.ts:27` quét `CurrencyInput` cho `createForm.budget_envelope` — nằm trong modal, không đụng.
 
 ---
 
@@ -364,7 +364,7 @@ Và phần `<template>` (2 dòng chữ rỗng **phải là literal tĩnh, cạnh
 
 ## §6. Test-case & lệnh chấm
 
-### 6.1 `frontend/src/components/ui/ListPageShell.test.ts` (mount THẬT, ≥8 case)
+### 6.1 `frontend/src/components/ui/tests/ListPageShell.test.ts` (mount THẬT, ≥8 case)
 
 | TC | Nội dung |
 |---|---|
@@ -382,10 +382,10 @@ Và phần `<template>` (2 dòng chữ rỗng **phải là literal tĩnh, cạnh
 
 | File test | Spy nạp |
 |---|---|
-| `frontend/src/views/purchase/purchaseListStates.test.ts` | `@/api/purchase` → `listPurchases` |
-| `frontend/src/views/auth/userProfileListStates.test.ts` | `@/api/user` → `listUsers`, `getAvailableImmRoles` |
-| `frontend/src/views/procurement/vendorProfileListStates.test.ts` | `@/api/imm03` → `listVendorProfiles` |
-| `frontend/src/views/needs/procurementPlanListStates.test.ts` | mock `@/stores/imm01` (khuôn `ProcurementPlanCreate.test.ts:25-32`) → `fetchPlans` |
+| `frontend/src/views/purchase/tests/PurchaseListView.states.test.ts` | `@/api/purchase` → `listPurchases` |
+| `frontend/src/views/auth/tests/UserProfileListView.states.test.ts` | `@/api/user` → `listUsers`, `getAvailableImmRoles` |
+| `frontend/src/views/procurement/tests/VendorProfileListView.states.test.ts` | `@/api/imm03` → `listVendorProfiles` |
+| `frontend/src/views/needs/tests/ProcurementPlanListView.states.test.ts` | mock `@/stores/imm01` (khuôn `ProcurementPlanListView.create.test.ts:25-32`) → `fetchPlans` |
 
 Mỗi file chấm 4 case:
 1. **lỗi ⇒ không rỗng**: nạp ném/`error` ⇒ `data-state='error'`, `ui-empty` null, DOM **không** chứa chuỗi rỗng cũ của màn đó (A3).
@@ -401,14 +401,14 @@ cd frontend
 grep -c "^export { default as" src/components/ui/index.ts            # → 8
 ls src/components/ui/*.vue | wc -l                                    # → 8
 ls src/components/ui/*.test.ts | wc -l                                # → 9  (8 + hygiene guard)
-npx vitest run src/components/ui/uiPrimitiveHygiene.test.ts           # → đọc dòng "Tests N passed" bằng MẮT
+npx vitest run src/guards/uiPrimitiveHygiene.guard.test.ts           # → đọc dòng "Tests N passed" bằng MẮT
 # A2
 grep -l ListPageShell src/views/purchase/PurchaseListView.vue src/views/auth/UserProfileListView.vue \
   src/views/procurement/VendorProfileListView.vue src/views/needs/ProcurementPlanListView.vue | wc -l   # → 4
 # A3 / A5 / A6
-npx vitest run src/components/ui/ListPageShell.test.ts \
-  src/views/purchase/purchaseListStates.test.ts src/views/auth/userProfileListStates.test.ts \
-  src/views/procurement/vendorProfileListStates.test.ts src/views/needs/procurementPlanListStates.test.ts
+npx vitest run src/components/ui/tests/ListPageShell.test.ts \
+  src/views/purchase/tests/PurchaseListView.states.test.ts src/views/auth/tests/UserProfileListView.states.test.ts \
+  src/views/procurement/tests/VendorProfileListView.states.test.ts src/views/needs/tests/ProcurementPlanListView.states.test.ts
 # A4
 grep -cE 'error|catch' src/views/auth/UserProfileListView.vue         # > 0 (baseline 0)
 # A7  — chấm DELTA cột «Lỗi+Thử lại»
@@ -418,8 +418,8 @@ node -e "…viLeaks…" || grep -nE '>[^<]*\bImport\b|title="[^"]*Import' src/vi
 # A8 / A9 / A12
 npx vitest run            # 0 file đỏ; 299 (baseline đo lại) + 5
 npx vue-tsc --noEmit
-npx vitest run src/router/uiAuditDocParity.test.ts    # 15/15
-npx vitest run src/design/tokens.parity.test.ts
+npx vitest run src/guards/uiAuditDocParity.guard.test.ts    # 15/15
+npx vitest run src/guards/designTokens.guard.test.ts
 # A10
 git status --short --untracked-files=all | grep -c '\.py$'                       # → 0
 git status --short -uall | grep -cE '^.. frontend/src/(stores|api)/'             # → 0
@@ -459,8 +459,8 @@ hợp thành 1 cấp (`delegatedChildren` `:102-115` nhận `:loading` / `:error
 shell **không được** có text node nào — chỉ component + slot) · `INV-UI-4` (chỉ bậc {50,500,700}).
 
 ### 7.7 Hai bộ test cũ đang khoá 4 màn đích
-`createButtonAffordance.test.ts:35` (quét tĩnh `PurchaseListView.vue`) · `ProcurementPlanCreate.test.ts`
-(mount thật, mở modal qua nút empty-state) · `currencyInputRollout.test.ts:27`. Xem 🔒 ở §4.1 và §4.4.
+`createButtonAffordance.guard.test.ts:35` (quét tĩnh `PurchaseListView.vue`) · `ProcurementPlanListView.create.test.ts`
+(mount thật, mở modal qua nút empty-state) · `currencyInputRollout.guard.test.ts:27`. Xem 🔒 ở §4.1 và §4.4.
 
 ---
 
@@ -469,16 +469,16 @@ shell **không được** có text node nào — chỉ component + slot) · `INV
 **Thêm mới (6):**
 ```
 frontend/src/components/ui/ListPageShell.vue
-frontend/src/components/ui/ListPageShell.test.ts
-frontend/src/views/purchase/purchaseListStates.test.ts
-frontend/src/views/auth/userProfileListStates.test.ts
-frontend/src/views/procurement/vendorProfileListStates.test.ts
-frontend/src/views/needs/procurementPlanListStates.test.ts
+frontend/src/components/ui/tests/ListPageShell.test.ts
+frontend/src/views/purchase/tests/PurchaseListView.states.test.ts
+frontend/src/views/auth/tests/UserProfileListView.states.test.ts
+frontend/src/views/procurement/tests/VendorProfileListView.states.test.ts
+frontend/src/views/needs/tests/ProcurementPlanListView.states.test.ts
 ```
 **Sửa (6):**
 ```
 frontend/src/components/ui/index.ts                          (§3.5 — thêm 1 dòng export, đúng vị trí)
-frontend/src/components/ui/uiPrimitiveHygiene.test.ts        (§3.5 — thêm 'ListPageShell' vào EXPECTED_PRIMITIVES)
+frontend/src/guards/uiPrimitiveHygiene.guard.test.ts        (§3.5 — thêm 'ListPageShell' vào EXPECTED_PRIMITIVES)
 frontend/src/views/purchase/PurchaseListView.vue             (§4.1)
 frontend/src/views/auth/UserProfileListView.vue              (§4.2 + A11)
 frontend/src/views/procurement/VendorProfileListView.vue     (§4.3)
@@ -505,7 +505,7 @@ frontend/src/views/needs/ProcurementPlanListView.vue         (§4.4)
 | A9 | §8 | `npx vue-tsc --noEmit` 0 lỗi; ESLint 0 lỗi trên file mới/sửa |
 | A10 | §8 | 2 lệnh `git status` ở §6.3 → 0 / 0 |
 | A11 | §4.2 | 0 hit `Import` ở lớp hiển thị của `UserProfileListView.vue`; `AC-UX-029` hạ còn 3 route (00 §6) |
-| A12 | §8 (doc) | `npx vitest run src/router/uiAuditDocParity.test.ts` → 15/15 · `src/design/tokens.parity.test.ts` XANH |
+| A12 | §8 (doc) | `npx vitest run src/guards/uiAuditDocParity.guard.test.ts` → 15/15 · `src/guards/designTokens.guard.test.ts` XANH |
 
 ---
 
@@ -568,7 +568,7 @@ Xem **ADR-UX-05** (bản gốc) ở [`00_AUDIT_HIEN_TRANG.md §9`](./00_AUDIT_HI
 - Nợ nhóm «Danh sách» ở `04 §10.1` = **24 → 12** sau lô 1.
 - Số `*ListView.vue` có 0 token lỗi: **24 → 12** (12 màn lô 1 rời khỏi tập này).
 
-### 12.2 Sổ lô 1 — 12 route (SSoT; guard `uiListShellLot1Parity.test.ts` đọc chính bảng này)
+### 12.2 Sổ lô 1 — 12 route (SSoT; guard `uiListShellLot1Parity.guard.test.ts` đọc chính bảng này)
 
 | # | Route | View file | Hàm nạp | Nguồn lỗi sau sửa | Module cần `vi.mock` | TC |
 |---|---|---|---|---|---|---|
@@ -609,7 +609,7 @@ Xem **ADR-UX-05** (bản gốc) ở [`00_AUDIT_HIEN_TRANG.md §9`](./00_AUDIT_HI
 - **KHÔNG** đụng bất kỳ file `.py` nào (`git status --porcelain -- '*.py'` phải RỖNG cuối vòng).
 - **KHÔNG** nối lỗi **biểu mẫu/xoá** (`err`, `toast`, `error` của `remove()`) vào `:error-message` — 1 lần lưu hỏng sẽ **xoá trắng cả danh sách** (`INV-UX3-13`).
 - **KHÔNG** để 2 lối báo lỗi song song (banner `.alert-error` cũ **và** `ErrorState`) ⇒ vỡ `INV-UX3-6` (đúng 1 nút «Thử lại»).
-- **KHÔNG** cấp mã sổ AC-UX mới (059 trở đi) trong vòng này — `uiAuditDocParity.test.ts:204` ép mỗi mục có «vòng xử lý ∈ {2,3,4,5}»; mục mới của vòng 6 sẽ **đỏ guard**. Sổ giữ nguyên **58 mục**.
+- **KHÔNG** cấp mã sổ AC-UX mới (059 trở đi) trong vòng này — `uiAuditDocParity.guard.test.ts:204` ép mỗi mục có «vòng xử lý ∈ {2,3,4,5}»; mục mới của vòng 6 sẽ **đỏ guard**. Sổ giữ nguyên **58 mục**.
 - **KHÔNG** đổi bảng `04 §11` (135 dòng) và **KHÔNG** đổi bảng tay tổng hợp `00 §2.1` (đóng băng theo `ADR-UX-10`).
 - **KHÔNG** lật ô của route NGOÀI 12 dòng lô 1 ở `00 §3.1` (kể cả 4 dòng vòng-3 đang stale — xem §12.8 ghi chú).
 
@@ -715,13 +715,13 @@ Khuôn `<template>` — 6 slot, thứ tự cố định:
 | 11 | `onMounted` `:193-198` gọi `applyFilter()`/`fetchList()` **và** `fetchStats()` | «Thử lại» gọi **`applyFilter()`** (giữ bộ lọc), KHÔNG `store.fetchList()` trần (mất bộ lọc) ⇒ spy `listIncidents` == 2, spy `getIncidentStats` == 1 |
 | 12 | `applyFilter(page = 1)` reset về trang 1 | chấp nhận: «Thử lại» = nạp lại trang 1 (ghi rõ để QA không tính là lỗi) |
 | 4, 5 | `error` cũng là tên biến của… chỉ lượt nạp — **đã kiểm** (`remove()` dùng `toast.error`) | tái dùng an toàn (biến thể B) |
-| 1 | `StockMovementListView.vue:109` nút tạo có `v-if="can('inventory.write')"` | giữ nút + điều kiện trong **cùng cửa sổ ±8 dòng** — `src/router/createButtonAffordance.test.ts` quét tĩnh |
+| 1 | `StockMovementListView.vue:109` nút tạo có `v-if="can('inventory.write')"` | giữ nút + điều kiện trong **cùng cửa sổ ±8 dòng** — `src/guards/createButtonAffordance.guard.test.ts` quét tĩnh |
 
 ### 12.5 Bất biến mới (`INV-UX3-11` … `INV-UX3-17`)
 
 | Mã | Bất biến | Cách chứng minh |
 |---|---|---|
-| **INV-UX3-11** | Cả 12 view render **qua** shell: mỗi file có dòng `import ListPageShell from '@/components/ui/ListPageShell.vue'` và DOM có **đúng 1** `[data-testid="list-page-shell"]` | `grep -rl "ui/ListPageShell" frontend/src/views --include=*.vue \| wc -l` ≥ **16** · guard `uiListShellLot1Parity.test.ts` |
+| **INV-UX3-11** | Cả 12 view render **qua** shell: mỗi file có dòng `import ListPageShell from '@/components/ui/ListPageShell.vue'` và DOM có **đúng 1** `[data-testid="list-page-shell"]` | `grep -rl "ui/ListPageShell" frontend/src/views --include=*.vue \| wc -l` ≥ **16** · guard `uiListShellLot1Parity.guard.test.ts` |
 | **INV-UX3-12** | **Lỗi thắng rỗng** ở cả 12 màn: `data-state="error"` ⇒ **0** `[data-testid="list-content"]`, **0** `[data-testid="ui-empty"]`, và DOM **không** chứa chuỗi rỗng cũ của màn đó (bảng §12.4) | 12 test trạng thái, sub-case (b) |
 | **INV-UX3-13** | **Tách nguồn lỗi**: `:error-message` chỉ nhận lỗi của **lượt nạp danh sách**; `err`/`toast`/`error`-xoá không được nối vào | đọc mã + test: mở hộp thoại, ép `save()` hỏng ⇒ `data-state` **vẫn** `content` |
 | **INV-UX3-14** | «Thử lại» gọi lại **đúng hàm nạp, giữ bộ lọc/tham số**, đúng **1** lần | spy API danh sách `toHaveBeenCalledTimes(2)` sau 1 lần bấm (không 1 — nút trang trí; không 3 — nhân đôi request) |
@@ -731,22 +731,22 @@ Khuôn `<template>` — 6 slot, thứ tự cố định:
 
 ### 12.6 Bộ test — `TC-UX3-11` … `TC-UX3-22` (12 file MỚI, ≥ 48 TC)
 
-Đặt cạnh view, đúng khuôn 4 file đã có (`purchaseListStates.test.ts` là **mẫu tham chiếu**):
+Đặt cạnh view, đúng khuôn 4 file đã có (`PurchaseListView.states.test.ts` là **mẫu tham chiếu**):
 
 | TC | File test MỚI |
 |---|---|
-| `TC-UX3-11` | `frontend/src/views/inventory/stockMovementListStates.test.ts` |
-| `TC-UX3-12` | `frontend/src/views/asset/assetTransferListStates.test.ts` |
-| `TC-UX3-13` | `frontend/src/views/inventory/warehouseListStates.test.ts` |
-| `TC-UX3-14` | `frontend/src/views/asset/deviceModelListStates.test.ts` |
-| `TC-UX3-15` | `frontend/src/views/purchase/supplierListStates.test.ts` |
-| `TC-UX3-16` | `frontend/src/views/inventory/sparePartListStates.test.ts` |
-| `TC-UX3-17` | `frontend/src/views/document/documentRequestListStates.test.ts` |
-| `TC-UX3-18` | `frontend/src/views/pm/pmTemplateListStates.test.ts` |
-| `TC-UX3-19` | `frontend/src/views/document/firmwareCrListStates.test.ts` |
-| `TC-UX3-20` | `frontend/src/views/master-data/slaPolicyListStates.test.ts` |
-| `TC-UX3-21` | `frontend/src/views/incident/incidentListStates.test.ts` |
-| `TC-UX3-22` | `frontend/src/views/incident/rcaListStates.test.ts` |
+| `TC-UX3-11` | `frontend/src/views/inventory/tests/StockMovementListView.states.test.ts` |
+| `TC-UX3-12` | `frontend/src/views/asset/tests/AssetTransferListView.states.test.ts` |
+| `TC-UX3-13` | `frontend/src/views/inventory/tests/WarehouseListView.states.test.ts` |
+| `TC-UX3-14` | `frontend/src/views/asset/tests/DeviceModelListView.states.test.ts` |
+| `TC-UX3-15` | `frontend/src/views/purchase/tests/SupplierListView.states.test.ts` |
+| `TC-UX3-16` | `frontend/src/views/inventory/tests/SparePartListView.states.test.ts` |
+| `TC-UX3-17` | `frontend/src/views/document/tests/DocumentRequestListView.states.test.ts` |
+| `TC-UX3-18` | `frontend/src/views/pm/tests/PmTemplateListView.states.test.ts` |
+| `TC-UX3-19` | `frontend/src/views/document/tests/FirmwareCrListView.states.test.ts` |
+| `TC-UX3-20` | `frontend/src/views/master-data/tests/SlaPolicyListView.states.test.ts` |
+| `TC-UX3-21` | `frontend/src/views/incident/tests/IncidentListView.states.test.ts` |
+| `TC-UX3-22` | `frontend/src/views/incident/tests/RCAListView.states.test.ts` |
 
 **Sub-case bắt buộc mỗi file (≥ 4; ⇒ tổng ≥ 48):**
 
@@ -767,8 +767,8 @@ Khuôn `<template>` — 6 slot, thứ tự cố định:
 ```bash
 cd frontend
 npx vitest run src/views/**/*ListStates.test.ts     # phải đọc thấy: Test Files 16 passed (16)
-npx vitest run src/router/uiAuditDocParity.test.ts src/router/uiFixPlanParity.test.ts \
-              src/router/uiListShellLot1Parity.test.ts
+npx vitest run src/guards/uiAuditDocParity.guard.test.ts src/guards/uiFixPlanParity.guard.test.ts \
+              src/guards/uiListShellLot1Parity.guard.test.ts
 npx vitest run                                       # 0 đỏ; số file ≥ baseline + 12
 npx vue-tsc --noEmit
 node scripts/ui-audit-inventory.mjs | awk -F'|' 'NF>10 && $2 ~ /^ *[0-9]+ *$/ {gsub(/ /,"",$8); if($8=="❌") e++} END {print e}'   # 89 → 77
@@ -797,7 +797,7 @@ Lật ✅ trước khi mã land ⇒ tài liệu nói dối trong suốt cửa s�
 nói dối **ở lại vĩnh viễn** (đúng vết xe run-5: 3 đề mục bị báo sai trạng thái, suýt làm lại từ đầu).
 Vì vậy lô 1 khoá bằng **guard parity 2 chiều** thay vì bằng lời hứa:
 
-- `frontend/src/router/uiListShellLot1Parity.test.ts` đọc bảng **§12.2** làm SSoT rồi ép:
+- `frontend/src/guards/uiListShellLot1Parity.guard.test.ts` đọc bảng **§12.2** làm SSoT rồi ép:
   *(1)* mỗi route trong sổ có view tồn tại trên đĩa và có dòng trong `00 §3.1`;
   *(2)* **`view import ListPageShell` ⟺ ô «Lỗi+Thử lại» của route đó = ✅** (2 chiều);
   *(3)* view đã import shell ⇒ **phải có** file `*ListStates.test.ts` cạnh nó;
@@ -889,7 +889,7 @@ Trước lô 2, cùng một đại lượng «bao nhiêu route thiếu lối n�
 > `Tests 3540 passed (3540)` — 0 ĐỎ** (bước BA chỉ viết lại guard trong **cùng 1 file**: 8 → 15 TC ⇒ **+0 file**).
 > ⇒ Nghiệm thu A7 của FE: **≥ 364 file** (352 + 12) và **≥ 3612 test** (3540 + 72). `npx vue-tsc --noEmit` sạch.
 
-### 13.2 Sổ lô 2 — 12 route (SSoT; guard `uiListShellLot1Parity.test.ts` đọc chính bảng này)
+### 13.2 Sổ lô 2 — 12 route (SSoT; guard `uiListShellLot1Parity.guard.test.ts` đọc chính bảng này)
 
 | # | Route | View file | Hàm nạp | Nguồn lỗi sau sửa | Module cần `vi.mock` | TC |
 |---|---|---|---|---|---|---|
@@ -1061,37 +1061,37 @@ Khuôn `<template>` (giống §12.4, 6 slot, thứ tự cố định):
 | 11 | `filters.workflow_state` mặc định `'Approved'` ⇒ `buildPayload()` **trùng khít** lời gọi `onMounted` `:198` | `reload()` = `applyFilters()` là đúng bộ lọc; **không** đổi mặc định |
 | 12 | `applyQueryToFilters(force)` `:124` mới là đường nạp lúc mount (`:162`), có 2 nhánh `fetchDecisions(payload)` / `fetchDecisions()` | `reload()` gọi `applyFilters()` (nhánh có bộ lọc hiện tại); **không** gọi `applyQueryToFilters(true)` (sẽ ghi đè bộ lọc người dùng vừa chọn) |
 | 9–12 | 4 màn Wave-2 in chữ **«Đang tải...»** thay cho khung xương | đưa `<SkeletonLoader variant="table" :rows="6" />` vào `#skeleton`; cột *Skeleton* của 4 dòng này ở `00 §3.1` **có thể** đổi ⇒ **báo BA**, không tự lật (Ask-first) |
-| tất cả | `data-testid` đang bị test khác khoá (`createButtonAffordance.test.ts` quét **tĩnh** cửa sổ ±8 dòng quanh nút tạo) | giữ nút tạo + điều kiện `can(...)` trong **cùng cửa sổ**; chạy lại `npx vitest run src/router` sau khi dời markup |
+| tất cả | `data-testid` đang bị test khác khoá (`createButtonAffordance.guard.test.ts` quét **tĩnh** cửa sổ ±8 dòng quanh nút tạo) | giữ nút tạo + điều kiện `can(...)` trong **cùng cửa sổ**; chạy lại `npx vitest run src/router` sau khi dời markup |
 
 ### 13.5 Bất biến mới (`INV-UX3-18` … `INV-UX3-23`)
 
 | Mã | Bất biến | Cách chứng minh |
 |---|---|---|
 | **INV-UX3-18** | **0 route** thoả `cột «Lỗi+Thử lại» == ❌ AND file ~ /ListView/` — họ danh sách ĐÓNG HẲN | bộ dò `--json` + lọc (lệnh §13.6) |
-| **INV-UX3-19** | 12 view lô 2 render **qua** shell: mỗi file có `import ListPageShell from '@/components/ui/ListPageShell.vue'`, DOM có **đúng 1** `[data-testid="list-page-shell"]`; tổng adopter `*ListView` **16 → 28** | `grep -rl` + guard `uiListShellLot1Parity.test.ts` |
+| **INV-UX3-19** | 12 view lô 2 render **qua** shell: mỗi file có `import ListPageShell from '@/components/ui/ListPageShell.vue'`, DOM có **đúng 1** `[data-testid="list-page-shell"]`; tổng adopter `*ListView` **16 → 28** | `grep -rl` + guard `uiListShellLot1Parity.guard.test.ts` |
 | **INV-UX3-20** | **Tách nguồn lỗi**: `:error-message` chỉ nhận lỗi của **lượt nạp danh sách**. Ép lỗi ở hành động ghi (tạo/duyệt/xoá/đánh giá) ⇒ `data-state` **vẫn** `content` | 12 test trạng thái, sub-case (f2) cho màn có hành động ghi |
 | **INV-UX3-21** | «Thử lại» gọi lại **đúng hàm nạp danh sách**, giữ bộ lọc, đúng **1** lần; lời gọi phụ (KPI/refData/meta) **không tăng** | spy danh sách `toHaveBeenCalledTimes(2)`, spy phụ `toHaveBeenCalledTimes(1)` |
 | **INV-UX3-22** | **0 mã chết rỗng**: 6 file (2, 3, 4, 10, 11, 12) không còn khối «Không có dữ liệu» nằm trong nhánh có-dữ-liệu | `grep -c "Không có dữ liệu" <file>` → 0 |
-| **INV-UX3-23** | **Ba số bằng nhau**: `ô ❌ cột «Lỗi+Thử lại» ở 00 §3.1` == `số bộ dò` == `token [NO-CON=N]`, và **từng ô** của cột khớp bộ dò trên cả 148 dòng | guard `uiListShellLot1Parity.test.ts` (tự chạy bộ dò) + `--check` in `Lỗi+Thử lại 0` |
+| **INV-UX3-23** | **Ba số bằng nhau**: `ô ❌ cột «Lỗi+Thử lại» ở 00 §3.1` == `số bộ dò` == `token [NO-CON=N]`, và **từng ô** của cột khớp bộ dò trên cả 148 dòng | guard `uiListShellLot1Parity.guard.test.ts` (tự chạy bộ dò) + `--check` in `Lỗi+Thử lại 0` |
 
 ### 13.6 Bộ test — `TC-UX3-23` … `TC-UX3-34` (12 file MỚI, ≥ 72 TC)
 
-Đặt cạnh view, đúng khuôn `frontend/src/views/purchase/supplierListStates.test.ts:50-115`:
+Đặt cạnh view, đúng khuôn `frontend/src/views/purchase/tests/SupplierListView.states.test.ts:50-115`:
 
 | TC | File test MỚI |
 |---|---|
-| `TC-UX3-23` | `frontend/src/views/asset/assetListStates.test.ts` |
-| `TC-UX3-24` | `frontend/src/views/calibration/calibrationListStates.test.ts` |
-| `TC-UX3-25` | `frontend/src/views/calibration/calibrationScheduleListStates.test.ts` |
-| `TC-UX3-26` | `frontend/src/views/incident/capaListStates.test.ts` |
-| `TC-UX3-27` | `frontend/src/views/compliance/complianceRuleListStates.test.ts` |
-| `TC-UX3-28` | `frontend/src/views/compliance/findingListStates.test.ts` |
-| `TC-UX3-29` | `frontend/src/views/compliance/internalAuditListStates.test.ts` |
-| `TC-UX3-30` | `frontend/src/views/compliance/managementReviewListStates.test.ts` |
-| `TC-UX3-31` | `frontend/src/views/tech-specs/techSpecListStates.test.ts` |
-| `TC-UX3-32` | `frontend/src/views/procurement/vendorEvalListStates.test.ts` |
-| `TC-UX3-33` | `frontend/src/views/procurement/avlListStates.test.ts` |
-| `TC-UX3-34` | `frontend/src/views/procurement/decisionListStates.test.ts` |
+| `TC-UX3-23` | `frontend/src/views/asset/tests/AssetListView.states.test.ts` |
+| `TC-UX3-24` | `frontend/src/views/calibration/tests/CalibrationListView.states.test.ts` |
+| `TC-UX3-25` | `frontend/src/views/calibration/tests/CalibrationScheduleListView.states.test.ts` |
+| `TC-UX3-26` | `frontend/src/views/incident/tests/CAPAListView.states.test.ts` |
+| `TC-UX3-27` | `frontend/src/views/compliance/tests/ComplianceRuleListView.states.test.ts` |
+| `TC-UX3-28` | `frontend/src/views/compliance/tests/FindingListView.states.test.ts` |
+| `TC-UX3-29` | `frontend/src/views/compliance/tests/InternalAuditListView.states.test.ts` |
+| `TC-UX3-30` | `frontend/src/views/compliance/tests/ManagementReviewListView.states.test.ts` |
+| `TC-UX3-31` | `frontend/src/views/tech-specs/tests/TechSpecListView.states.test.ts` |
+| `TC-UX3-32` | `frontend/src/views/procurement/tests/VendorEvalListView.states.test.ts` |
+| `TC-UX3-33` | `frontend/src/views/procurement/tests/AvlListView.states.test.ts` |
+| `TC-UX3-34` | `frontend/src/views/procurement/tests/DecisionListView.states.test.ts` |
 
 **Sub-case bắt buộc mỗi file (≥ 6 ⇒ tổng ≥ 72):**
 
@@ -1125,9 +1125,9 @@ grep -rl "ui/ListPageShell" src/views --include=*ListView.vue | wc -l
 ls src/views/*/*ListStates.test.ts | wc -l
 npx vitest run src/views/**/*ListStates.test.ts      # Test Files 28 passed (28)
 # A4/A5/A6/A8 — 5 guard nền + guard lô (đã neo vào bộ dò)
-npx vitest run src/router/uiAuditDocParity.test.ts src/router/uiFixPlanParity.test.ts \
-              src/router/uiListShellLot1Parity.test.ts src/router/uiDetailShellLot1Parity.test.ts \
-              src/components/common/modalOverlayHygiene.test.ts src/components/ui/uiPrimitiveHygiene.test.ts
+npx vitest run src/guards/uiAuditDocParity.guard.test.ts src/guards/uiFixPlanParity.guard.test.ts \
+              src/guards/uiListShellLot1Parity.guard.test.ts src/guards/uiDetailShellLot1Parity.guard.test.ts \
+              src/guards/modalOverlayHygiene.guard.test.ts src/guards/uiPrimitiveHygiene.guard.test.ts
 # A4 — token == số bộ dò; A5 — 3 số bằng nhau
 node scripts/ui-audit-inventory.mjs --summary | grep "Lỗi+Thử lại"       # ❌ 57
 grep -o "\[NO-CON=[0-9]*\]" ../docs/ui-ux/00_AUDIT_HIEN_TRANG.md         # [NO-CON=57]
@@ -1147,7 +1147,7 @@ cd .. && git status --porcelain -- '*.py'                                 # RỖ
    ⇒ **≥ +72 TC**; `npx vitest run src/views/**/*ListStates.test.ts` in `Test Files 28 passed (28)`.
 4. **A4** — token `[NO-CON=N]` ở `00 §6` == số bộ dò in ra SAU khi land = **57** (69 − 12; **không** 77 − 12).
 5. **A5** — ba số bằng nhau: ô ❌ `§3.1` == bộ dò == token == **57**; `--check` in `Lỗi+Thử lại 0`.
-6. **A6** — guard `uiListShellLot1Parity.test.ts` **không còn** `89 − flipped`; neo vào bộ dò + parity 2 chiều.
+6. **A6** — guard `uiListShellLot1Parity.guard.test.ts` **không còn** `89 − flipped`; neo vào bộ dò + parity 2 chiều.
    **Prove-It**: sửa tay 1 ô §3.1 **hoặc** gỡ 1 `import ListPageShell` ⇒ guard **ĐỎ** (chạy thật, dán output).
 7. **A7** — `npx vitest run` **0 ĐỎ**; số file **+12** so với lần đo ngay trước khi FE bắt đầu (đọc bằng mắt).
 8. **A8** — 4 guard nền xanh (`uiAuditDocParity` · `uiFixPlanParity` · `modalOverlayHygiene` ·
@@ -1167,7 +1167,7 @@ cd .. && git status --porcelain -- '*.py'                                 # RỖ
 
 ### 13.8 Guard mới — neo vào BỘ DÒ, không vào phép trừ (A6, đã land ở bước BA)
 
-`frontend/src/router/uiListShellLot1Parity.test.ts` (giữ nguyên tên file — đổi tên làm hỏng mọi tham chiếu)
+`frontend/src/guards/uiListShellLot1Parity.guard.test.ts` (giữ nguyên tên file — đổi tên làm hỏng mọi tham chiếu)
 được viết lại quanh **`ADR-UX-22`**:
 
 | Bất biến | Nội dung |
@@ -1260,7 +1260,7 @@ vừa in banner lỗi vừa in khối «Chưa có dữ liệu» và vẫn đư�
 > (bộ dò `--json` 2026-08-04: dòng 28, 41, 44, 49, 71, 85, 87, 104, 122, 138, 141, 145). Chạm vào là làm vỡ
 > `INV-UX3L-6` (parity từng ô) và `INV-UX3L-5` (token == bộ dò).
 
-### 14.2 Sổ lô 3 — 12 route (SSoT; guard `uiListShellLot1Parity.test.ts` đọc chính bảng này)
+### 14.2 Sổ lô 3 — 12 route (SSoT; guard `uiListShellLot1Parity.guard.test.ts` đọc chính bảng này)
 
 | # | Route | View file | Hàm nạp | Nguồn lỗi sau sửa | Module cần `vi.mock` | TC |
 |---|---|---|---|---|---|---|
@@ -1444,13 +1444,13 @@ Khuôn `<template>` (giống §12.4/§13.4, 6 slot, thứ tự cố định):
 | 9 | `store.error` dùng chung với ~20 hành động ghi (`imm04.ts:73`, `_captureError`) | bắt buộc biến thể **D** |
 | 10–12 | `api.run(() => store.fetchXxx())` — store đã nuốt lỗi ⇒ `api.lastError` **luôn null** | biến thể **D** (chụp `store.error`); **không** đọc `api.lastError` |
 | 12 | `load()` `:81` có nhánh drill `expiring` (`fetchExpiringCompetencies`) | `reload()` phải gọi lại **đúng nhánh đang hiện hành** (đọc `drillWindow` tại thời điểm bấm), không cứng hoá 1 nhánh |
-| tất cả | `data-testid` đang bị test khác khoá (`createButtonAffordance.test.ts` quét **tĩnh** cửa sổ ±8 dòng quanh nút tạo) | giữ nút tạo + điều kiện `can(...)` trong **cùng cửa sổ**; chạy lại `npx vitest run src/router` sau khi dời markup |
+| tất cả | `data-testid` đang bị test khác khoá (`createButtonAffordance.guard.test.ts` quét **tĩnh** cửa sổ ±8 dòng quanh nút tạo) | giữ nút tạo + điều kiện `can(...)` trong **cùng cửa sổ**; chạy lại `npx vitest run src/router` sau khi dời markup |
 
 ### 14.5 Bất biến mới (`INV-UX3-24` … `INV-UX3-29`)
 
 | Mã | Bất biến | Cách chứng minh |
 |---|---|---|
-| **INV-UX3-24** | **Adoption ĐÓNG HẲN**: `grep -L ListPageShell views/*/*ListView.vue` = **0**; `grep -l` = **40/40** | guard `AC-UX-070` (`views/listShellAdoption.test.ts`) + lệnh §14.6 |
+| **INV-UX3-24** | **Adoption ĐÓNG HẲN**: `grep -L ListPageShell views/*/*ListView.vue` = **0**; `grep -l` = **40/40** | guard `AC-UX-070` (`views/listShellAdoption.guard.test.ts`) + lệnh §14.6 |
 | **INV-UX3-25** | **Loại trừ**: ở trạng thái lỗi, DOM có **0** phần tử rỗng — không `[data-testid="ui-empty"]`, không chuỗi rỗng cũ của màn đó | 12 test trạng thái, sub-case (b) |
 | **INV-UX3-26** | **Một nguồn chữ rỗng/màn**: mỗi view lô 3 chỉ còn **1** nơi sinh chữ rỗng (shell), trừ `/commissioning` được phép **2** (`list-empty-scoped` + `EmptyState`) và chúng **loại trừ nhau** | `grep -c` chuỗi rỗng cũ = 0 + sub-case (f) |
 | **INV-UX3-27** | **KPI không nói dối**: 4 màn có dải KPI (2, 6, 8, 9) — ở trạng thái `error`, `[data-testid="list-summary"]` **không tồn tại** | sub-case (g) của 4 file test tương ứng |
@@ -1459,22 +1459,22 @@ Khuôn `<template>` (giống §12.4/§13.4, 6 slot, thứ tự cố định):
 
 ### 14.6 Bộ test — `TC-UX3-35` … `TC-UX3-46` (12 file MỚI, ≥ 72 TC)
 
-Đặt cạnh view, đúng khuôn `frontend/src/views/compliance/findingListStates.test.ts`:
+Đặt cạnh view, đúng khuôn `frontend/src/views/compliance/tests/FindingListView.states.test.ts`:
 
 | TC | File test MỚI |
 |---|---|
-| `TC-UX3-35` | `frontend/src/views/audit/auditTrailListStates.test.ts` |
-| `TC-UX3-36` | `frontend/src/views/cm/cmWorkOrderListStates.test.ts` |
-| `TC-UX3-37` | `frontend/src/views/purchase/serviceContractListStates.test.ts` |
-| `TC-UX3-38` | `frontend/src/views/eol/decommissionListStates.test.ts` |
-| `TC-UX3-39` | `frontend/src/views/inventory/cycleCountListStates.test.ts` |
-| `TC-UX3-40` | `frontend/src/views/pm/pmWorkOrderListStates.test.ts` |
-| `TC-UX3-41` | `frontend/src/views/pm/pmScheduleListStates.test.ts` |
-| `TC-UX3-42` | `frontend/src/views/needs/needsRequestListStates.test.ts` |
-| `TC-UX3-43` | `frontend/src/views/commissioning/commissioningListStates.test.ts` |
-| `TC-UX3-44` | `frontend/src/views/training/programListStates.test.ts` |
-| `TC-UX3-45` | `frontend/src/views/training/sessionListStates.test.ts` |
-| `TC-UX3-46` | `frontend/src/views/training/competencyListStates.test.ts` |
+| `TC-UX3-35` | `frontend/src/views/audit/tests/AuditTrailListView.states.test.ts` |
+| `TC-UX3-36` | `frontend/src/views/cm/tests/CMWorkOrderListView.states.test.ts` |
+| `TC-UX3-37` | `frontend/src/views/purchase/tests/ServiceContractListView.states.test.ts` |
+| `TC-UX3-38` | `frontend/src/views/eol/tests/DecommissionListView.states.test.ts` |
+| `TC-UX3-39` | `frontend/src/views/inventory/tests/CycleCountListView.states.test.ts` |
+| `TC-UX3-40` | `frontend/src/views/pm/tests/PMWorkOrderListView.states.test.ts` |
+| `TC-UX3-41` | `frontend/src/views/pm/tests/PmScheduleListView.states.test.ts` |
+| `TC-UX3-42` | `frontend/src/views/needs/tests/NeedsRequestListView.states.test.ts` |
+| `TC-UX3-43` | `frontend/src/views/commissioning/tests/CommissioningListView.states.test.ts` |
+| `TC-UX3-44` | `frontend/src/views/training/tests/ProgramListView.states.test.ts` |
+| `TC-UX3-45` | `frontend/src/views/training/tests/SessionListView.states.test.ts` |
+| `TC-UX3-46` | `frontend/src/views/training/tests/CompetencyListView.states.test.ts` |
 
 **Sub-case bắt buộc mỗi file (≥ 6 ⇒ tổng ≥ 72):**
 
@@ -1515,10 +1515,10 @@ cd ..
 ls src/views/*/*ListStates.test.ts | wc -l
 npx vitest run src/views/**/*ListStates.test.ts        # Test Files 40 passed (40)
 # A4 — guard adoption mới (AC-UX-070) + 7 guard cũ
-npx vitest run src/views/listShellAdoption.test.ts src/views/detailTabBarAdoption.test.ts \
-              src/router/uiListShellLot1Parity.test.ts src/router/uiAuditDocParity.test.ts \
-              src/router/uiFixPlanParity.test.ts src/components/common/modalOverlayHygiene.test.ts \
-              src/components/ui/uiPrimitiveHygiene.test.ts src/components/common/bareConfirmBudget.test.ts
+npx vitest run src/guards/listShellAdoption.guard.test.ts src/guards/detailTabBarAdoption.guard.test.ts \
+              src/guards/uiListShellLot1Parity.guard.test.ts src/guards/uiAuditDocParity.guard.test.ts \
+              src/guards/uiFixPlanParity.guard.test.ts src/guards/modalOverlayHygiene.guard.test.ts \
+              src/guards/uiPrimitiveHygiene.guard.test.ts src/guards/bareConfirmBudget.guard.test.ts
 # A6 — bộ dò KHÔNG đổi (57) và token khớp: chứng minh lô 3 vô hình với phép đo cũ
 node scripts/ui-audit-inventory.mjs --summary | grep "Lỗi+Thử lại"      # ❌ 57
 grep -o "\[NO-CON=[0-9]*\]" ../docs/ui-ux/00_AUDIT_HIEN_TRANG.md        # [NO-CON=57]
@@ -1537,9 +1537,9 @@ cd .. && git status --porcelain -- '*.py'                               # RỖNG
    (bảng «Khối phải XOÁ» §14.4 hết sạch), `/commissioning` giữ đúng 1 khối scoped.
 3. **A3** — **đúng 12** file `*ListStates.test.ts` MỚI (28 → **40**), mã `TC-UX3-35…46`, mỗi file **≥ 6** TC
    ⇒ **≥ +72 TC**; 3 TC RED (j) đã ĐỎ trước khi sửa (dán output).
-4. **A4** — guard mới `views/listShellAdoption.test.ts` (`AC-UX-070`) XANH với **non-adopter = 0**;
+4. **A4** — guard mới `views/listShellAdoption.guard.test.ts` (`AC-UX-070`) XANH với **non-adopter = 0**;
    **Prove-It**: thêm tạm 1 `*ListView.vue` không có khuôn **hoặc** gỡ 1 `import ListPageShell` ⇒ guard **ĐỎ**.
-5. **A5** — `uiListShellLot1Parity.test.ts` mở rộng: sổ lô 3 đúng 12 dòng, `TC-UX3-35…46` liên tục,
+5. **A5** — `uiListShellLot1Parity.guard.test.ts` mở rộng: sổ lô 3 đúng 12 dòng, `TC-UX3-35…46` liên tục,
    12 file test khai ở §14.6 tồn tại trên đĩa.
 6. **A6** — bộ dò **vẫn 57** và token `[NO-CON=57]` **không đổi**; `--check` in `Lỗi+Thử lại 0`.
    (Nếu số này đổi ⇒ có ai đó chạm ô §3.1 ngoài phạm vi ⇒ dừng, báo BA.)
@@ -1563,8 +1563,8 @@ cd .. && git status --porcelain -- '*.py'                               # RỖNG
 
 ### 14.8 Guard `AC-UX-070` — ngân sách adoption CHỈ-GIẢM (đã land ở bước BA)
 
-`frontend/src/views/listShellAdoption.test.ts` — khuôn theo `bareConfirmBudget.test.ts` /
-`detailTabBarAdoption.test.ts` (cặp + CHỈ-GIẢM hai chiều):
+`frontend/src/guards/listShellAdoption.guard.test.ts` — khuôn theo `bareConfirmBudget.guard.test.ts` /
+`detailTabBarAdoption.guard.test.ts` (cặp + CHỈ-GIẢM hai chiều):
 
 | Bất biến | Nội dung |
 |---|---|
@@ -1646,10 +1646,10 @@ Mọi số dưới đây **đo lại sau khi 12 view đã sửa**, không chép 
    bị vẫn nêu **mã thiết bị** + có **lối bỏ lọc**, và câu rỗng vô danh không hiện cùng lúc.
 
 **Test coupling đã phải sửa cùng lượt (LL-FE-53 — đổi 1 nhãn SSoT vỡ test ở module khác):**
-`views/commissioning/commissioningScopedEmpty.test.ts` (5 assert: câu rỗng chung, vị trí câu ngữ
+`views/commissioning/CommissioningListView.scopedEmpty.test.ts` (5 assert: câu rỗng chung, vị trí câu ngữ
 cảnh, `role="status"`, ô đếm 2 → **1** vì khuôn phát ô đếm một lần ở `#toolbar`) ·
-`views/eol/DecommissionList.render.test.ts` (câu rỗng) · `views/cm/cmListFilterErrorBanner.test.ts`
-+ `views/pm/pmListFilterErrorBanner.test.ts` (`.alert-error` → `ui-error`, bất biến «lỗi 500 đi
+`views/eol/DecommissionListView.render.test.ts` (câu rỗng) · `views/cm/CMWorkOrderListView.filterErrorBanner.test.ts`
++ `views/pm/PMWorkOrderListView.filterErrorBanner.test.ts` (`.alert-error` → `ui-error`, bất biến «lỗi 500 đi
 nhánh lỗi, không bị nuốt thành cảnh báo lọc» giữ nguyên).
 
 ### 14.10 Rủi ro & việc để lại sau lô 3

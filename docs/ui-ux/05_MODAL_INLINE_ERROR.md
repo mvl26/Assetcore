@@ -126,18 +126,18 @@ Quy ước “rỗng”: `v-if="error"` xử lý cả `null`, `undefined` và `'
 Thay đổi **CHỈ THÊM**. Giữ tuyệt đối: prop `title`/`size`/`danger` · emit `close` · testid `modal-card`/`modal-close`/`modal-body`/`modal-footer` · **toàn bộ chuỗi class**.
 
 **Đo:** bốn tệp test đã có phải **XANH với 0 dòng sửa** —
-`BaseModalDialog.test.ts` (16 TC) · `BaseModalA11y.test.ts` (9 TC) · `BaseModalResponsive.test.ts` · `modalOverlayHygiene.test.ts` (10 TC).
+`BaseModal.dialog.test.ts` (16 TC) · `BaseModal.a11y.test.ts` (9 TC) · `BaseModal.responsive.test.ts` · `modalOverlayHygiene.guard.test.ts` (10 TC).
 
-> ⚠️ **KHÔNG đo bằng `git diff --stat`** — 3/4 tệp này **chưa được theo dõi bởi git** (untracked từ run-5: chỉ `BaseModalResponsive.test.ts` nằm trong `git ls-files`) ⇒ `git diff --stat` **luôn rỗng** dù có sửa hay không: đó là **xanh giả**. Đo bằng **md5 chốt trước khi code** (đo 2026-08-03):
+> ⚠️ **KHÔNG đo bằng `git diff --stat`** — 3/4 tệp này **chưa được theo dõi bởi git** (untracked từ run-5: chỉ `BaseModal.responsive.test.ts` nằm trong `git ls-files`) ⇒ `git diff --stat` **luôn rỗng** dù có sửa hay không: đó là **xanh giả**. Đo bằng **md5 chốt trước khi code** (đo 2026-08-03):
 >
 > ```
-> 0d6b524feec436918f0f1c5cb81de94c  BaseModalA11y.test.ts
-> 8b6df68666ab43963364738fa0a4939c  BaseModalDialog.test.ts
-> 2a13a65b72d49daf73d511cc922bbe16  BaseModalResponsive.test.ts
-> 27e6f21226af2ccdf9090edd6f9564d3  modalOverlayHygiene.test.ts
+> 0d6b524feec436918f0f1c5cb81de94c  BaseModal.a11y.test.ts
+> 8b6df68666ab43963364738fa0a4939c  BaseModal.dialog.test.ts
+> 2a13a65b72d49daf73d511cc922bbe16  BaseModal.responsive.test.ts
+> 27e6f21226af2ccdf9090edd6f9564d3  modalOverlayHygiene.guard.test.ts
 > ```
 >
-> Lệnh chấm: `md5sum frontend/src/components/common/BaseModal*.test.ts frontend/src/components/common/modalOverlayHygiene.test.ts` — **4/4 khớp**.
+> Lệnh chấm: `md5sum frontend/src/components/common/BaseModal*.test.ts frontend/src/guards/modalOverlayHygiene.guard.test.ts` — **4/4 khớp**.
 
 Nếu buộc phải sửa 1 trong 4 ⇒ **thiết kế sai, quay lại SSoT** (không sửa test cho vừa mã).
 
@@ -196,9 +196,9 @@ Hai đường cài đặt, chọn theo **khuôn hộp thoại thật của từn
 
 ---
 
-## §6. Guard CHỈ-GIẢM — `frontend/src/components/common/modalInlineErrorAdoption.test.ts` (MỚI)
+## §6. Guard CHỈ-GIẢM — `frontend/src/guards/modalInlineErrorAdoption.guard.test.ts` (MỚI)
 
-Cùng khuôn CHỈ-GIẢM với `modalOverlayHygiene.test.ts` — **KHÔNG viết bộ đếm thứ hai**, tái dùng cách quét file của guard đó.
+Cùng khuôn CHỈ-GIẢM với `modalOverlayHygiene.guard.test.ts` — **KHÔNG viết bộ đếm thứ hai**, tái dùng cách quét file của guard đó.
 
 ### 6.1 Vị ngữ “file này ĐÃ có vùng lỗi chặn inline”
 
@@ -329,7 +329,7 @@ if (import.meta.env.DEV) {
 - **B4 — gỡ thẻ quá tay.** Nếu thay cả nội dung khi gặp `<b>` thì message VI có in đậm (BE có dùng `<b>`/`<br>` ở một số chỗ) bị nuốt sạch ⇒ bước 2 **chỉ gỡ thẻ**, giữ chữ.
 - **B5 — đụng nhánh `message_code`.** Nhánh này đã là VI đã render; đưa nó qua sanitizer là rủi ro thuần tuý, không lợi ích.
 - **B6 — sửa test cho vừa mã.** 4 tệp test ở §2.3 phải xanh **không sửa dòng nào**; sửa chúng = tự phá bất biến 0-churn.
-- **B7 — overlay lai.** `CalibrationScheduleListView` và `ReferenceDataView` nằm trong `ALLOWLIST_HYBRID` của `modalOverlayHygiene.test.ts` (`04 §5.3`, đóng băng ở **4**). Thêm `<ModalInlineError>` **không** làm chúng rời allowlist đó (vẫn còn overlay tự vẽ) ⇒ guard cũ vẫn xanh; đừng “tiện tay” di trú.
+- **B7 — overlay lai.** `CalibrationScheduleListView` và `ReferenceDataView` nằm trong `ALLOWLIST_HYBRID` của `modalOverlayHygiene.guard.test.ts` (`04 §5.3`, đóng băng ở **4**). Thêm `<ModalInlineError>` **không** làm chúng rời allowlist đó (vẫn còn overlay tự vẽ) ⇒ guard cũ vẫn xanh; đừng “tiện tay” di trú.
 - **B8 — `import.meta.env.DEV` trong vitest.** Mặc định `DEV === true` khi chạy vitest ⇒ TC-SAN-12 phải `vi.stubEnv('DEV', false)` (hoặc tương đương) rồi `vi.unstubAllEnvs()` ở `afterEach`, nếu không sẽ xanh giả.
 
 ---
@@ -342,9 +342,9 @@ Ghi lại để [QA] chấm theo bản **này**, không chấm theo câu chữ c
 |---|---|---|---|
 | SC-1 | Lô 1 gồm `CalibrationScheduleListView` (tạo/sửa lịch) và `ReferenceDataView` (lưu), mỗi cái `api.run(..., {silentError:true})` + bind `:error` | Cả hai hộp thoại đó là **overlay tự vẽ** (`CalibrationScheduleListView.vue:441` · `ReferenceDataView.vue:500`), không phải `BaseModal`; `save()` **không dùng `useApi`** (`:192` và `:160`) | Giữ nguyên 2 file trong lô 1 nhưng đi **đường B** (§5): dùng `ModalInlineError` + gỡ kênh toast. **Không** di trú overlay (thuộc AC-UX-056) |
 | SC-2 | `UserProfileFormView.vue` (lưu) | `saveEdit` `:236` / `saveNew` `:257` là **biểu mẫu của trang**, không có hộp thoại. Hộp thoại `BaseModal` duy nhất là “Từ chối tài khoản” `:632`, lỗi của nó ghi vào banner **trang** (`:231`) nằm dưới lớp phủ | Đổi mục tiêu sang `confirmReject` `:217` (L8). Giữ nguyên số file lô 1 = **5**, số hộp thoại = **8** (≥7 như yêu cầu) |
-| SC-3 | Đo adoption bằng `grep -c 'modal-error' ≥ 1` trên 5 file | Thiết kế SSoT (A1) cố ý **không** rải markup: file đường A chỉ có `:error="…"`, literal `modal-error` nằm ở `ModalInlineError.vue` ⇒ phép đo cũ **luôn = 0**, mâu thuẫn chính A1 | Phép đo chuẩn là **vị ngữ §6.1** (3 dạng) do guard `modalInlineErrorAdoption.test.ts` thực thi + test render mỗi hộp thoại. Grep literal bị **thay thế**, không phải bị bỏ |
+| SC-3 | Đo adoption bằng `grep -c 'modal-error' ≥ 1` trên 5 file | Thiết kế SSoT (A1) cố ý **không** rải markup: file đường A chỉ có `:error="…"`, literal `modal-error` nằm ở `ModalInlineError.vue` ⇒ phép đo cũ **luôn = 0**, mâu thuẫn chính A1 | Phép đo chuẩn là **vị ngữ §6.1** (3 dạng) do guard `modalInlineErrorAdoption.guard.test.ts` thực thi + test render mỗi hộp thoại. Grep literal bị **thay thế**, không phải bị bỏ |
 | SC-4 | Dấu hiệu kỹ thuật: `SELECT `/`INSERT `/`UPDATE `/`DELETE FROM` và thẻ HTML `<…>` (khớp là thay cả câu) | Câu VI hợp lệ có thể chứa chữ “update” và BE có dùng `<b>`/`<br>` khi định dạng | Dò SQL theo **cặp** từ khoá; thẻ trình bày lành tính bị **gỡ** (giữ chữ), chỉ thẻ **còn sót** mới là dấu hiệu (§7.2–7.3). Tinh chỉnh độ chính xác, giữ nguyên ý định |
-| SC-5 | Bất biến 0-churn đo bằng `git diff --stat` trên 4 tệp test **== rỗng** | 3/4 tệp đó **untracked** (`git ls-files` chỉ trả `BaseModalResponsive.test.ts`) ⇒ phép đo **luôn rỗng**, kể cả khi tệp bị sửa nát — **xanh giả** | Đo bằng **md5 chốt** (§2.3). Ý định (cấm sửa test cho vừa mã) giữ nguyên, chỉ đổi dụng cụ đo |
+| SC-5 | Bất biến 0-churn đo bằng `git diff --stat` trên 4 tệp test **== rỗng** | 3/4 tệp đó **untracked** (`git ls-files` chỉ trả `BaseModal.responsive.test.ts`) ⇒ phép đo **luôn rỗng**, kể cả khi tệp bị sửa nát — **xanh giả** | Đo bằng **md5 chốt** (§2.3). Ý định (cấm sửa test cho vừa mã) giữ nguyên, chỉ đổi dụng cụ đo |
 
 ---
 

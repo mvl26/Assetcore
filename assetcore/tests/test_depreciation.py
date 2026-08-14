@@ -592,6 +592,7 @@ def _purge_category(name: str) -> None:
 
 
 import contextlib  # noqa: E402
+from assetcore.tests._helpers.paths import APP_ROOT
 
 
 @contextlib.contextmanager
@@ -1118,11 +1119,11 @@ class TestInheritGrepGuardSoT(unittest.TestCase):
         import os
         import re
         svc_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "services")
+            APP_ROOT, "services")
         api_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "api")
+            APP_ROOT, "api")
         ctrl = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
+            APP_ROOT,
             "assetcore", "doctype", "ac_asset", "ac_asset.py")
         # Allowed SoT / historical write-sites (Task BE: đối chiếu KHÔNG lệch).
         allowed = {"depreciation.py", "imm04.py"}
@@ -1376,7 +1377,7 @@ class TestRegenerateNoInlineCopyGuard(unittest.TestCase):
         import os
         import re
         api_file = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "api", "imm00.py")
+            APP_ROOT, "api", "imm00.py")
         blob = open(api_file, encoding="utf-8").read()
         # rogue copy = assigning months/residual FROM a `cat`/Category-derived
         # value (the canonical drift signature). The SoT residual formula
@@ -1736,7 +1737,7 @@ class TestBulkRegenNoInlineCopyGuard(unittest.TestCase):
         import os
         import re
         svc_file = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
+            APP_ROOT,
             "services", "depreciation.py")
         blob = open(svc_file, encoding="utf-8").read()
 

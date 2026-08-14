@@ -140,6 +140,16 @@ Tổng hợp từ "Phần 3 — Anti-patterns". Chi tiết đầy đủ giữ tr
 | "Danh sách dropdown trong file mẫu chép từ tài liệu là được" | Sheet SLA từng chào `P1 Critical` trong khi DocType chỉ có `P1..P4` ⇒ user làm đúng hướng dẫn vẫn bị từ chối. Đối chiếu `options` thật (LL-IMP-7). |
 | "Cột Select cứ để user gõ đúng enum tiếng Anh" | "Semi-Annual"/"Pass/Fail" không phải tiếng người dùng. Template + export in nhãn VI, import nhận cả hai (LL-IMP-7). |
 | "Banner ghi hàng 5 hay hàng 6 thì có gì khác" | Parser đọc từ hàng 6; banner sai ⇒ người dùng ghi đè hàng ví dụ, dòng đầu bị nuốt IM LẶNG (LL-IMP-5). |
+| "Export ghi header gọn 2 hàng cho dễ đọc" | Parser bỏ 5 hàng ⇒ nhập lại file vừa xuất **mất 3 bản ghi đầu, không một lời cảnh báo** (đo: 78 → 75). Export ghi ĐÚNG khung 5 hàng của file mẫu + `detect_first_data_row` giữ nhánh đọc file xuất bố cục cũ (LL-IMP-9). |
+| "Round-trip xanh rồi — bản ghi `_TEST` của tôi nhập lại vẫn thấy" | Bản ghi `_TEST` nằm CUỐI file, 3 hàng bị nuốt nằm ĐẦU. Bất biến phải so **số lượng** (`frappe.db.count` vs số dòng đọc được), không so tên vài bản ghi (LL-IMP-9). |
+| "DocType nhóm có 1 hàng ví dụ là đủ hiểu" | Không cho thấy 'cột cha lặp lại' lẫn 'bản ghi thứ hai điền tiếp xuống dưới' — người dùng hỏi thẳng "điền nhiều checklist thì điền sao?". Thêm sheet "Ví dụ minh hoạ" ≥2 nhóm × ≥3 dòng con + khoá `_SHEET_NAME_MAP` (LL-IMP-10a). |
+| "Xem trước hiện 30 dòng hợp lệ là đủ" | Với cha+bảng con, cái người dùng cần đối chiếu là MẤY BẢN GHI, cái nào đã tồn tại, cập nhật thì mất bao nhiêu dòng con. Trả `groups[]` (LL-IMP-10b). |
+| "Trùng thì cứ ghi đè cho tiện" / "FE lọc bớt lỗi trùng là xong" | Ghi đè dữ liệu đang dùng phải do người dùng chọn (opt-in), và quyết định 'trùng là lỗi hay là cập nhật' thuộc **validator** — FE tự lọc = hai nguồn sự thật (LL-IMP-10c). |
+| "Đọc cờ boolean bằng `cint` cho gọn" | `cint("true") == 0` ⇒ bật thành tắt. Dùng `_as_bool` (LL-IMP-10d). |
+| "Bản ghi đã có thì báo lỗi trùng là xong, sửa thì vào màn hình" | Sửa 200 thiết bị = mở 200 màn hình. Vòng "Xuất → sửa Excel → Nhập lại" phải chạy được cho MỌI loại dữ liệu qua `UPDATE_KEY_BY_DOCTYPE` + `update_existing` (LL-IMP-11a/c). |
+| "Loại dữ liệu này đơn giản, chưa cần validator" | Không validator = không phát hiện trùng. `AC Supplier` từng vậy: nhập lại cùng file đẻ 2 bản ghi trùng tên, im lặng (LL-IMP-11f). |
+| "Cập nhật thì ghi đè hết cho đúng file" | Ô để trống là "tôi không quan tâm cột này", không phải "xoá đi" — xuất 8 cột sửa 1 cột mà ghi đè hết là mất 7 (LL-IMP-11d). Bảng con của DocType nhóm mới là thay sạch. |
+| "Cột nào cũng cho sửa bằng import cho tiện" | Trạng thái vòng đời / mã tài sản / serial đi kèm workflow + audit trail NĐ98 — khoá bằng `UPDATE_LOCKED_FIELDS_BY_DOCTYPE` và **cảnh báo ở bước xem trước**, đừng bỏ qua im lặng (LL-IMP-11e). |
 | "Làm 1 phát cả 11 DocType cho xong pipeline" | Vi phạm thin vertical slice — build 1 entity xuyên stack + test rồi mới sang entity kế (theo dependency order). Cả-một-lượt = lỗi compound, khó revert (Named principle). |
 | "Cứ insert rồi engine Frappe tự báo lỗi" | Vi phạm boundary validation — validate ở biên TRƯỚC insert, trả `list[ImportError]` để user thấy đủ lỗi ở Preview; insert chỉ sau khi qua biên sạch (Named principle). |
 
@@ -160,6 +170,14 @@ Tổng hợp từ "Phần 3 — Anti-patterns". Chi tiết đầy đủ giữ tr
 - Validator còn tập `_VALID_*` hardcode tiếng Anh; dropdown gõ tay lần hai thay vì sinh từ `ENUM_DISPLAY_BY_DOCTYPE`; nhãn enum khai trong `.vue` thay vì `constants/labels.ts`.
 - Khai Link display→code ở `api/import_data.py` thay vì SSoT `utils/import_helpers.LINK_DISPLAY_BY_DOCTYPE` (alias phải `assertIs`, KHÔNG fork bản sao).
 - `export_ref_data` ghi thẳng giá trị Link (ra mã hệ thống) — thiếu `resolve_links_to_display`.
+- `export_ref_data` ghi khung ≠ 5 hàng của file mẫu, hoặc `_parse_*` đọc cứng `FIRST_DATA_ROW` thay vì `detect_first_data_row` (LL-IMP-9).
+- DocType nhóm mà file mẫu chỉ có 1 hàng ví dụ; sheet ví dụ thêm vào nhưng KHÔNG khai `_SHEET_NAME_MAP` (LL-IMP-10a).
+- `preview_ref_data` của DocType nhóm không trả `groups[]`; FE tự lọc lỗi trùng thay vì gọi lại preview với `update_existing` (LL-IMP-10b/c).
+- Ghi đè bản ghi đã có mà không opt-in, hoặc cập nhật bằng `db_set`/`new_doc` thay vì service layer `update_template` (LL-IMP-10c).
+- `cint(...)` để đọc cờ boolean từ HTTP (`cint("true") == 0`) — dùng `_as_bool` (LL-IMP-10d).
+- Doctype nhập được mà KHÔNG có entry trong `VALIDATOR_REGISTRY` (nhân đôi im lặng) hoặc không có `UPDATE_KEY_BY_DOCTYPE` (không sửa lại được) (LL-IMP-11a/f).
+- Validator tự viết câu "đã tồn tại" thay vì gọi `BaseImportValidator._dup_existing` (LL-IMP-11c).
+- Đường cập nhật ghi đè cả ô TRỐNG (xoá trắng dữ liệu cũ), hoặc đổi cột đã khoá mà không cảnh báo trước (LL-IMP-11d/e).
 - Lỗi trả FE thiếu `source_row`/`label`; hoặc khoá parser `__*` lọt vào `doc.update()`.
 - `raise` chặn skip_invalid theo doctype; template `desc` cột Link không có chữ "TÊN"; banner template ghi sai hàng dữ liệu đầu tiên.
 - Template `example` dùng system code thay vì display name (user copy sẽ điền code lệch master).
@@ -185,6 +203,9 @@ Tổng hợp từ "Phần 7 — Checklist trước khi xong". Trước khi khai 
 - [ ] (LL-IMP-7) cột Select khai ở `ENUM_DISPLAY_BY_DOCTYPE`, nhãn khớp SSoT FE; template/export in nhãn VI, import nhận cả nhãn VI lẫn giá trị gốc.
 - [ ] (LL-IMP-7) `bench --site <site> run-tests --app assetcore --module assetcore.tests.test_import_enum_labels` **XANH** — 4 tầng: phủ-kín · không-khoá-rác · parity FE · dropdown trong `.xlsx` thật.
 - [ ] (LL-IMP-8) validator KHÔNG còn tập `_VALID_*` hardcode tiếng Anh cho cột Select (dùng `_check_enum`); đường insert phẳng có `_restore_enum_values`; đã sinh lại TOÀN BỘ template.
+- [ ] (LL-IMP-9) `export_ref_data` ghi khung 5 hàng có banner `TEMPLATE_BANNER_PREFIX`; `_parse_excel`/`_parse_csv` gọi `detect_first_data_row` (giữ nhánh file xuất cũ = hàng 3); `bench --site <site> run-tests --app assetcore --module assetcore.tests.test_import_file_layout` **XANH**.
+- [ ] (LL-IMP-11) Mọi doctype nhập được có validator + khoá trong `UPDATE_KEY_BY_DOCTYPE` (mã trước tên sau); `find_existing_by_key` gom theo lô; `_update_flat_record` bỏ ô trống + bỏ cột khoá; preview trả `will_create`/`will_update`/`existing_rows`, import trả `updated`; `bench --site <site> run-tests --app assetcore --module assetcore.tests.test_import_update_existing` **XANH**.
+- [ ] (LL-IMP-10) DocType nhóm: file mẫu có sheet ví dụ ≥2 nhóm + khai `_SHEET_NAME_MAP` + `wb.active = 0`; `preview` trả `groups[]` (action `create|update|blocked`, `existing_items`, `first_source_row`); `update_existing` opt-in xuyên preview→import, ghi qua service `update_template`, trả `groups_updated`; cờ HTTP ép bằng `_as_bool`.
 - [ ] `import_ref_data()`: param `skip_invalid: bool = False`, default `False`; `_cascade_skip_for_tree()` walk-pass cho cascade nhiều cấp.
 - [ ] Response include `skipped` (int) + `skipped_rows` (list[{row, reason, field, message}]); `preview_ref_data` include `cascade_count` cho Tree DocType; edge 100% invalid raise ServiceError, không commit rỗng.
 
@@ -196,6 +217,7 @@ Tổng hợp từ "Phần 7 — Checklist trước khi xong". Trước khi khai 
 - [ ] Bước 4 hiển thị `skippedRows` với badge "phụ thuộc" cho cascade; warning đỏ khi `totalSkip/totalRows > 30%`; disable Import khi 100% invalid.
 - [ ] `importRefData(doctype, fileUrl, mode)` map snake_case `skipped_rows` → camelCase `skippedRows`.
 - [ ] Wizard hiển thị **"Hàng {sourceRow}"** (số hàng thật trong file) + nhãn cột tiếng Việt (`label` / `fieldLabels`) — KHÔNG hiện `row` thô hay fieldname tiếng Anh.
+- [ ] (LL-IMP-10) DocType nhóm: bước 2 có bảng tóm tắt theo bản ghi (`ctx.groups`) + công tắc "Cập nhật … đã có" chỉ hiện khi `hasExistingGroups`, mặc định TẮT, reset khi `open()`, đổi ⇒ gọi lại preview; bước 3 hiện cả `groupsCreated` lẫn `groupsUpdated`; test chứng minh công tắc gọi được `toggleUpdateExisting` (không phải nút chết).
 
 ---
 

@@ -218,7 +218,7 @@ Lưu ảnh tại `docs/imm-04/screenshots/`:
 
 **Gate CTA phát hành lâm sàng (GATE-8 — server-driven, KHÔNG hardcode `status === …`):** nút dẫn tới `Clinical Release` (`Phê duyệt phát hành` · `Phê duyệt sau tái kiểm` · `Gỡ giữ lâm sàng`) **disable + tooltip** khi còn dòng `test_result ∉ {Pass, N/A}`. Nếu vẫn gọi, BE trả envelope `message_code === "IMM04-GATE-G03-BASELINE"` (HTTP-200, `http_status: 422` trong body) → hiện `title`/`error`/`action_hint` từ envelope + highlight các dòng trong `context.failed`. **KHÔNG** để rơi về toast `SYS-500`.
 
-> ⚠️ Điều kiện tiên quyết FE: `IMM04-GATE-G03-BASELINE` phải có trong `frontend/src/i18n/messages.ts` — file **AUTO-GENERATED**, chỉ cập nhật bằng `python scripts/gen_fe_messages.py` (**cấm sửa tay**), rồi `npm run build`/redeploy.
+> ⚠️ Điều kiện tiên quyết FE: `IMM04-GATE-G03-BASELINE` phải có trong `frontend/src/locales/messages.ts` — file **AUTO-GENERATED**, chỉ cập nhật bằng `python scripts/gen_fe_messages.py` (**cấm sửa tay**), rồi `npm run build`/redeploy.
 
 **Tab Lịch sử:** Timeline `<AssetLifecycleTimeline>` — read-only, immutable.
 
@@ -593,7 +593,7 @@ Sau khi BE áp row-scope (AC-CR-98), một persona **hợp lệ** bấm «Xem t�
 
 **CẤM:** ❌ "Không tìm thấy phiếu nào phù hợp." cho nhánh scoped (mất ngữ cảnh) · ❌ nút "Xóa tất cả" thay cho "Xóa bộ lọc thiết bị" (hai hành động khác nhau: một xoá **mọi** filter, một chỉ xoá khoá thiết bị) · ❌ suy "0 dòng ⇒ không có quyền" và render 403 (0 dòng **không** phải lỗi — §10.6).
 
-### 11.4 Test FE (RENDER thật, KHÔNG chỉ computed) — file MỚI `frontend/src/views/commissioning/commissioningScopedEmpty.test.ts`
+### 11.4 Test FE (RENDER thật, KHÔNG chỉ computed) — file MỚI `frontend/src/views/commissioning/tests/CommissioningListView.scopedEmpty.test.ts`
 
 | TC | Phát biểu chấm được |
 |---|---|
@@ -619,7 +619,7 @@ Sau khi BE áp row-scope (AC-CR-98), một persona **hợp lệ** bấm «Xem t�
 | Empty-state theo ngữ cảnh | giữ `data-testid="list-empty-scoped"` (`:269`) + điều kiện `assetScope !== '' ∧ store.list.length === 0` (`isScopedEmpty`) — **không** thay bằng `pagination.total === 0` (total là số của **predicate**, list là số của **trang**) |
 | Cờ `overdue` | drill từ thẻ KPI «Quá hạn SLA» gửi `overdue: true` (`cleanFilters()`), AND với các filter khác ở BE (BR-04-10) — **không** tự dựng predicate ngày ở FE |
 
-**Sửa BẮT BUỘC ở test double (không phải ở mã prod):** store giả trong `commissioningScopedEmpty.test.ts` phải cho `total` **độc lập** với `rows.length` (thêm `const total = ref<number|null>(null)` → `get pagination() { return { …, total: total.value ?? rows.value.length } }`). Giữ nguyên hành vi cũ khi `total` chưa set ⇒ **0 hồi quy** cho 6 TC đang xanh.
+**Sửa BẮT BUỘC ở test double (không phải ở mã prod):** store giả trong `CommissioningListView.scopedEmpty.test.ts` phải cho `total` **độc lập** với `rows.length` (thêm `const total = ref<number|null>(null)` → `get pagination() { return { …, total: total.value ?? rows.value.length } }`). Giữ nguyên hành vi cũ khi `total` chưa set ⇒ **0 hồi quy** cho 6 TC đang xanh.
 
 | TC | Phát biểu chấm được |
 |---|---|
@@ -661,7 +661,7 @@ Màn danh sách của module này áp **khuôn dùng chung** `frontend/src/compo
 | Hợp đồng props/slots/`data-testid` | [`docs/ui-ux/02_LIST_PAGE_SHELL.md §3`](../ui-ux/02_LIST_PAGE_SHELL.md) |
 | Sổ lô 3 + delta từng file + bảng copy tiếng Việt | [`§14.2` / `§14.4`](../ui-ux/02_LIST_PAGE_SHELL.md) |
 | Bất biến `INV-UX3-24…29` + test `TC-UX3-43` | [`§14.5` / `§14.6`](../ui-ux/02_LIST_PAGE_SHELL.md) |
-| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/views/listShellAdoption.test.ts` |
+| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/guards/listShellAdoption.guard.test.ts` |
 
 - **Route thuộc lô 3 của module này:** `/commissioning`
 - **File view:** `views/commissioning/CommissioningListView.vue`

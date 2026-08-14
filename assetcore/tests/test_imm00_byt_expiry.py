@@ -21,6 +21,7 @@ from assetcore.services.imm00 import byt_expiry_filter, BYT_EXPIRY_SOON_DAYS
 from assetcore.api.imm00 import list_assets
 from assetcore.api.dashboard import get_overview
 from assetcore.tests._asset_cleanup import purge_asset
+from assetcore.tests._helpers.paths import APP_ROOT
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -238,7 +239,7 @@ class TestNoInlineBytWindowLiteral(FrappeTestCase):
     def test_no_inline_byt_window_outside_sot(self):
         import os
         import re
-        base = frappe.get_app_path("assetcore")
+        base = APP_ROOT
         # literal window patterns: 'byt_reg_expiry' theo sau bởi between/< (list spec)
         pat = re.compile(r"byt_reg_expiry[\"']\s*:\s*\[\s*[\"'](between|<)")
         offenders = []

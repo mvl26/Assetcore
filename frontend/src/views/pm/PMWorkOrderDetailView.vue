@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useNotify } from '@/composables/useNotify'
 import { useToast } from '@/composables/useToast'
-import { MSG } from '@/i18n/messages'
+import { MSG } from '@/locales/messages'
 import DateInput from '@/components/common/DateInput.vue'
 import RelatedRecords from '@/components/common/RelatedRecords.vue'
 import DetailPageShell from '@/components/common/DetailPageShell.vue'

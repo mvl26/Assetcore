@@ -876,7 +876,7 @@ class TestSeedWriteSiteSoT(unittest.TestCase):
         import os
         import re
 
-        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        app_dir = APP_ROOT
         scan_roots = [
             os.path.join(app_dir, "services"),
             os.path.join(app_dir, "scripts"),
@@ -1209,9 +1209,10 @@ class TestListUserCompetenciesReadPath(unittest.TestCase):
 
 import os
 import re
+from assetcore.tests._helpers.paths import APP_ROOT, REPO_ROOT
 
 _REPO_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+    REPO_ROOT)
 
 
 def _strip_compute_sot_body(src: str) -> str:

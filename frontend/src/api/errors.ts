@@ -2,7 +2,7 @@
 // ApiError — class lỗi chuẩn cho toàn FE.
 // Mọi handler API (frappeGet/Post + axios interceptor) throw instance này.
 
-import { MSG } from '@/i18n/messages'
+import { MSG } from '@/locales/messages'
 
 /** Severity — trùng `assetcore/utils/messages.py:Severity`. */
 export type Severity = 'error' | 'warning' | 'info' | 'success' | 'critical'

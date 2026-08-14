@@ -40,7 +40,7 @@ Vòng 5 sửa **đúng một chỗ** (SSoT hộp thoại) và **viết phương 
 **Never**
 - KHÔNG sửa 1 dòng nào trong 19 file tiêu thụ `BaseModal` (§3.4) — phải sửa view mới chạy được ⇒ **thiết kế sai, làm lại ở SSoT**.
 - KHÔNG đụng `.py` / `stores/` / `api/` / `components/ui/` trong vòng này.
-- KHÔNG đổi lớp CSS trên `[data-testid="modal-card"]` (4 test của `BaseModalResponsive.test.ts` khoá chuỗi class).
+- KHÔNG đổi lớp CSS trên `[data-testid="modal-card"]` (4 test của `BaseModal.responsive.test.ts` khoá chuỗi class).
 - KHÔNG thêm handler `Escape` thứ hai ở bất kỳ đâu trong `BaseModal.vue` (⇒ emit 2 lần, vỡ A3).
 
 ---
@@ -82,7 +82,7 @@ Vòng 5 sửa **đúng một chỗ** (SSoT hộp thoại) và **viết phương 
 | File `.vue` tiêu thụ `BaseModal` | **19** | `grep -rl "import BaseModal" frontend/src --include=*.vue \| wc -l` |
 | File tự vẽ overlay (allowlist) | **30** | §5.2 |
 | File lai | **4** | §5.3 |
-| `BaseModalResponsive.test.ts` | **4** TC | `grep -c "  it(" …` |
+| `BaseModal.responsive.test.ts` | **4** TC | `grep -c "  it(" …` |
 | `CommandPalette.test.ts` | **7** TC | `grep -c "  it(" …` |
 | Route thật / có view / redirect | **148 / 135 / 13** | `node frontend/scripts/ui-audit-inventory.mjs --summary` |
 
@@ -93,9 +93,9 @@ Vòng 5 sửa **đúng một chỗ** (SSoT hộp thoại) và **viết phương 
 ## §2. Hợp đồng `frontend/src/composables/useFocusTrap.ts` (MỚI — nguồn DUY NHẤT)
 
 ### 2.0 Vị trí & luật tầng
-- Đường dẫn **cố định**: `frontend/src/composables/useFocusTrap.ts`. Test co-located: `frontend/src/composables/useFocusTrap.test.ts`.
+- Đường dẫn **cố định**: `frontend/src/composables/useFocusTrap.ts`. Test co-located: `frontend/src/composables/tests/useFocusTrap.test.ts`.
 - Là **logic thuần DOM**: 0 import store, 0 router, 0 API, 0 component. Chỉ `vue` (`onBeforeUnmount`, `nextTick`, `Ref`).
-- **Không** phải primitive `components/ui/` ⇒ `EXPECTED_PRIMITIVES` giữ **8**, `uiPrimitiveHygiene.test.ts` **không đổi** (xem ADR-UX-08).
+- **Không** phải primitive `components/ui/` ⇒ `EXPECTED_PRIMITIVES` giữ **8**, `uiPrimitiveHygiene.guard.test.ts` **không đổi** (xem ADR-UX-08).
 
 ### 2.1 API — khai đúng như dưới (đây là hợp đồng, không phải gợi ý)
 
@@ -254,7 +254,7 @@ export function useFocusTrap(options: FocusTrapOptions): FocusTrap {
 >
 > | Sổ | Nội dung | Trạng thái |
 > |---|---|---|
-> | **AC-UX-062** | Lỗi CHẶN hiện inline trong hộp thoại (`role="alert"`, không tự tắt, hộp thoại không đóng) | **ĐÓNG vòng 6** — SSoT + lô 1 (5 file / 8 hộp thoại); nợ còn lại = 10 file (guard `modalInlineErrorAdoption.test.ts`, CHỈ-GIẢM) |
+> | **AC-UX-062** | Lỗi CHẶN hiện inline trong hộp thoại (`role="alert"`, không tự tắt, hộp thoại không đóng) | **ĐÓNG vòng 6** — SSoT + lô 1 (5 file / 8 hộp thoại); nợ còn lại = 10 file (guard `modalInlineErrorAdoption.guard.test.ts`, CHỈ-GIẢM) |
 > | **AC-UX-063** | Làm sạch câu lỗi 400/417/422 tại một cửa `parseServerMessages` (`sanitizeBusinessMessage`), log thô chỉ khi DEV | **ĐÓNG vòng 6** — 3 cửa còn lại (404/409/mặc định) ghi nợ ở `05 §11` |
 >
 > **Bất biến 0-churn §3.1 dưới đây vẫn áp nguyên** cho vòng 6: 4 tệp test hộp thoại
@@ -342,11 +342,11 @@ frontend/src/views/procurement/AvlListView.vue
 
 > **Self-correction BA — đề bài ghi "20 file", đĩa đếm được 19.** Lệnh:
 > `grep -rl "import BaseModal" frontend/src --include=*.vue | wc -l` ⇒ **19**.
-> File thứ 20 trong danh sách của PM là `frontend/src/components/common/BaseModalResponsive.test.ts`
+> File thứ 20 trong danh sách của PM là `frontend/src/components/common/tests/BaseModal.responsive.test.ts`
 > (file `.ts` duy nhất còn lại có chuỗi `BaseModal`) — **cũng đóng băng** vì A7 yêu cầu nó xanh 4/4 mà không sửa.
 > **`CommandPalette.vue` KHÔNG thuộc tập này**: nó chỉ nhắc `BaseModal` trong **chú thích** (`:2`), không import;
 > nếu ai đóng băng nhầm nó thì A2 và A6 (di trú CommandPalette) **loại trừ nhau**.
-> ⇒ Tập đóng băng chính thức = **19 `.vue` + `BaseModalResponsive.test.ts` = 20 đường dẫn**.
+> ⇒ Tập đóng băng chính thức = **19 `.vue` + `BaseModal.responsive.test.ts` = 20 đường dẫn**.
 
 ---
 
@@ -367,7 +367,7 @@ frontend/src/views/procurement/AvlListView.vue
 
 ---
 
-## §5. Guard vệ sinh overlay — `frontend/src/components/common/modalOverlayHygiene.test.ts` (MỚI)
+## §5. Guard vệ sinh overlay — `frontend/src/guards/modalOverlayHygiene.guard.test.ts` (MỚI)
 
 ### 5.1 Nguyên tắc
 Guard **CHỈ-GIẢM**: con số đóng băng là **trần**, không phải mục tiêu. File mới tự vẽ overlay ⇒ **ĐỎ**. Di trú bớt 1 file ⇒ xoá 1 dòng allowlist (số giảm) ⇒ vẫn xanh.
@@ -440,7 +440,7 @@ Guard bắt overlay khai bằng **utility class** `fixed inset-0`. Overlay khai 
 | **INV-UX5-5** | Mở ⇒ `document.activeElement` nằm **trong** `modal-card` | `expect(card.element.contains(document.activeElement)).toBe(true)` |
 | **INV-UX5-6** | Tab ở phần tử cuối ⇒ về đầu; Shift+Tab ở đầu ⇒ về cuối | assert `document.activeElement` **thật** |
 | **INV-UX5-7** | Đóng/unmount ⇒ focus trở lại **đúng** phần tử đã mở | `expect(document.activeElement).toBe(opener)` |
-| **INV-UX5-8** | 19 file tiêu thụ + `BaseModalResponsive.test.ts` = **0 dòng đổi** | `git diff --stat -- <20 đường dẫn>` |
+| **INV-UX5-8** | 19 file tiêu thụ + `BaseModal.responsive.test.ts` = **0 dòng đổi** | `git diff --stat -- <20 đường dẫn>` |
 | **INV-UX5-9** | Số file tự vẽ overlay **≤ 30**, tập con của allowlist | guard §5.2 |
 | **INV-UX5-10** | Số file lai **≤ 4**, tập con của allowlist | guard §5.3 |
 | **INV-UX5-11** | Logic Tab-wrap + return-focus tồn tại **đúng 1 nơi** | guard §5.4 |
@@ -451,7 +451,7 @@ Guard bắt overlay khai bằng **utility class** `fixed inset-0`. Overlay khai 
 
 ## §7. Test-case & lệnh chấm
 
-### 7.1 `frontend/src/composables/useFocusTrap.test.ts` (MỚI — ≥10 TC)
+### 7.1 `frontend/src/composables/tests/useFocusTrap.test.ts` (MỚI — ≥10 TC)
 Mount **component thật** (định nghĩa tại chỗ trong test) với `attachTo: document.body`; **không** mock DOM.
 
 | TC | Nội dung | Bất biến |
@@ -469,7 +469,7 @@ Mount **component thật** (định nghĩa tại chỗ trong test) với `attach
 | TC-UX5-11 | container rỗng (0 tabbable) + Tab ⇒ `preventDefault`, không ném lỗi | §2.4 |
 | TC-UX5-12 | `nextDialogId()` sinh chuỗi khác nhau qua các lần gọi | INV-UX5-3 |
 
-### 7.2 `frontend/src/components/common/BaseModalDialog.test.ts` (MỚI — ≥8 TC)
+### 7.2 `frontend/src/components/common/tests/BaseModal.dialog.test.ts` (MỚI — ≥8 TC)
 
 | TC | Nội dung | Acceptance |
 |---|---|---|
@@ -498,7 +498,7 @@ const w = mount(BaseModal, {
 await nextTick()                                 // activate() await nextTick trước khi focus
 ```
 
-### 7.3 `frontend/src/components/common/modalOverlayHygiene.test.ts` (MỚI — ≥5 TC)
+### 7.3 `frontend/src/guards/modalOverlayHygiene.guard.test.ts` (MỚI — ≥5 TC)
 TC-UX5-30 allowlist 30 (chỉ-giảm) · TC-UX5-31 hybrid 4 (chỉ-giảm) · TC-UX5-32 no-fork selector duy nhất · TC-UX5-33 `CommandPalette` sạch 3 dấu vết cũ · TC-UX5-34 `BaseModal` không tự `addEventListener`.
 
 ### 7.4 Lệnh chấm (QA **tự đo lại**, không nhận báo cáo suông)
@@ -507,32 +507,32 @@ TC-UX5-30 allowlist 30 (chỉ-giảm) · TC-UX5-31 hybrid 4 (chỉ-giảm) · TC
 cd frontend
 
 # A1/A3/A4/A5 — hợp đồng hộp thoại
-npx vitest run src/components/common/BaseModalDialog.test.ts src/composables/useFocusTrap.test.ts
+npx vitest run src/components/common/tests/BaseModal.dialog.test.ts src/composables/tests/useFocusTrap.test.ts
 
 # A2 — thừa hưởng 0-churn. CHẠY Ở GỐC REPO (không phải trong frontend/):
 cd /home/miyano/frappe-bench/apps/assetcore
 FROZEN=$(sed -n '/^frontend\/src\/views\//p' docs/ui-ux/04_PHUONG_AN_SUA_TOAN_BO.md)
 echo "$FROZEN" | wc -l                                   # PHẢI = 19 (danh sách §3.4)
-git diff --stat -- $FROZEN frontend/src/components/common/BaseModalResponsive.test.ts   # PHẢI RỖNG
+git diff --stat -- $FROZEN frontend/src/components/common/tests/BaseModal.responsive.test.ts   # PHẢI RỖNG
 cd frontend
 
 # A6 — no-fork + 7 TC cũ
-npx vitest run src/components/common/CommandPalette.test.ts        # 7/7
+npx vitest run src/components/common/tests/CommandPalette.test.ts        # 7/7
 grep -c "function tabbables\|returnFocusEl" src/components/common/CommandPalette.vue   # 0
 grep -c "useFocusTrap" src/components/common/CommandPalette.vue                        # >=1
 
 # A7 — cổng responsive của vòng
-npx vitest run src/components/common/BaseModalResponsive.test.ts   # 4/4
+npx vitest run src/components/common/tests/BaseModal.responsive.test.ts   # 4/4
 
 # A8 — guard vệ sinh
-npx vitest run src/components/common/modalOverlayHygiene.test.ts
+npx vitest run src/guards/modalOverlayHygiene.guard.test.ts
 
 # A9 — mutation test 2 chiều (BẮT BUỘC ghi lại output cả 2 lần)
 printf '<template>\n  <div class="fixed inset-0"></div>\n</template>\n' \
   > src/components/common/__mutation_probe_overlay.vue
-npx vitest run src/components/common/modalOverlayHygiene.test.ts   # PHẢI ĐỎ, nêu đúng tên file
+npx vitest run src/guards/modalOverlayHygiene.guard.test.ts   # PHẢI ĐỎ, nêu đúng tên file
 rm src/components/common/__mutation_probe_overlay.vue
-npx vitest run src/components/common/modalOverlayHygiene.test.ts   # PHẢI XANH lại
+npx vitest run src/guards/modalOverlayHygiene.guard.test.ts   # PHẢI XANH lại
 
 # A10 — delta suite (308 + 4 file mới = 312)
 find src -name "*.test.ts" | wc -l
@@ -543,7 +543,7 @@ npm run typecheck
 git status --short -- '*.py'                                        # RỖNG
 
 # A12 — capstone parity
-npx vitest run src/router/uiFixPlanParity.test.ts src/router/uiAuditDocParity.test.ts
+npx vitest run src/guards/uiFixPlanParity.guard.test.ts src/guards/uiAuditDocParity.guard.test.ts
 ```
 
 ---
@@ -561,7 +561,7 @@ npx vitest run src/router/uiFixPlanParity.test.ts src/router/uiAuditDocParity.te
 9. **Trả focus phải chạy TRƯỚC khi DOM biến mất**: đặt trong `onBeforeUnmount`, không phải `onUnmounted`.
 10. **`BaseModal` được ~36 chỗ dùng**: auto-focus lúc mở làm `document.activeElement` đổi trong nhiều test cũ đang mount view có modal. Nếu có test cũ đỏ ⇒ **đọc kỹ**: nếu nó assert focus thì sửa test; nếu nó đỏ vì lý do khác thì hoàn nguyên và báo BA (đừng "sửa cho xanh").
 11. **`git diff --stat` trên tập đóng băng phải chạy SAU khi code xong**, không phải trước — và tính cả file test đóng băng.
-12. **Guard đọc mã nguồn phải bỏ comment trước khi so** (khuôn `stripComments` đã có ở `uiPrimitiveHygiene.test.ts:53`), nếu không chú thích «KHÔNG dùng BaseModal» của `CommandPalette.vue:2` sẽ bị đếm nhầm.
+12. **Guard đọc mã nguồn phải bỏ comment trước khi so** (khuôn `stripComments` đã có ở `uiPrimitiveHygiene.guard.test.ts:53`), nếu không chú thích «KHÔNG dùng BaseModal» của `CommandPalette.vue:2` sẽ bị đếm nhầm.
 
 ---
 
@@ -643,8 +643,8 @@ bảng **§11** (nhóm «Danh sách», đợt **B**) — **§11 giữ nguyên 13
 - **Ước lượng**: 32 ÷ 4 = **8 vòng** (2 route P0 đã nằm ở đợt A)
 - **Thứ tự ưu tiên**: 2 — đóng **AC-UX-048** (20 màn không có lối nạp lại) và **AC-UX-052** (thanh tab tự chế — **9 file / 12 nút-tab**, số cũ «27 màn» đã đính chính 2026-08-04, xem [`07 §1.1`](./07_DETAIL_TAB_BAR_SSOT.md))
 - **DoD**: mỗi lô — (a) `grep -c DetailPageShell` ≥1 mỗi màn; (b) 4 test trạng thái (404 / 403 / lỗi mạng / `null`); (c) `text-red-500` ở màn chi tiết **14 → 0** khi hết đợt C; (d) panel thao tác **vắng mặt** ở mọi trạng thái ≠ `content` (probe `#actions`); (e) 0 hardcode `status ===` / `workflow_state ===` mới (GATE-8).
-- **Tiến độ đợt C** — **lô 1 ĐÃ ĐÓNG 2026-08-03** (8/32 route, sổ ở [`03 §12`](./03_DETAIL_PAGE_SHELL.md)): `/stock-movements/:name` · `/warehouses/:name` · `/spare-parts/:name` · `/asset-transfers/:id` · `/cm/firmware/:id` · `/compliance/findings/:id` · `/suppliers/:id` · `/procurement-decisions/:id`. Đo lại từ đĩa: màn **chưa** dùng khuôn `29 → 21`; token nợ `AC-UX-048` `[NO-DET] 20 → 12`; `text-red-500` trong 8 file `4 → 0` (đổi sang token `text-danger-500`, GIỮ dấu sao bắt buộc). Bộ test: 8 file `*DetailStates.test.ts` (mount THẬT, 65 case) + guard `uiDetailShellLot1Parity.test.ts`. **Còn lại 24 route** cho lô 2–3; lô 1 truyền `tabs=[]` (8 màn đó vốn **không có tab**).
-- **Tiến độ nhóm thanh tab (`AC-UX-052`)** — **lô 1 ĐÃ CHỐT SPEC 2026-08-04**, hợp đồng ở [`07_DETAIL_TAB_BAR_SSOT.md`](./07_DETAIL_TAB_BAR_SSOT.md). Đo lại từ đĩa (quét `src/views` **+** `src/components`, dấu vân tay `<button … :class="… (activeTab|tab) ===`): nợ thật = **9 file / 12 nút-tab tự chế**, **KHÔNG** phải «27 màn» (số cũ đếm cả 24 màn chi tiết **không có tab nào** — đính chính ở `07 §1.1`). Lô 1 đóng **3 file / 5 nút** (`asset/AssetDetailView` · `commissioning/CommissioningDetailView` · `needs/NeedsRequestDetailView`) ⇒ **12 → 7 nút, 9 → 6 file**; SSoT mở rộng CHỈ-THÊM prop `badge` (**AC-UX-067**); nợ còn lại đóng băng bằng guard CHỈ-GIẢM `views/detailTabBarAdoption.test.ts` (**AC-UX-069**). **Lô 2 = 6 file** (`tech-specs/TechSpecDetailView` · `procurement/VendorEvalDetailView` · `inventory/UomConversionView` · `master-data/ReferenceDataView` · `components/commissioning/CommissioningForm` · `components/commissioning/AssetDashboard`) — chưa mở. **§11 giữ nguyên 135 dòng, 0 thay đổi** (guard `INV-UX5PLAN-*`).
+- **Tiến độ đợt C** — **lô 1 ĐÃ ĐÓNG 2026-08-03** (8/32 route, sổ ở [`03 §12`](./03_DETAIL_PAGE_SHELL.md)): `/stock-movements/:name` · `/warehouses/:name` · `/spare-parts/:name` · `/asset-transfers/:id` · `/cm/firmware/:id` · `/compliance/findings/:id` · `/suppliers/:id` · `/procurement-decisions/:id`. Đo lại từ đĩa: màn **chưa** dùng khuôn `29 → 21`; token nợ `AC-UX-048` `[NO-DET] 20 → 12`; `text-red-500` trong 8 file `4 → 0` (đổi sang token `text-danger-500`, GIỮ dấu sao bắt buộc). Bộ test: 8 file `*DetailStates.test.ts` (mount THẬT, 65 case) + guard `uiDetailShellLot1Parity.guard.test.ts`. **Còn lại 24 route** cho lô 2–3; lô 1 truyền `tabs=[]` (8 màn đó vốn **không có tab**).
+- **Tiến độ nhóm thanh tab (`AC-UX-052`)** — **lô 1 ĐÃ CHỐT SPEC 2026-08-04**, hợp đồng ở [`07_DETAIL_TAB_BAR_SSOT.md`](./07_DETAIL_TAB_BAR_SSOT.md). Đo lại từ đĩa (quét `src/views` **+** `src/components`, dấu vân tay `<button … :class="… (activeTab|tab) ===`): nợ thật = **9 file / 12 nút-tab tự chế**, **KHÔNG** phải «27 màn» (số cũ đếm cả 24 màn chi tiết **không có tab nào** — đính chính ở `07 §1.1`). Lô 1 đóng **3 file / 5 nút** (`asset/AssetDetailView` · `commissioning/CommissioningDetailView` · `needs/NeedsRequestDetailView`) ⇒ **12 → 7 nút, 9 → 6 file**; SSoT mở rộng CHỈ-THÊM prop `badge` (**AC-UX-067**); nợ còn lại đóng băng bằng guard CHỈ-GIẢM `views/detailTabBarAdoption.guard.test.ts` (**AC-UX-069**). **Lô 2 = 6 file** (`tech-specs/TechSpecDetailView` · `procurement/VendorEvalDetailView` · `inventory/UomConversionView` · `master-data/ReferenceDataView` · `components/commissioning/CommissioningForm` · `components/commissioning/AssetDashboard`) — chưa mở. **§11 giữ nguyên 135 dòng, 0 thay đổi** (guard `INV-UX5PLAN-*`).
 
 ### 10.3 Nhóm «Biểu mẫu» — 23 route
 - **Nợ**: Xương ❌ **23** · Lỗi ❌ **23** · Tải ❌ **13** · a11y ❌ **12** · ≤768px ❌ **6** · Rỗng ❌ **5** · VI ❌ 0
@@ -681,7 +681,7 @@ Phân lớp con để chia lô (không phải nhóm riêng — guard chỉ biế
 |---|---|---|---|
 | File tự vẽ overlay | **30** | **0** (mọi hộp thoại đi qua `BaseModal`) | rải theo nhóm chủ quản (B–E), guard §5.2 chỉ-giảm |
 | File lai | **4** | **0** | C/E |
-| `confirm()` trần | **42** call-site / **28** file (đo 2026-08-04, đã strip comment) | **0** — thay bằng `await useNotify().confirm()` (ADR-UX-16). **Lô 1 ĐANG LÀM vòng 7**: 7 file / **21** call-site ⇒ còn **21/21** | lô 1 = [`06 §5`](./06_CONFIRM_DIALOG_SSOT.md); lô 2+ ở B–E. Mỗi lô hạ **bản đồ ngân sách** `bareConfirmBudget.test.ts` (ADR-UX-18) |
+| `confirm()` trần | **42** call-site / **28** file (đo 2026-08-04, đã strip comment) | **0** — thay bằng `await useNotify().confirm()` (ADR-UX-16). **Lô 1 ĐANG LÀM vòng 7**: 7 file / **21** call-site ⇒ còn **21/21** | lô 1 = [`06 §5`](./06_CONFIRM_DIALOG_SSOT.md); lô 2+ ở B–E. Mỗi lô hạ **bản đồ ngân sách** `bareConfirmBudget.guard.test.ts` (ADR-UX-18) |
 | `NotificationModal.vue` | tự vẽ overlay `fixed inset-0 … z-[10000]` + tự nghe `Escape` ⇒ **0** bẫy focus, **0** trả focus, và **ESC kép nuốt hộp thoại kế tiếp** trong hàng đợi | render **qua `BaseModal`** (thừa hưởng `useFocusTrap`), bỏ listener, thêm prop `layer` (ADR-UX-17) | **A — ĐANG LÀM vòng 7** (AC-UX-064, [`06 §3/§4`](./06_CONFIRM_DIALOG_SSOT.md)) |
 
 ---
@@ -840,9 +840,9 @@ Cột *Nợ* = các tiêu chí đang ❌ (Tải · Xương · Rỗng · Lỗi ·
 
 ---
 
-## §12. Guard parity — `frontend/src/router/uiFixPlanParity.test.ts` (MỚI)
+## §12. Guard parity — `frontend/src/guards/uiFixPlanParity.guard.test.ts` (MỚI)
 
-Cùng khuôn với `uiAuditDocParity.test.ts` (đã chạy được từ vòng 1): đọc **bảng route thật** (`routes` từ `src/router/index.ts`) + bảng `00 §3.1` + bảng §11 của tài liệu này.
+Cùng khuôn với `uiAuditDocParity.guard.test.ts` (đã chạy được từ vòng 1): đọc **bảng route thật** (`routes` từ `src/router/index.ts`) + bảng `00 §3.1` + bảng §11 của tài liệu này.
 
 | Mã | Bất biến | Vì sao cần |
 |---|---|---|
@@ -855,7 +855,7 @@ Cùng khuôn với `uiAuditDocParity.test.ts` (đã chạy được từ vòng 1
 | **INV-UX5PLAN-7** | Đúng **5** mục `### 10.1`…`### 10.5`, tên nhóm trong `«…»` **trùng khít** tập giá trị cột *Nhóm*, mỗi mục có đủ 3 dòng mở đầu `- **Ước lượng**` · `- **Thứ tự ưu tiên**` · `- **DoD**`. (`### 10.6` nằm **ngoài** phép kiểm — là hạng mục không thuộc route.) | A12 đòi "mỗi nhóm có ước lượng + thứ tự ưu tiên + DoD đo được" |
 | **INV-UX5PLAN-8** | Dòng "Tổng: 135 route…" khớp số dòng đếm được và khớp phân bố nhóm/đợt | Chống sửa bảng quên sửa tổng |
 
-Khuôn parse dùng lại nguyên `cellsOf()` / `section()` của `uiAuditDocParity.test.ts` — **không** viết bộ parse thứ hai.
+Khuôn parse dùng lại nguyên `cellsOf()` / `section()` của `uiAuditDocParity.guard.test.ts` — **không** viết bộ parse thứ hai.
 
 ---
 
@@ -886,12 +886,12 @@ Khuôn parse dùng lại nguyên `cellsOf()` / `section()` của `uiAuditDocPari
 **Được sửa / tạo mới (7 đường dẫn):**
 ```
 frontend/src/composables/useFocusTrap.ts                       (MỚI)
-frontend/src/composables/useFocusTrap.test.ts                  (MỚI)
+frontend/src/composables/tests/useFocusTrap.test.ts                  (MỚI)
 frontend/src/components/common/BaseModal.vue                   (SỬA — §3.2)
-frontend/src/components/common/BaseModalDialog.test.ts         (MỚI)
-frontend/src/components/common/modalOverlayHygiene.test.ts     (MỚI)
+frontend/src/components/common/tests/BaseModal.dialog.test.ts         (MỚI)
+frontend/src/guards/modalOverlayHygiene.guard.test.ts     (MỚI)
 frontend/src/components/common/CommandPalette.vue              (SỬA — §4, chỉ gỡ mã fork)
-frontend/src/router/uiFixPlanParity.test.ts                    (MỚI)
+frontend/src/guards/uiFixPlanParity.guard.test.ts                    (MỚI)
 ```
 
 **Doc (BA đã land):**
@@ -900,7 +900,7 @@ docs/ui-ux/04_PHUONG_AN_SUA_TOAN_BO.md                         (MỚI — tài l
 docs/ui-ux/00_AUDIT_HIEN_TRANG.md                              (SỬA — §6 sổ, §9 ADR-UX-08/09/10, §10 ghim, mục Tài liệu liên quan)
 ```
 
-**CẤM chạm ở vòng 5:** mọi file dưới `frontend/src/views/` · `frontend/src/stores/` · `frontend/src/api/` · `frontend/src/components/ui/` · `assetcore/**/*.py` · `BaseModalResponsive.test.ts` · `CommandPalette.test.ts`.
+**CẤM chạm ở vòng 5:** mọi file dưới `frontend/src/views/` · `frontend/src/stores/` · `frontend/src/api/` · `frontend/src/components/ui/` · `assetcore/**/*.py` · `BaseModal.responsive.test.ts` · `CommandPalette.test.ts`.
 
 ---
 
@@ -914,12 +914,12 @@ docs/ui-ux/00_AUDIT_HIEN_TRANG.md                              (SỬA — §6 s�
 | **A4** | §2.2 + §2.4 | INV-UX5-5/6 | TC-UX5-25/26/27, TC-UX5-03..06 |
 | **A5** | §2.4 `deactivate` | INV-UX5-7 | TC-UX5-28, TC-UX5-07 |
 | **A6** | §4 + §5.4 | INV-UX5-11 | `vitest run CommandPalette.test.ts` (7/7) + TC-UX5-32/33 |
-| **A7** | §3.1 | — | `vitest run BaseModalResponsive.test.ts` (4/4) |
+| **A7** | §3.1 | — | `vitest run BaseModal.responsive.test.ts` (4/4) |
 | **A8** | §5.2 + §5.3 | INV-UX5-9/10 | TC-UX5-30/31 |
 | **A9** | §7.4 khối A9 | — | mutation 2 chiều, ghi lại output cả 2 lần |
 | **A10** | §1.3 | — | `find src -name "*.test.ts" \| wc -l` ⇒ **312** (308 + 4) · `vitest run` 0 đỏ |
 | **A11** | §0 Never | — | `git status --short -- '*.py'` rỗng |
-| **A12** | §9–§13 | INV-UX5PLAN-1..8 | `vitest run src/router/uiFixPlanParity.test.ts` |
+| **A12** | §9–§13 | INV-UX5PLAN-1..8 | `vitest run src/guards/uiFixPlanParity.guard.test.ts` |
 | **A13** | §0 Always | — | Chuỗi mới duy nhất trong vòng: **không có** (BaseModal chỉ thêm thuộc tính ARIA; `aria-label="Đóng"` đã là tiếng Việt). Guard `uiPrimitiveHygiene` không đổi. |
 
 ---
@@ -976,7 +976,7 @@ chiều đã đóng lớp danh sách ở 40/40 (`AC-UX-070`). Đây là lần đ
 | Đại lượng | Lệnh (chạy tại `frontend/`) | Trước lô 2 | Sau lô 2 |
 |---|---|---|---|
 | Adopter `DetailPageShell` | `grep -rl "from '@/components/common/DetailPageShell.vue'" --include='*DetailView.vue' src/views \| wc -l` | 11 / 32 | **32 / 32** |
-| Non-adopter (`NON_ADOPTER_BUDGET`) | guard `views/detailShellAdoption.test.ts` | 21 | **0** (sổ RỖNG) |
+| Non-adopter (`NON_ADOPTER_BUDGET`) | guard `views/detailShellAdoption.guard.test.ts` | 21 | **0** (sổ RỖNG) |
 | `useDetailAccess` | `grep -rl useDetailAccess --include='*DetailView.vue' src/views \| wc -l` | 3 | **21** |
 | Gọi trực tiếp `loadErrorKind(` | `grep -rln "loadErrorKind(" --include='*DetailView.vue' src/views \| wc -l` | 14 | **11** (= đúng sổ legacy) |
 | Import trực tiếp `DetailTabBar` ở `*DetailView` | `grep -rl "import DetailTabBar" --include='*DetailView.vue' src/views \| wc -l` | 7 | **0** (hoisting, `ADR-UX-25`) |
@@ -993,8 +993,8 @@ vì 21 bản chép tay mà bản thứ 22 sẽ quên đúng sub-case (d) «0 nú
 
 | Mã | Nội dung | Nơi đặc tả |
 |---|---|---|
-| **AC-UX-071** | Guard `views/detailShellAdoption.test.ts` — ngân sách adoption khuôn CHI TIẾT, `TOTAL_DETAIL_VIEWS = 32`, CHỈ-GIẢM hai chiều, `NON_ADOPTER_BUDGET` rỗng cuối vòng | [`03 §13.7.1`](./03_DETAIL_PAGE_SHELL.md) |
-| **AC-UX-072** | Guard `views/detailAccessAdoption.test.ts` — SSoT lỗi nạp `useDetailAccess`; `LEGACY_LOCAL_KIND_BUDGET` đóng băng **11** file, chỉ được xoá dòng | [`03 §13.7.2`](./03_DETAIL_PAGE_SHELL.md) |
+| **AC-UX-071** | Guard `views/detailShellAdoption.guard.test.ts` — ngân sách adoption khuôn CHI TIẾT, `TOTAL_DETAIL_VIEWS = 32`, CHỈ-GIẢM hai chiều, `NON_ADOPTER_BUDGET` rỗng cuối vòng | [`03 §13.7.1`](./03_DETAIL_PAGE_SHELL.md) |
+| **AC-UX-072** | Guard `views/detailAccessAdoption.guard.test.ts` — SSoT lỗi nạp `useDetailAccess`; `LEGACY_LOCAL_KIND_BUDGET` đóng băng **11** file, chỉ được xoá dòng | [`03 §13.7.2`](./03_DETAIL_PAGE_SHELL.md) |
 | **AC-UX-073** | Chống **2 thanh tab**: quyết định hoisting `:tabs` + `active-tab` lên shell cho 7 màn — `ADR-UX-25` | [`03 §13.4.2`, `§13.11`](./03_DETAIL_PAGE_SHELL.md) |
 
 `AC-UX-053` (hợp đồng `useDetailAccess` ⇄ shell) **đóng phần quyết định** bằng `ADR-UX-27`: giữ **3 prop rời**

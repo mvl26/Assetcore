@@ -118,7 +118,7 @@ Trong `:root` (khối `main.css:6-31`), **giữ nguyên toàn bộ biến cũ**,
   --color-info:        #2563eb;   /* MỚI — A3: :root trước đây thiếu 'info' dù .alert-info đã dùng họ blue */
   --color-neutral:     #64748b;
 
-  /* Token ngữ nghĩa — đối ứng 1-1 với theme.extend.colors (guard: src/design/tokens.parity.test.ts) */
+  /* Token ngữ nghĩa — đối ứng 1-1 với theme.extend.colors (guard: src/guards/designTokens.guard.test.ts) */
   --ac-color-success-50:  #ecfdf5;
   --ac-color-success-500: #059669;
   --ac-color-success-700: #047857;
@@ -139,7 +139,7 @@ Trong `:root` (khối `main.css:6-31`), **giữ nguyên toàn bộ biến cũ**,
 **Không** viết lại giá trị `@layer components` hiện có bằng `var(--ac-color-*)` trong vòng 2 — đó là bước di trú (vòng 3+),
 làm chung lượt này sẽ trộn 2 rủi ro (đổi màu thật + refactor) và phá bất biến “0 đổi giao diện”.
 
-### 2.4 Guard parity 2 chiều — `frontend/src/design/tokens.parity.test.ts` (A4)
+### 2.4 Guard parity 2 chiều — `frontend/src/guards/designTokens.guard.test.ts` (A4)
 
 | Mã                          | Bất biến                                                                                                                                                    | Cách chứng                                                             |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -158,7 +158,7 @@ const cfg = (await import('../../tailwind.config.js')).default as {
 }
 ```
 
-Đường dẫn `main.css` lấy tương đối từ `import.meta.url` (khuôn giống `uiAuditDocParity.test.ts:26-29`), **không** hardcode đường dẫn tuyệt đối.
+Đường dẫn `main.css` lấy tương đối từ `import.meta.url` (khuôn giống `uiAuditDocParity.guard.test.ts:26-29`), **không** hardcode đường dẫn tuyệt đối.
 
 ### 2.5 Bẫy đã biết — deep-merge palette Tailwind (BẮT BUỘC đọc trước khi code)
 
@@ -313,7 +313,7 @@ Giữ nguyên: cấu trúc wrapper, số phần tử, thứ tự, mọi class k�
 | `card`      | `:57` + `:58` + `rows` dòng (`:60`)             | **7** (rows=5)  |
 | `list`      | `rows` × 4 khối (`:71,:73,:74,:76`)                | **20** (rows=5) |
 
-**File test:** `frontend/src/components/common/SkeletonLoader.test.ts` (co-located, KHÔNG đặt trong `ui/` — xem §9 A5).
+**File test:** `frontend/src/components/common/tests/SkeletonLoader.test.ts` (co-located, KHÔNG đặt trong `ui/` — xem §9 A5).
 
 **Test tối thiểu (7):**
 ① với **cả 5** `variant`: `wrapper.findAllComponents(Skeleton).length > 0` (5 case);
@@ -329,7 +329,7 @@ Giữ nguyên: cấu trúc wrapper, số phần tử, thứ tự, mọi class k�
 **Luật:** nhãn nút thử lại của `ui/ErrorState.vue` **bằng đúng** nhãn của `components/common/DetailLoadError.vue:71` = `Thử lại`
 (hiện có ở **45** file `.vue` — đây là chuỗi de-facto của hệ thống, không được sáng tác biến thể “Tải lại”/“Thử lần nữa”).
 
-**Cách guard (đặt trong `uiPrimitiveHygiene.test.ts` hoặc `ErrorState.test.ts` — chọn 1, khai rõ trong mã):**
+**Cách guard (đặt trong `uiPrimitiveHygiene.guard.test.ts` hoặc `errorState.guard.test.ts` — chọn 1, khai rõ trong mã):**
 
 1. Mount `ErrorState` → `wrapper.get('[data-testid="ui-error-retry"]').text().trim()` → chuỗi A.
 2. Đọc `components/common/DetailLoadError.vue` bằng `readFileSync`, trích nhãn nút retry bằng regex bám `@click="emit('retry')"`
@@ -341,7 +341,7 @@ Việc gộp `DetailLoadError` vào `ErrorState` **không** thuộc vòng 2 (ghi
 
 ---
 
-## §6. Guard vệ sinh primitive — `frontend/src/components/ui/uiPrimitiveHygiene.test.ts` (A6)
+## §6. Guard vệ sinh primitive — `frontend/src/guards/uiPrimitiveHygiene.guard.test.ts` (A6)
 
 | Mã                                                                  | Bất biến                                                                                                                                     | Cách chứng                                                                                                               |
 | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
@@ -372,7 +372,7 @@ Chuỗi mặc định khai trong `<script setup>` (`'Chưa có dữ liệu'`, `'
 
 ## §7. Test-drift `AC-UX-023` (A9) — ngoại lệ DUY NHẤT được chạm dưới `views/`
 
-- File: `frontend/src/views/dashboard/personas/personaDashboards.test.ts:59`.
+- File: `frontend/src/views/dashboard/personas/tests/personaDashboards.test.ts:59`.
 - Hiện: `expect(w.html()).toContain('Trưởng phòng VT-TTBYT')` — commit `44cbff9` đã rút tên persona khỏi tiêu đề
   (`OpsmgrDashboardView.vue:78` nay là `title="Bảng điều khiển"`), trong khi `PageHeader` **bị stub** ở test ⇒ chuỗi không còn xuất hiện.
 - **Cách sửa BẮT BUỘC (bám ý định của TC `D-FE-1: current=opsmgr → render OpsmgrDashboardView`, miễn nhiễm đổi copy):**
@@ -400,12 +400,12 @@ frontend/src/components/ui/Badge.vue         + Badge.test.ts
 frontend/src/components/ui/Card.vue          + Card.test.ts
 frontend/src/components/ui/DataTable.vue     + DataTable.test.ts
 frontend/src/components/ui/EmptyState.vue    + EmptyState.test.ts
-frontend/src/components/ui/ErrorState.vue    + ErrorState.test.ts
+frontend/src/components/ui/ErrorState.vue    + errorState.guard.test.ts
 frontend/src/components/ui/Skeleton.vue      + Skeleton.test.ts
 frontend/src/components/ui/index.ts
-frontend/src/components/ui/uiPrimitiveHygiene.test.ts
-frontend/src/design/tokens.parity.test.ts
-frontend/src/components/common/SkeletonLoader.test.ts
+frontend/src/guards/uiPrimitiveHygiene.guard.test.ts
+frontend/src/guards/designTokens.guard.test.ts
+frontend/src/components/common/tests/SkeletonLoader.test.ts
 ```
 
 **Được sửa (4 file):**
@@ -414,7 +414,7 @@ frontend/src/components/common/SkeletonLoader.test.ts
 frontend/tailwind.config.js                                  (§2.2 — chỉ thêm 5 khoá màu)
 frontend/src/assets/styles/main.css                          (§2.3 — chỉ thêm biến trong :root)
 frontend/src/components/common/SkeletonLoader.vue            (§4 — thay div.skeleton bằng <Skeleton>)
-frontend/src/views/dashboard/personas/personaDashboards.test.ts (§7 — ngoại lệ DUY NHẤT dưới views/)
+frontend/src/views/dashboard/personas/tests/personaDashboards.test.ts (§7 — ngoại lệ DUY NHẤT dưới views/)
 ```
 
 **Doc (BA đã land trước khi code):** `docs/ui-ux/01_DESIGN_SYSTEM.md` (file này) · `docs/ui-ux/00_AUDIT_HIEN_TRANG.md` (§6 sổ, §7.2 ghi chú, §9 ADR-UX-04, §10 ghim).
@@ -430,18 +430,18 @@ frontend/src/views/dashboard/personas/personaDashboards.test.ts (§7 — ngoại
 | A1  | §3                         | `ls frontend/src/components/ui/*.vue \| wc -l` → **7**; có `index.ts`                                                                                                                                   |
 | A2  | §2.1, §2.2                | `node -e "import('./tailwind.config.js').then(m=>{const c=m.default.theme.extend.colors;for(const k of ['success','warning','danger','info','neutral'])console.log(k,Object.keys(c[k]))})"` → 5 khoá × 3 bậc |
 | A3  | §2.3                       | `grep -c "^\s*--ac-color-" frontend/src/assets/styles/main.css` → **15**; `grep -n -- "--color-info" …` → có; hex bậc 500 trùng 4 biến cũ                                                        |
-| A4  | §2.4                       | `npx vitest run src/design/tokens.parity.test.ts` → đọc `Tests N passed` bằng mắt (spec ra **6** case)                                                                                              |
-| A5  | §3.1–3.7                  | `npx vitest run src/components/ui --exclude '**/uiPrimitiveHygiene.test.ts'` → `Test Files 7 passed (7)`, tổng case **28 ≥ 21**                                                                       |
-| A6  | §6                         | `npx vitest run src/components/ui/uiPrimitiveHygiene.test.ts` → xanh (4 bất biến; 3 bất biến A6 + 1 bổ sung)                                                                                               |
-| A7  | §4                         | `npx vitest run src/components/common/SkeletonLoader.test.ts` → xanh; `git status --short frontend/src/views` → rỗng                                                                                        |
+| A4  | §2.4                       | `npx vitest run src/guards/designTokens.guard.test.ts` → đọc `Tests N passed` bằng mắt (spec ra **6** case)                                                                                              |
+| A5  | §3.1–3.7                  | `npx vitest run src/components/ui --exclude '**/uiPrimitiveHygiene.guard.test.ts'` → `Test Files 7 passed (7)`, tổng case **28 ≥ 21**                                                                       |
+| A6  | §6                         | `npx vitest run src/guards/uiPrimitiveHygiene.guard.test.ts` → xanh (4 bất biến; 3 bất biến A6 + 1 bổ sung)                                                                                               |
+| A7  | §4                         | `npx vitest run src/components/common/tests/SkeletonLoader.test.ts` → xanh; `git status --short frontend/src/views` → rỗng                                                                                        |
 | A8  | §5                         | assert 2 đầu chuỗi (`ErrorState` render ⇄ `DetailLoadError.vue` trên đĩa)                                                                                                                               |
 | A9  | §7                         | `npx vitest run` → 0 file đỏ; **delta kỳ vọng `+10` file test** (290 → **300**) — xem lưu ý dưới                                                                                        |
 | A10 | §8                         | `git status --short` — allowlist §8                                                                                                                                                                            |
-| A11 | 00_AUDIT §6/§7.2/§9/§10 | `npx vitest run src/router/uiAuditDocParity.test.ts` → `Tests 15 passed (15)`                                                                                                                                 |
+| A11 | 00_AUDIT §6/§7.2/§9/§10 | `npx vitest run src/guards/uiAuditDocParity.guard.test.ts` → `Tests 15 passed (15)`                                                                                                                                 |
 
-> **Lưu ý A5 (mâu thuẫn đề bài đã giải):** `uiPrimitiveHygiene.test.ts` nằm **trong** `ui/` (A6 chốt đường dẫn), nên
+> **Lưu ý A5 (mâu thuẫn đề bài đã giải):** `uiPrimitiveHygiene.guard.test.ts` nằm **trong** `ui/` (A6 chốt đường dẫn), nên
 > `npx vitest run src/components/ui` **trần** sẽ in `Test Files 8 passed (8)` — **đúng, không phải lỗi**. Lệnh chấm A5 dùng
-> `--exclude '**/uiPrimitiveHygiene.test.ts'` (flag có thật trong vitest 4: `--exclude <glob>`), hoặc liệt kê 7 đường dẫn tường minh.
+> `--exclude '**/uiPrimitiveHygiene.guard.test.ts'` (flag có thật trong vitest 4: `--exclude <glob>`), hoặc liệt kê 7 đường dẫn tường minh.
 
 > **Lưu ý A9 (chấm DELTA, không chấm số tuyệt đối):** baseline đo hôm nay là **290** file test (§1), không phải 289 —
 > 289 là số **passed**, 1 file đỏ. Vòng 2 thêm 7 (primitive) + 1 (parity) + 1 (hygiene) + 1 (adoption `SkeletonLoader.test.ts`) = **+10** ⇒ **300 file, 0 đỏ**.

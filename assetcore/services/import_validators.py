@@ -75,6 +75,10 @@ def _link_lookup_set(doctype: str, display_field: str) -> set[str]:
 class BaseImportValidator:
     doctype: str = ""
 
+    #: Người dùng bật "Cập nhật bản ghi đã có" ở bước xem trước ⇒ bản ghi trùng
+    #: không còn là lỗi chặn mà là cảnh báo "sẽ cập nhật". Đặt qua `get_validator`.
+    update_existing: bool = False
+
     def validate_row(self, row: dict, row_idx: int) -> list[ImportError]:
         return []
 
@@ -93,6 +97,27 @@ class BaseImportValidator:
     @staticmethod
     def _warn(row: int, field: str, msg: str) -> ImportError:
         return ImportError(row=row, field=field, message=msg, severity="warning")
+
+    def _dup_existing(
+        self, row_idx: int, field: str, what: str, value: str,
+    ) -> ImportError:
+        """Bản ghi ĐÃ CÓ trong hệ thống — chặn, hoặc báo 'sẽ cập nhật'.
+
+        Một chỗ duy nhất quyết định nghĩa của 'trùng' để mọi loại dữ liệu cư xử
+        giống nhau: tắt công tắc thì chặn kèm hướng dẫn bật, bật thì nói rõ ô
+        trống giữ nguyên giá trị cũ (người dùng hay tưởng trống = xoá).
+        """
+        if self.update_existing:
+            return self._warn(
+                row_idx, field,
+                f"{what} '{value}' đã tồn tại — sẽ CẬP NHẬT bản ghi này; "
+                "ô để trống trong file giữ nguyên giá trị cũ",
+            )
+        return self._err(
+            row_idx, field,
+            f"{what} '{value}' đã tồn tại trong hệ thống — bật "
+            "'Cập nhật bản ghi đã có' để sửa, hoặc bỏ qua dòng này",
+        )
 
     @staticmethod
     def _req(row: dict, row_idx: int, field: str, label: str) -> ImportError | None:
@@ -180,10 +205,7 @@ class CategoryImportValidator(BaseImportValidator):
             return errors
 
         if name in existing:
-            errors.append(self._err(
-                row_idx, "category_name",
-                f"Danh mục '{name}' đã tồn tại trong hệ thống",
-            ))
+            errors.append(self._dup_existing(row_idx, "category_name", "Danh mục", name))
         elif name in seen:
             errors.append(self._err(
                 row_idx, "category_name",
@@ -265,10 +287,7 @@ class DepartmentImportValidator(BaseImportValidator):
             return errors
 
         if name in existing:
-            errors.append(self._err(
-                row_idx, "department_name",
-                f"Khoa/phòng '{name}' đã tồn tại trong hệ thống",
-            ))
+            errors.append(self._dup_existing(row_idx, "department_name", "Khoa/phòng", name))
         elif name in seen:
             errors.append(self._err(
                 row_idx, "department_name",
@@ -351,10 +370,7 @@ class LocationImportValidator(BaseImportValidator):
             return errors
 
         if name in existing:
-            errors.append(self._err(
-                row_idx, "location_name",
-                f"Vị trí '{name}' đã tồn tại trong hệ thống",
-            ))
+            errors.append(self._dup_existing(row_idx, "location_name", "Vị trí", name))
         elif name in seen:
             errors.append(self._err(
                 row_idx, "location_name",
@@ -431,7 +447,7 @@ class DeviceModelImportValidator(BaseImportValidator):
             return errors
 
         if name in existing:
-            errors.append(self._err(row_idx, "model_name", f"Model '{name}' đã tồn tại trong hệ thống"))
+            errors.append(self._dup_existing(row_idx, "model_name", "Model", name))
         elif name in seen:
             errors.append(self._err(row_idx, "model_name", f"Model '{name}' bị trùng lặp trong file"))
         seen.add(name)
@@ -475,6 +491,79 @@ class DeviceModelImportValidator(BaseImportValidator):
                         errors.append(self._err(row_idx, field, f"'{label}' phải lớn hơn 0"))
                 except ValueError:
                     errors.append(self._err(row_idx, field, f"'{label}' phải là số"))
+
+        return errors
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AC SUPPLIER
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SupplierImportValidator(BaseImportValidator):
+    """Nhà cung cấp — trước 2026-08-11 KHÔNG có validator nào.
+
+    Hậu quả đo được: `AC Supplier` tự đánh số (`naming_series`) và chỉ unique ở
+    `supplier_code` — cột TUỲ CHỌN trong file mẫu. Nhập lại đúng file lần hai đẻ
+    ra nhà cung cấp trùng tên (đo: `AC-SUP-2026-1541` + `1542`), không lỗi, không
+    cảnh báo. Khoá nhận dạng ở đây phải khớp `UPDATE_KEY_BY_DOCTYPE["AC Supplier"]`
+    (mã trước, tên sau) — lệch là báo trùng một đằng, cập nhật một nẻo.
+    """
+
+    doctype = "AC Supplier"
+
+    def validate_all(self, rows: list[dict]) -> list[ImportError]:
+        existing_codes = {
+            str(r.get("supplier_code") or "")
+            for r in frappe.get_all(self.doctype, fields=["supplier_code"])
+        } - {""}
+        existing_names = {
+            str(r.get("supplier_name") or "")
+            for r in frappe.get_all(self.doctype, fields=["supplier_name"])
+        } - {""}
+
+        seen_codes: set[str] = set()
+        seen_names: set[str] = set()
+        errors: list[ImportError] = []
+
+        for i, row in enumerate(rows, start=1):
+            name = str(row.get("supplier_name", "")).strip()
+            code = str(row.get("supplier_code", "")).strip()
+
+            if not name:
+                errors.append(self._err(i, "supplier_name", "'Tên nhà cung cấp' là bắt buộc"))
+                continue
+
+            # Mã thắng tên khi nhận dạng — cùng thứ tự với UPDATE_KEY_BY_DOCTYPE.
+            if code:
+                if code in existing_codes:
+                    errors.append(self._dup_existing(i, "supplier_code", "Nhà cung cấp mã", code))
+                elif code in seen_codes:
+                    errors.append(self._err(
+                        i, "supplier_code", f"Mã nhà cung cấp '{code}' bị trùng lặp trong file"))
+                seen_codes.add(code)
+            elif name in existing_names:
+                errors.append(self._dup_existing(i, "supplier_name", "Nhà cung cấp", name))
+            elif name in seen_names:
+                errors.append(self._err(
+                    i, "supplier_name", f"Nhà cung cấp '{name}' bị trùng lặp trong file"))
+            seen_names.add(name)
+
+            errors.extend(self._check_enum(row, i, "vendor_type", "Loại nhà cung cấp"))
+            errors.extend(self._check_enum(row, i, "supplier_group", "Nhóm nhà cung cấp"))
+
+            for field, label in [("email_id", "Email liên hệ"),
+                                 ("technical_email", "Email kỹ thuật")]:
+                value = str(row.get(field, "")).strip()
+                if value and not is_valid_email(value):
+                    errors.append(self._err(
+                        i, field, f"{label} '{value}' không đúng định dạng email"))
+
+            start = str(row.get("contract_start", "")).strip()
+            end = str(row.get("contract_end", "")).strip()
+            if start and end and end < start:
+                errors.append(self._err(
+                    i, "contract_end",
+                    f"Ngày kết thúc HĐ ({end}) phải sau ngày bắt đầu ({start})"))
 
         return errors
 
@@ -528,8 +617,7 @@ class ContractImportValidator(BaseImportValidator):
         code = str(row.get("contract_code", "")).strip()
         if code:
             if code in existing:
-                errors.append(self._err(row_idx, "contract_code",
-                    f"Hợp đồng '{code}' đã tồn tại trong hệ thống"))
+                errors.append(self._dup_existing(row_idx, "contract_code", "Hợp đồng", code))
             elif code in seen:
                 errors.append(self._err(row_idx, "contract_code",
                     f"Mã hợp đồng '{code}' bị trùng lặp trong file"))
@@ -720,10 +808,7 @@ class AssetImportValidator(BaseImportValidator):
                 ))
             # (3) DUPLICATE (in DB and within batch)
             elif code in existing_codes:
-                errors.append(self._err(
-                    row_idx, "asset_code",
-                    f"Mã tài sản '{code}' đã tồn tại trong hệ thống",
-                ))
+                errors.append(self._dup_existing(row_idx, "asset_code", "Mã tài sản", code))
             elif code in seen_codes:
                 errors.append(self._err(
                     row_idx, "asset_code",
@@ -959,16 +1044,42 @@ class PmChecklistTemplateImportValidator(BaseImportValidator):
         errors: list[ImportError] = []
         cat_display = frappe.db.get_value("AC Asset Category", cat, "category_name") or cat
 
-        if frappe.db.exists("PM Checklist Template",
-                            {"asset_category": cat, "pm_type": pm_type}):
+        existing = frappe.db.get_value(
+            "PM Checklist Template",
+            {"asset_category": cat, "pm_type": pm_type},
+            ["name", "approved_by"], as_dict=True,
+        )
+        if existing and not self.update_existing:
             for row_idx, _ in members:
                 errors.append(self._err(
                     row_idx, "template_name",
                     f"Mẫu bảng kiểm cho danh mục '{cat_display}' đã tồn tại — "
                     "mỗi danh mục chỉ có một mẫu cho mỗi loại bảo trì; "
-                    "sửa trực tiếp trên màn hình hoặc bỏ qua các dòng này",
+                    "bật 'Cập nhật mẫu đã có', sửa trực tiếp trên màn hình, "
+                    "hoặc bỏ qua các dòng này",
                 ))
             return errors
+
+        if existing:
+            # Cập nhật = THAY toàn bộ hạng mục. Nói rõ mất bao nhiêu, được bao
+            # nhiêu — người dùng phải quyết định trước khi bấm, không sau.
+            old_count = frappe.db.count(
+                "PM Checklist Item",
+                {"parent": existing["name"], "parenttype": self.doctype},
+            )
+            first_idx = members[0][0]
+            errors.append(self._warn(
+                first_idx, "template_name",
+                f"Mẫu '{cat_display}' đã tồn tại — sẽ THAY toàn bộ "
+                f"{old_count} hạng mục hiện có bằng {len(members)} hạng mục trong file",
+            ))
+            if existing.get("approved_by"):
+                errors.append(self._warn(
+                    first_idx, "template_name",
+                    f"Mẫu này đã được '{existing['approved_by']}' phê duyệt — "
+                    "thay hạng mục sẽ làm sai lệch bản đã duyệt, cân nhắc tạo "
+                    "phiên bản mới thay vì ghi đè",
+                ))
 
         # Cột của mẫu lặp ở mọi hàng — khai lệch nhau thì hàng đầu thắng, phải báo.
         first_idx, first_row = members[0]
@@ -1010,6 +1121,7 @@ VALIDATOR_REGISTRY: dict[str, type[BaseImportValidator]] = {
     "AC Department":     DepartmentImportValidator,
     "AC Location":       LocationImportValidator,
     "IMM Device Model":  DeviceModelImportValidator,
+    "AC Supplier":       SupplierImportValidator,
     "Service Contract":  ContractImportValidator,
     "User":              UserImportValidator,
     "AC Asset":          AssetImportValidator,
@@ -1017,6 +1129,16 @@ VALIDATOR_REGISTRY: dict[str, type[BaseImportValidator]] = {
 }
 
 
-def get_validator(doctype: str) -> BaseImportValidator:
+def get_validator(
+    doctype: str, *, update_existing: bool = False,
+) -> BaseImportValidator:
+    """Validator của một loại dữ liệu.
+
+    `update_existing`: bật thì bản ghi đã tồn tại là 'sẽ cập nhật' (cảnh báo),
+    tắt thì là lỗi trùng chặn file. Áp cho MỌI loại dữ liệu — cả loại phẳng lẫn
+    loại cha+bảng con — nên luật 'trùng nghĩa là gì' chỉ có một nguồn.
+    """
     cls = VALIDATOR_REGISTRY.get(doctype, BaseImportValidator)
-    return cls()
+    validator = cls()
+    validator.update_existing = bool(update_existing)
+    return validator

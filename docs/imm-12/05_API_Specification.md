@@ -1100,7 +1100,7 @@ message Frappe ra FE. Class `IncidentError` bị loại bỏ — service raise q
 
 > Lưu ý content: tuân `messages.py` §quy chuẩn — Chủ thể + Hậu quả + Hành động,
 > không từ kỹ thuật, không đổ lỗi user. Sau khi thêm vào `messages.py`, chạy
-> `python scripts/gen_fe_messages.py` để regen `frontend/src/i18n/messages.ts`.
+> `python scripts/gen_fe_messages.py` để regen `frontend/src/locales/messages.ts`.
 
 ### 11.3 BE migration checklist (cho assetcore-be)
 
@@ -1233,7 +1233,7 @@ message Frappe ra FE. Class `IncidentError` bị loại bỏ — service raise q
 
 ## §22 AC-CR-83 — `submit_rca`: 3 ràng buộc hồ sơ RCA HẾT thoát envelope thành **HTTP-417 thô** (đóng mobile **CR-52 §3+§4**, quirk 3 "cao") 🟢 CONTRACT ĐÓNG Bước-2 · 🟢 **BE ĐÃ LAND Bước-4** · FE còn lại
 
-> **Trạng thái:** hợp đồng (OAS mirror + guard `cr83_a..g`) **XANH**; **BE Bước-4 ĐÃ LAND 2026-07-27** — `utils/notify.py` (`nthrow(..., fields=…)`), `utils/messages.py` (+3 entry), `services/imm12.py` (3 predicate SSoT + 2 adapter + PRE-CHECK trong `submit_rca`), `assetcore/doctype/imm_rca_record/imm_rca_record.py` (**6 → 0** `frappe.throw`), `frontend/src/i18n/messages.ts` (regen).
+> **Trạng thái:** hợp đồng (OAS mirror + guard `cr83_a..g`) **XANH**; **BE Bước-4 ĐÃ LAND 2026-07-27** — `utils/notify.py` (`nthrow(..., fields=…)`), `utils/messages.py` (+3 entry), `services/imm12.py` (3 predicate SSoT + 2 adapter + PRE-CHECK trong `submit_rca`), `assetcore/doctype/imm_rca_record/imm_rca_record.py` (**6 → 0** `frappe.throw`), `frontend/src/locales/messages.ts` (regen).
 > **Bằng chứng test (verbatim):** `test_imm12` **Ran 198 OK** · `test_mobile_oas` **Ran 999 OK** · `test_mobile_docset` **Ran 9 OK** · `gen_fe_messages.py --check` **0 drift**. RED-before đo được: `frappe.exceptions.ValidationError: Bước 3: phải điền đầy đủ câu hỏi và câu trả lời.` (thoát qua `handle` từ `imm_rca_record.py:69`).
 > **CÒN LẠI (FE Bước-4):** `frontend/src/views/incident/RCADetailView.vue` đọc `ApiError.fields` và render dưới đúng control — xem `06_Frontend_Design.md §7`.
 

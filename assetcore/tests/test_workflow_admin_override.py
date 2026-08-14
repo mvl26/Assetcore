@@ -36,6 +36,7 @@ from types import SimpleNamespace
 import frappe
 
 from assetcore.setup import backfill_workflow_admin as bwa
+from assetcore.tests._helpers.paths import WORKFLOW_DIR
 
 # Admin god-mode override — khớp 13 workflow đang hoạt động (Super Admin + System Manager).
 _ADMIN_ROLES = {"AssetCore Super Admin", "System Manager"}
@@ -73,7 +74,7 @@ def _source_workflow_files() -> list[str]:
     Đây chính là path mà seed fresh-install (`_sync_workflows`) `import_doc` khi
     provision site mới — oracle ĐỘC LẬP với fixtures/workflow.json.
     """
-    wf_dir = frappe.get_app_path("assetcore", "assetcore", "workflow")
+    wf_dir = WORKFLOW_DIR
     return sorted(glob.glob(os.path.join(wf_dir, "*.json")))
 
 

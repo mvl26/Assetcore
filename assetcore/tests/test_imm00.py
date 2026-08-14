@@ -649,7 +649,7 @@ class TestGetAssetTimelinePagination(unittest.TestCase):
         """Ép MỌI event của asset về CÙNG một ``timestamp`` (raw SQL — append-only).
 
         Mô phỏng dữ liệu thật ghi ở độ phân giải NGÀY: vd
-        ``assetcore/scripts/cleanup_and_seed_assets.py:611`` dùng
+        ``assetcore/scripts/maintenance/cleanup_and_seed_assets.py:611`` dùng
         ``add_days(nowdate(), days)`` ⇒ '2026-07-01 00:00:00.000000'. Đây là kịch
         bản DUY NHẤT làm ORDER BY chỉ-theo-``timestamp`` mất tính xác định giữa 2
         request page 1 / page 2 ⇒ «Tải thêm» nhân bản hoặc bỏ sót dòng.

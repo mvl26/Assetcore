@@ -667,7 +667,7 @@ Screenshot SonarQube + Lighthouse gắn vào [09 §Release Notes](./09_Release.m
 
 # Phần VIII — Test plan vòng 17 (Chi tiết + server-driven approve gate) — CHỐT
 
-> Ref acceptance `02 §VIII.3` · SoT `04 §X` · API `05 §8` · FE `06 §13`. TDD gate: `bench --site miyano run-tests` (test_imm14) → "Ran N OK"; FE `decommissionDetailCtaGate.test.ts` pass + `npm run typecheck` (prod) 0 error.
+> Ref acceptance `02 §VIII.3` · SoT `04 §X` · API `05 §8` · FE `06 §13`. TDD gate: `bench --site miyano run-tests` (test_imm14) → "Ran N OK"; FE `DecommissionDetailView.ctaGate.test.ts` pass + `npm run typecheck` (prod) 0 error.
 
 ## VIII.1. BE — `tests/test_imm14.py` (EXTEND, không tạo file mới)
 
@@ -687,9 +687,9 @@ Thêm class `TestGetDecommissionApproveGate(_BaseIMM14)` — trace BR-14-W2-13..
 - Dùng helper `_BaseIMM14` (set user theo role) đã có; capability check qua `rbac.can` → set session user role tương ứng (Super Admin / Commissioning Manager / Commissioning User).
 - Read-only: assert `get_decommission` KHÔNG sinh Lifecycle Event / Audit Trail mới (BR-14-W2-12 giữ).
 
-## VIII.2. FE — `views/eol/decommissionDetailCtaGate.test.ts` (NEW)
+## VIII.2. FE — `views/eol/DecommissionDetailView.ctaGate.test.ts` (NEW)
 
-Mirror `documentDetailCtaGating.test.ts`. Matrix (mock `getDecommission`):
+Mirror `DocumentDetailView.ctaGating.test.ts`. Matrix (mock `getDecommission`):
 
 | Case | Mock | Assert |
 |---|---|---|
@@ -700,7 +700,7 @@ Mirror `documentDetailCtaGating.test.ts`. Matrix (mock `getDecommission`):
 | (e) anti-PII | `responsible:"x@y.vn", asset:"AST-1", asset_name:"Máy X", responsible_name:"Nguyễn A"` | DOM KHÔNG chứa "x@y.vn" / "AST-1" ở field hiển thị; KHÔNG raw 'Draft'/'Approved' EN |
 | (f) degrade | `can_approve: undefined` | KHÔNG nút (an toàn) |
 
-## VIII.3. FE — cập nhật `DecommissionList.render.test.ts` (EDIT)
+## VIII.3. FE — cập nhật `DecommissionListView.render.test.ts` (EDIT)
 
 - Đổi assertion row-click: `router.push` gọi với `'/decommissions/<name>'` (thay `'/assets/<asset>'`) — theo ADR-IMM14-DETAIL-03.
 
@@ -708,7 +708,7 @@ Mirror `documentDetailCtaGating.test.ts`. Matrix (mock `getDecommission`):
 
 ```bash
 bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm14   # BE → "Ran N OK"
-cd frontend && npx vitest run src/views/eol/decommissionDetailCtaGate.test.ts       # FE gate
+cd frontend && npx vitest run src/views/eol/tests/DecommissionDetailView.ctaGate.test.ts       # FE gate
 cd frontend && npm run typecheck                                                     # prod tsc 0 error
 ```
 

@@ -23,6 +23,7 @@ from frappe.utils import get_datetime
 
 from assetcore.services.imm12 import report_incident
 from assetcore.services.shared import ServiceError
+from assetcore.tests._asset_cleanup import purge_asset, purge_category_by_name
 from assetcore.utils.messages import MSG
 
 _RUN_TAG = str(int(time.time() * 1000))[-7:]
@@ -63,6 +64,15 @@ class TestOccurredDatetimeGuard(unittest.TestCase):
         frappe.set_user("Administrator")
         cls.asset = _make_asset()
         frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        # R-9: fixture của setUpClass đã commit ⇒ KHÔNG được rollback tự động; thiếu
+        # tearDownClass thì mỗi lượt chạy để lại 1 asset trên site (đo 2026-08-14).
+        # Phải đi qua purge_asset: WR-03 (on_trash) chặn delete_doc khi còn Sự kiện
+        # vòng đời, kể cả force=True.
+        purge_asset(cls.asset)
+        purge_category_by_name("_TestCatIMM12Occ")
 
     def setUp(self):
         frappe.set_user("Administrator")

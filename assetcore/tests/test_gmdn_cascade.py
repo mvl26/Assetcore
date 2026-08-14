@@ -14,12 +14,41 @@ import unittest
 
 import frappe
 
+from assetcore.tests._asset_cleanup import purge_asset
+
+
+def _sweep_leaked_fixtures() -> None:
+    """Dọn danh mục fixture còn sót của LƯỢT TRƯỚC (tự lành).
+
+    Mọi danh mục ở đây mang cùng ``gmdn_code='47821'``, mà ``AC Asset Category``
+    ép mã GMDN là DUY NHẤT. Một lượt chạy đứt giữa chừng để lại 1 danh mục là
+    MỌI lượt sau đều ném "Mã GMDN đã được dùng" ở setUp ⇒ cả suite chết cứng.
+    Sự cố có thật: 'GMDN-CAS-eb024b' rò ngày 2026-06-15 làm 9/9 test error tới
+    tận 2026-08-14.
+    """
+    for cat in frappe.db.sql_list(
+        "SELECT name FROM `tabAC Asset Category` WHERE category_code LIKE 'GMDN-CAS-%%'"
+    ):
+        for asset in frappe.db.sql_list(
+            "SELECT name FROM `tabAC Asset` WHERE asset_category=%s", (cat,)
+        ):
+            purge_asset(asset)
+        for model in frappe.db.sql_list(
+            "SELECT name FROM `tabIMM Device Model` WHERE asset_category=%s", (cat,)
+        ):
+            frappe.delete_doc("IMM Device Model", model, force=True,
+                              ignore_permissions=True, delete_permanently=True)
+        frappe.delete_doc("AC Asset Category", cat, force=True,
+                          ignore_permissions=True, delete_permanently=True)
+    frappe.db.commit()
+
 
 def setUpModule():
     frappe.set_user("Administrator")
     if not frappe.db.exists("AC UOM", "Cái"):
         frappe.get_doc({"doctype": "AC UOM", "uom_name": "Cái"}).insert(ignore_permissions=True)
         frappe.db.commit()
+    _sweep_leaked_fixtures()
 
 
 class TestGmdnCascade(unittest.TestCase):
@@ -80,28 +109,12 @@ class TestGmdnCascade(unittest.TestCase):
         # exist, and force=True does NOT bypass a custom on_trash (LL-TEST-17).
         # The cascade tests create those rows, so purge them first or the
         # Category leaks and its gmdn_code collides on the next run.
+        # Dùng SSoT purge_asset thay vì chép lại chuỗi dọn phụ thuộc: nó xử lý đủ
+        # append-only (Audit Trail/Lifecycle Event) + dependent nghiệp vụ, quét lại
+        # lần hai, và CHỐT bằng commit (thiếu commit thì lệnh xoá bị rollback).
         for asset in (self.asset_inh.name, self.asset_ovr.name):
-            frappe.db.sql(
-                "DELETE FROM `tabIMM Audit Trail` "
-                "WHERE asset=%s OR (ref_doctype='AC Asset' AND ref_name=%s)",
-                (asset, asset),
-            )
-            for dt, fld in (
-                ("Asset Lifecycle Event", "asset"),
-                ("AC Asset Downtime Log", "asset"),
-                ("Asset Transfer", "asset"),
-            ):
-                if not frappe.db.table_exists(dt):
-                    continue
-                for c in frappe.get_all(dt, filters={fld: asset}, pluck="name"):
-                    cd = frappe.get_doc(dt, c)
-                    if cd.docstatus == 1:
-                        cd.cancel()
-                    frappe.delete_doc(dt, c, force=True, ignore_permissions=True,
-                                      delete_permanently=True)
+            purge_asset(asset)
         for dt, nm in (
-            ("AC Asset", self.asset_inh.name),
-            ("AC Asset", self.asset_ovr.name),
             ("IMM Device Model", self.model_inh.name),
             ("IMM Device Model", self.model_ovr.name),
             ("AC Asset Category", self.cat.name),

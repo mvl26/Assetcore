@@ -47,6 +47,10 @@ DEFAULT_INSTRUCTIONS = (
     "Cột tham chiếu (danh mục, khoa phòng, vị trí, model, nhà cung cấp) điền TÊN, không điền mã."
 )
 
+# Hàng cuối còn dropdown. Vùng tô nền dừng ở 105 (giữ file nhẹ) nhưng validation
+# đi xa hơn nhiều — file thật hay dài hơn 100 hàng.
+LAST_DV_ROW = 1000
+
 THIN = Side(style="thin", color=C_BORDER)
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
@@ -171,11 +175,13 @@ def build_sheet(wb, title, columns, examples, instructions=""):
             c.border = BORDER
             c.font = cell_font(size=10)
 
-    # Add dropdowns
+    # Dropdown phủ tới hàng 1000, xa hơn vùng tô nền 105 hàng: một mẫu bảng kiểm
+    # 15 hạng mục × 10 danh mục đã là 150 hàng — hết dropdown ở hàng 106 thì
+    # người dùng gõ tay và gõ sai. Vùng validation không làm phình file.
     for col_idx, col in enumerate(columns, start=1):
         if col.get("dv"):
             col_letter = get_column_letter(col_idx)
-            add_dv(ws, col["dv"], f"{col_letter}6:{col_letter}105")
+            add_dv(ws, col["dv"], f"{col_letter}6:{col_letter}{LAST_DV_ROW}")
 
     # ── Column widths ─────────────────────────────────────────────────────
     for col_idx, col in enumerate(columns, start=1):
@@ -722,6 +728,11 @@ def make_pm_checklist():
     5 cột đầu là thông tin của MẪU — lặp lại y hệt ở mọi hàng thuộc cùng mẫu.
     Hệ thống gộp theo (Danh mục tài sản + Loại bảo trì định kỳ) = khoá định danh
     của mẫu, nên KHÔNG cần cột mã mẫu.
+
+    Nhiều mẫu trong CÙNG một file: điền tiếp xuống dưới với Danh mục / Loại bảo
+    trì khác — không cần file riêng, không cần sheet riêng, không cần sắp xếp
+    các hàng cùng mẫu liền nhau. Sheet "Ví dụ minh hoạ" bày sẵn 2 mẫu × 3 hạng
+    mục vì một hàng ví dụ đơn lẻ KHÔNG dạy được cách điền này.
     """
     wb = Workbook()
     wb.remove(wb.active)
@@ -733,7 +744,7 @@ def make_pm_checklist():
         {"name": "asset_category", "label": "Danh mục tài sản", "required": True, "width": 28,
          "desc": f"Tên danh mục, khớp file 01 / sheet 'Danh mục tài sản'. {NAME_NOT_CODE} "
                  "Cùng với Loại bảo trì tạo thành khoá của mẫu.",
-         "example": "Máy chẩn đoán hình ảnh"},
+         "example": "Máy thở"},
         {"name": "pm_type", "label": "Loại bảo trì định kỳ", "required": True, "width": 22,
          "desc": "Hàng quý / Nửa năm / Hàng năm / Đột xuất. "
                  "Mỗi danh mục chỉ có MỘT mẫu cho mỗi loại.",
@@ -770,10 +781,127 @@ def make_pm_checklist():
     instructions="MỖI HÀNG = 1 hạng mục kiểm tra, điền từ HÀNG 6 (hàng 5 là ví dụ mẫu). "
                  "5 cột đầu (tên mẫu, danh mục, loại bảo trì, phiên bản, ngày hiệu lực) "
                  "LẶP LẠI y hệt ở mọi hàng cùng một mẫu — hệ thống gộp theo Danh mục + "
-                 "Loại bảo trì. Danh mục điền TÊN, không điền mã.")
+                 "Loại bảo trì. NHIỀU MẪU trong cùng file: điền tiếp xuống dưới với "
+                 "Danh mục / Loại bảo trì khác — xem sheet 'Ví dụ minh hoạ'. "
+                 "Danh mục điền TÊN, không điền mã.")
 
+    _add_pm_checklist_example_sheet(wb)
+    wb.active = 0            # mở file là thấy sheet nhập liệu, không phải sheet ví dụ
     wb.save(os.path.join(OUT_DIR, "07_bang_kiem_bao_tri.xlsx"))
     print("✓ 07_bang_kiem_bao_tri.xlsx")
+
+
+# Hai mẫu bảng kiểm mẫu — cùng một file, khác Danh mục + Loại bảo trì.
+# Cột: tên mẫu · danh mục · loại · phiên bản · hiệu lực · nội dung · cách ghi
+#      nhận · đơn vị · ngưỡng dưới · ngưỡng trên · trọng yếu · tham chiếu
+_EXAMPLE_BLOCKS = [
+    {
+        "tint": "EAFAF1",
+        "note": "MẪU 1 — 3 hàng cùng (Máy thở · Hàng quý) ⇒ hệ thống tạo 1 mẫu "
+                "bảng kiểm gồm 3 hạng mục, đánh số theo thứ tự hàng.",
+        "parent": ["Bảng kiểm bảo trì quý — Máy thở", "Máy thở", "Hàng quý",
+                   "1.0", "2026-01-01"],
+        "items": [
+            ["Kiểm tra áp suất khí nén đầu vào", "Số đo", "bar", "4", "6", "1", "SM §4.2"],
+            ["Vệ sinh / thay bộ lọc khí", "Đạt/Không đạt", "", "", "", "0", "SM §5.1"],
+            ["Đo sai số thể tích khí lưu thông", "Số đo", "ml", "450", "550", "1", "SM §6.3"],
+        ],
+    },
+    {
+        "tint": "FEF9E7",
+        "note": "MẪU 2 — điền TIẾP XUỐNG DƯỚI, không cần file mới. Khác Danh mục "
+                "(Máy siêu âm) nên tách thành mẫu thứ hai.",
+        "parent": ["Bảng kiểm bảo trì năm — Máy siêu âm", "Máy siêu âm chẩn đoán",
+                   "Hàng năm", "1.0", "2026-01-01"],
+        "items": [
+            ["Kiểm tra đầu dò: nứt, bong lớp phủ", "Đạt/Không đạt", "", "", "", "1", "SM §3.1"],
+            ["Đo dòng rò vỏ máy", "Số đo", "µA", "0", "100", "1", "IEC 60601"],
+            ["Kiểm tra chất lượng ảnh bằng phantom", "Ghi chú", "", "", "", "0", "QC §2"],
+        ],
+    },
+]
+
+
+def _add_pm_checklist_example_sheet(wb):
+    """Sheet CHỈ ĐỂ ĐỌC: bày 2 mẫu trong cùng một file, mỗi mẫu 3 hạng mục.
+
+    Sheet này KHÔNG được nhập vào hệ thống — `import_helpers._SHEET_NAME_MAP`
+    khoá parser vào sheet 'Bảng kiểm bảo trì', nên người dùng lưu file lúc đang
+    đứng ở đây cũng không nhập nhầm.
+    """
+    labels = [
+        "Tên mẫu bảng kiểm", "Danh mục tài sản", "Loại bảo trì định kỳ", "Phiên bản",
+        "Ngày hiệu lực", "Nội dung kiểm tra", "Cách ghi nhận kết quả", "Đơn vị đo",
+        "Ngưỡng dưới", "Ngưỡng trên", "Hạng mục trọng yếu?", "Mục tham chiếu tài liệu",
+    ]
+    widths = [34, 28, 22, 14, 18, 46, 24, 14, 16, 16, 22, 26]
+    ws = wb.create_sheet("Ví dụ minh hoạ")
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(labels))
+    c = ws.cell(row=1, column=1, value=(
+        "🧭 VÍ DỤ MINH HOẠ — ĐIỀN NHIỀU MẪU BẢNG KIỂM TRONG MỘT FILE  |  "
+        "Sheet này chỉ để xem, hệ thống KHÔNG nhập dữ liệu ở đây. "
+        "Chép cách điền sang sheet 'Bảng kiểm bảo trì'. "
+        "Quy tắc: mỗi hàng = 1 hạng mục; 5 cột đầu lặp lại y hệt ở mọi hàng cùng mẫu; "
+        "đổi Danh mục hoặc Loại bảo trì = sang mẫu mới. "
+        "Các hàng cùng mẫu KHÔNG bắt buộc phải liền nhau."
+    ))
+    c.font = Font(name="Calibri", bold=True, size=10, color=C_HEADER_FG)
+    c.fill = fill(C_HEADER_INFO)
+    c.alignment = left()
+    c.border = BORDER
+    ws.row_dimensions[1].height = 46
+
+    for col_idx, label in enumerate(labels, start=1):
+        cell = ws.cell(row=2, column=col_idx, value=label)
+        cell.font = Font(name="Calibri", bold=True, size=10, color="1A237E")
+        cell.fill = fill("FFF9C4")
+        cell.alignment = center()
+        cell.border = BORDER
+        ws.column_dimensions[get_column_letter(col_idx)].width = widths[col_idx - 1]
+    ws.row_dimensions[2].height = 22
+
+    row = 3
+    for block in _EXAMPLE_BLOCKS:
+        ws.merge_cells(start_row=row, start_column=1,
+                       end_row=row, end_column=len(labels))
+        note = ws.cell(row=row, column=1, value=block["note"])
+        note.font = cell_font(size=10, bold=True, color="1B5E20")
+        note.fill = fill(block["tint"])
+        note.alignment = left()
+        note.border = BORDER
+        ws.row_dimensions[row].height = 30
+        row += 1
+
+        for item in block["items"]:
+            for col_idx, value in enumerate(block["parent"] + item, start=1):
+                cell = ws.cell(row=row, column=col_idx, value=value)
+                cell.font = cell_font(size=10)
+                cell.fill = fill(block["tint"])
+                cell.alignment = left()
+                cell.border = BORDER
+            ws.row_dimensions[row].height = 18
+            row += 1
+
+    row += 1
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=len(labels))
+    total_items = sum(len(b["items"]) for b in _EXAMPLE_BLOCKS)
+    summary = ws.cell(row=row, column=1, value=(
+        f"➡ KẾT QUẢ: {total_items} hàng ở trên ⇒ {len(_EXAMPLE_BLOCKS)} mẫu bảng kiểm "
+        f"(mỗi mẫu {len(_EXAMPLE_BLOCKS[0]['items'])} hạng mục). "
+        "Bước xem trước trên màn hình sẽ liệt kê đúng từng mẫu và số hạng mục — "
+        "đối chiếu trước khi bấm nhập. "
+        "Mẫu đã có sẵn trong hệ thống: bật 'Cập nhật mẫu đã có' để THAY toàn bộ "
+        "hạng mục bằng nội dung file (không bật thì các hàng đó bị chặn)."
+    ))
+    summary.font = cell_font(size=10, bold=True, color="1A237E")
+    summary.fill = fill("EDE7F6")
+    summary.alignment = left()
+    summary.border = BORDER
+    ws.row_dimensions[row].height = 46
+
+    ws.freeze_panes = "A3"
+    return ws
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -854,10 +982,12 @@ def make_guide():
          "Toàn bộ tài sản thiết bị y tế",
          "4 — CUỐI CÙNG",
          "Cần: Category, Model, NCC, Location, Department, User"),
-        (12, "07_bang_kiem_bao_tri.xlsx",
+        (12, "07_bang_kiem_bao_tri.xlsx\n  → sheet 'Ví dụ minh hoạ'",
          "Mẫu bảng kiểm bảo trì định kỳ theo danh mục\n(mỗi hàng = 1 hạng mục kiểm tra)",
          "4 — Sau Danh mục tài sản",
-         "Gộp theo Danh mục + Loại bảo trì; mỗi danh mục 1 mẫu/loại"),
+         "NHIỀU mẫu chung 1 file: điền tiếp xuống dưới, đổi Danh mục / Loại bảo trì. "
+         "Gộp theo Danh mục + Loại bảo trì; mỗi danh mục 1 mẫu/loại. "
+         "Mẫu đã có: bật 'Cập nhật mẫu đã có' để thay toàn bộ hạng mục"),
     ]
 
     alt_colors = ["FDFEFE", "EAF2FF"]
@@ -894,6 +1024,12 @@ def make_guide():
         "3. Sai/trùng ở vài dòng KHÔNG chặn cả file: màn hình nhập liệu báo rõ sai ở "
         "hàng nào, cột nào; chọn 'Bỏ qua dòng lỗi/trùng' để nhập phần hợp lệ rồi tải "
         "báo cáo lỗi về sửa các dòng còn lại.",
+        "4. SỬA HÀNG LOẠT dữ liệu đã có: bấm 'Xuất Excel' → sửa trong file → nhập lại, "
+        "rồi bật «Cập nhật bản ghi đã có» ở bước kiểm tra. Ô để trống giữ nguyên giá "
+        "trị cũ (không xoá trắng). Bản ghi được nhận dạng theo MÃ nếu có mã, không có "
+        "thì theo TÊN. Riêng thiết bị: mã tài sản, số serial và trạng thái vòng đời "
+        "KHÔNG đổi được bằng file — sửa trên màn hình chi tiết để có phê duyệt và "
+        "lịch sử thay đổi.",
     ]
     for i, note in enumerate(notes):
         r = legend_row + 1 + i

@@ -616,7 +616,7 @@ Màn danh sách của module này áp **khuôn dùng chung** `frontend/src/compo
 | Hợp đồng props/slots/`data-testid` | [`docs/ui-ux/02_LIST_PAGE_SHELL.md §3`](../ui-ux/02_LIST_PAGE_SHELL.md) |
 | Sổ lô 3 + delta từng file + bảng copy tiếng Việt | [`§14.2` / `§14.4`](../ui-ux/02_LIST_PAGE_SHELL.md) |
 | Bất biến `INV-UX3-24…29` + test `TC-UX3-40 / TC-UX3-41` | [`§14.5` / `§14.6`](../ui-ux/02_LIST_PAGE_SHELL.md) |
-| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/views/listShellAdoption.test.ts` |
+| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/guards/listShellAdoption.guard.test.ts` |
 
 - **Route thuộc lô 3 của module này:** `/pm/work-orders` · `/pm/schedules`
 - **File view:** `views/pm/PMWorkOrderListView.vue` · `views/pm/PmScheduleListView.vue`

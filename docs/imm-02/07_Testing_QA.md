@@ -304,7 +304,7 @@ File dự kiến: `tests/test_imm02_api.py`. Cover happy + envelope `success=tru
 | `test_invariant_flags_subset_of_guard` | ∀ state × ∀ role: nếu `can_X=1` thì gọi endpoint X KHÔNG trả FORBIDDEN/BAD_STATE | map ⊆ guard-permitted | Property/State Transition |
 | `test_super_admin_can_lock_regression` | `AssetCore Super Admin` @ Pending Approval | `can_lock=1` **và** `lock_spec` OK (state→Locked) — chuỗi lesson "full quyền vẫn duyệt được" | Use Case (regression) |
 
-> FE parity: `frontend/src/views/tech-specs/__tests__/techSpecCtaGating.test.ts` (vitest) — cờ→nút v-if; grep `workflow_state ===` trong 3 computed CTA = 0; cờ thiếu → không lỗi + không nút.
+> FE parity: `frontend/src/views/tech-specs/__tests__/TechSpecDetailView.ctaGating.test.ts` (vitest) — cờ→nút v-if; grep `workflow_state ===` trong 3 computed CTA = 0; cờ thiếu → không lỗi + không nút.
 
 ### III.6.2. SSoT 6 transition trung gian — `allowed_actions` + reconcile INVARIANT (CR-WF-02-SPEC vòng 24, `test_imm02`)
 
@@ -321,7 +321,7 @@ File dự kiến: `tests/test_imm02_api.py`. Cover happy + envelope `success=tru
 
 > **Tách RBAC-gate ≠ business-gate:** `test_transition_workflow_advertised_action_reachable` phải dựng fixture thoả G01–G04 cho cạnh đang kiểm (vd Draft→Reviewing cần ≥8 mandatory + test_method), hoặc assert INVARIANT-2 ở mức role-permission. `allowed_actions` chỉ advertise cạnh role-reachable; `BUSINESS_RULE` khi bấm là UX đúng, KHÔNG vi phạm invariant.
 
-> **KHÔNG đụng** `imm_02_spec_workflow.json` → `test_workflow_admin_override` GIỮ GREEN (verify trong DoD). FE parity: `techSpecCtaGating.test.ts` +case `allowed_actions` (render `cta-wf-<slug>`, click → `store.transitionWorkflow` + `fetchOne`, rỗng/thiếu → 0 nút wf, Pending Approval không nuốt `cta-lock`/`cta-withdraw`). DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm02` → 'Ran N OK' THẬT (dòng cuối) + `vue-tsc` sạch + `vitest` xanh.
+> **KHÔNG đụng** `imm_02_spec_workflow.json` → `test_workflow_admin_override` GIỮ GREEN (verify trong DoD). FE parity: `TechSpecDetailView.ctaGating.test.ts` +case `allowed_actions` (render `cta-wf-<slug>`, click → `store.transitionWorkflow` + `fetchOne`, rỗng/thiếu → 0 nút wf, Pending Approval không nuốt `cta-lock`/`cta-withdraw`). DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm02` → 'Ran N OK' THẬT (dòng cuối) + `vue-tsc` sạch + `vitest` xanh.
 
 ## III.7. E2E browser (Playwright)
 

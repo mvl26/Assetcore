@@ -8,7 +8,7 @@ import { ref } from 'vue'
 
 /**
  * ToastType khớp với `Severity` ngoại trừ `'critical'` (critical → modal).
- * Đồng bộ với `frontend/src/i18n/messages.types.ts:Severity`.
+ * Đồng bộ với `frontend/src/locales/messageTypes.ts:Severity`.
  */
 export type ToastType = 'success' | 'error' | 'warning' | 'info'
 

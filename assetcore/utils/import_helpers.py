@@ -19,6 +19,17 @@ SOURCE_ROW_KEY = "__source_row__"
 # 3 nhãn VI, 4 mô tả, 5 ví dụ). Dùng chung cho cả Excel lẫn CSV.
 FIRST_DATA_ROW = 6
 
+# Dấu nhận biết file theo bố cục TEMPLATE — banner ở ô A1 do generator ghi ra
+# (`docs/res/imports/generate_templates.py::build_sheet`) và do `export_ref_data`
+# ghi lại y hệt. Sửa chuỗi này thì phải sửa cả hai nơi (guard: test_import_file_layout).
+TEMPLATE_BANNER_PREFIX = "📋 HƯỚNG DẪN IMPORT"
+
+# Bố cục CŨ của file "Xuất Excel" (trước 2026-08-11): chỉ 2 hàng khung — nhãn VI
+# rồi fieldname — nên dữ liệu bắt đầu ở hàng 3. File cũ đã nằm trong máy người
+# dùng, parser phải còn đọc được: bỏ cứng 5 hàng cho file này = nuốt IM LẶNG 3
+# bản ghi đầu (đo 2026-08-11: xuất 78 danh mục, nhập lại còn 75).
+LEGACY_EXPORT_FIRST_DATA_ROW = 3
+
 # ─────────────────────────────────────────────────────────────────────────────
 # LINK DISPLAY — SSoT (LL-IMP-1 / LL-BE-26)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -72,6 +83,71 @@ LINK_DISPLAY_BY_DOCTYPE: dict[str, dict[str, tuple[str, str]]] = {
         "asset_category": ("AC Asset Category", "category_name"),
     },
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UPDATE KEY — bản ghi nào trong hệ thống ứng với dòng này? (LL-IMP-11)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Một dòng file chỉ "cập nhật được" khi biết nó trỏ tới bản ghi nào. Khoá phải là
+# thứ NGƯỜI DÙNG cầm trong tay (mã / tên nghiệp vụ), không phải mã hệ thống
+# (`AC-SUP-2026-0007`) — họ không tra được mã đó.
+#
+# Danh sách theo THỨ TỰ ƯU TIÊN: cột nào có giá trị trước thì dùng cột đó. Đặt mã
+# trước tên để đổi được TÊN bằng import (khoá theo tên thì đổi tên = tạo bản ghi
+# mới, mất dấu bản cũ).
+#
+# Phải khớp với cột validator dùng để báo trùng — lệch = báo "đã tồn tại" nhưng
+# lại cập nhật nhầm bản ghi khác. Guard: `tests/test_import_update_existing.py`.
+UPDATE_KEY_BY_DOCTYPE: dict[str, tuple[str, ...]] = {
+    "AC Asset Category": ("category_code", "category_name"),
+    "AC Department":     ("department_code", "department_name"),
+    "AC Location":       ("location_code", "location_name"),
+    "AC Supplier":       ("supplier_code", "supplier_name"),
+    "IMM Device Model":  ("model_name",),
+    "Service Contract":  ("contract_code",),
+    "AC Asset":          ("asset_code",),
+    # `User` có đường upsert riêng (khoá = email, `_do_import_users`).
+}
+
+# Cột KHÔNG cho phép đổi bằng import khi cập nhật bản ghi đã có.
+# Trạng thái vòng đời đi kèm workflow + lịch sử thiết bị; mã tài sản và serial là
+# định danh đã in trên tem QR. Đổi mấy thứ này bằng file = đi vòng workflow và
+# làm nhoè vết kiểm toán (NĐ98). Sửa chúng phải qua màn hình, có người bấm nút.
+UPDATE_LOCKED_FIELDS_BY_DOCTYPE: dict[str, tuple[str, ...]] = {
+    "AC Asset": ("asset_code", "manufacturer_sn", "lifecycle_status", "status", "qr_token"),
+}
+
+
+def find_existing_by_key(doctype: str, rows: list[dict]) -> dict[int, str]:
+    """Dòng thứ N (1-based) → tên bản ghi đã có trong hệ thống, nếu tìm thấy.
+
+    Gom truy vấn theo LÔ: mỗi cột khoá đúng một câu `IN (...)`. Tra từng dòng thì
+    file 300 hàng bắn 300 truy vấn — chạy trên máy bệnh viện là thấy ngay.
+    """
+    key_fields = UPDATE_KEY_BY_DOCTYPE.get(doctype, ())
+    if not key_fields or not rows:
+        return {}
+
+    found: dict[int, str] = {}
+    for field in key_fields:
+        pending = {
+            i: str(row.get(field, "")).strip()
+            for i, row in enumerate(rows, start=1)
+            if i not in found and str(row.get(field, "")).strip()
+        }
+        if not pending:
+            continue
+        matches = frappe.get_all(
+            doctype,
+            filters={field: ["in", sorted(set(pending.values()))]},
+            fields=["name", field],
+        )
+        by_value = {str(m.get(field)): m["name"] for m in matches}
+        for i, value in pending.items():
+            if value in by_value:
+                found[i] = by_value[value]
+    return found
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ENUM DISPLAY — nhãn tiếng Việt cho cột Select
@@ -506,6 +582,7 @@ _REF_DATA_CONFIG: dict[str, dict] = {
     "PM Checklist Template": {
         "name_field": "template_name",
         "child_table": "checklist_items",
+        "child_doctype": "PM Checklist Item",
         "group_key_fields": ("asset_category", "pm_type"),
         "parent_fields": [
             "template_name", "asset_category", "pm_type", "version", "effective_date",
@@ -603,6 +680,9 @@ _SHEET_NAME_MAP: dict[str, str] = {
     "IMM Device Model": "Mô hình thiết bị (Device Model)",
     "Service Contract": "Hợp đồng (Service Contract)",
     "IMM SLA Policy":   "Chính sách SLA",
+    # File mẫu bảng kiểm có thêm sheet "Ví dụ minh hoạ" — khoá tên sheet dữ liệu
+    # để người dùng lưu file lúc đang đứng ở sheet ví dụ vẫn nhập đúng sheet.
+    "PM Checklist Template": "Bảng kiểm bảo trì",
 }
 
 
@@ -635,7 +715,7 @@ def parse_upload_file(file_url: str, doctype: str = "") -> tuple[list[str], list
 
     if file_url.lower().endswith((".xlsx", ".xls")):
         return _parse_excel(file_path, doctype)
-    return _parse_csv(file_path)
+    return _parse_csv(file_path, doctype)
 
 
 def _parse_excel(file_path: str, doctype: str = "") -> tuple[list[str], list[dict]]:
@@ -657,15 +737,15 @@ def _parse_excel(file_path: str, doctype: str = "") -> tuple[list[str], list[dic
     if len(rows_raw) < 2:
         raise ValueError("File rỗng hoặc thiếu dòng header (fieldname).")
 
-    # Row index 1 (0-based) = fieldnames
+    # Row index 1 (0-based) = fieldnames — ĐÚNG ở cả hai bố cục
     fieldnames: list[str] = [str(c).strip() if c is not None else "" for c in rows_raw[1]]
 
-    # Data starts at row index 5 (0-based) = hàng 6 của Excel, bỏ hàng ví dụ (index 4)
-    data_rows = rows_raw[FIRST_DATA_ROW - 1:]
-    return fieldnames, _rows_to_dicts(fieldnames, data_rows)
+    first_data_row = detect_first_data_row(rows_raw, fieldnames, doctype)
+    data_rows = rows_raw[first_data_row - 1:]
+    return fieldnames, _rows_to_dicts(fieldnames, data_rows, first_data_row)
 
 
-def _parse_csv(file_path: str) -> tuple[list[str], list[dict]]:
+def _parse_csv(file_path: str, doctype: str = "") -> tuple[list[str], list[dict]]:
     import csv
     with open(file_path, encoding="utf-8-sig") as f:
         reader = csv.reader(f)
@@ -675,8 +755,51 @@ def _parse_csv(file_path: str) -> tuple[list[str], list[dict]]:
         raise ValueError("File CSV rỗng hoặc thiếu dòng header.")
 
     fieldnames = [c.strip() for c in all_rows[1]]
-    data_rows_raw = [tuple(r) for r in all_rows[FIRST_DATA_ROW - 1:]]
-    return fieldnames, _rows_to_dicts(fieldnames, data_rows_raw)
+    rows_raw = [tuple(r) for r in all_rows]
+    first_data_row = detect_first_data_row(rows_raw, fieldnames, doctype)
+    return fieldnames, _rows_to_dicts(
+        fieldnames, rows_raw[first_data_row - 1:], first_data_row,
+    )
+
+
+def _row_matches_label_row(row, fieldnames: list[str], doctype: str) -> bool:
+    """Hàng này có phải hàng NHÃN tiếng Việt của template không?
+
+    Tín hiệu dự phòng khi banner bị xoá (người dùng hay xoá hàng 1 cho gọn).
+    So sánh bỏ hậu tố " (*)" mà template gắn cho cột bắt buộc.
+    """
+    if not doctype or not row:
+        return False
+    hits = comparable = 0
+    for value, fieldname in zip(row, fieldnames):
+        if not fieldname:
+            continue
+        label = field_label(doctype, fieldname)
+        if not label or label == fieldname:
+            continue          # cột không có nhãn riêng ⇒ không phân biệt được
+        comparable += 1
+        text = str(value or "").strip().removesuffix("(*)").strip()
+        if text == label:
+            hits += 1
+    return comparable > 0 and hits * 2 >= comparable
+
+
+def detect_first_data_row(rows_raw, fieldnames: list[str], doctype: str = "") -> int:
+    """Hàng đầu tiên chứa dữ liệu THẬT của file đang đọc (1-based).
+
+    Hai bố cục cùng tồn tại và phải phân biệt được, nếu không là mất dữ liệu câm:
+      - TEMPLATE (5 hàng khung: banner · fieldname · nhãn · mô tả · ví dụ) → hàng 6
+      - XUẤT CŨ  (2 hàng khung: nhãn · fieldname)                          → hàng 3
+
+    Hàng fieldname nằm ở hàng 2 trong CẢ HAI, nên nó không phân biệt được; dấu
+    hiệu là banner ở A1, dự phòng là hàng nhãn ở hàng 3.
+    """
+    banner = rows_raw[0][0] if rows_raw and rows_raw[0] else None
+    if isinstance(banner, str) and banner.strip().startswith(TEMPLATE_BANNER_PREFIX):
+        return FIRST_DATA_ROW
+    if len(rows_raw) >= 3 and _row_matches_label_row(rows_raw[2], fieldnames, doctype):
+        return FIRST_DATA_ROW
+    return LEGACY_EXPORT_FIRST_DATA_ROW
 
 
 def _normalise_cell(val: Any) -> Any:
@@ -685,11 +808,15 @@ def _normalise_cell(val: Any) -> Any:
     return val.strip() if isinstance(val, str) else val
 
 
-def _rows_to_dicts(fieldnames: list[str], raw_rows) -> list[dict]:
+def _rows_to_dicts(
+    fieldnames: list[str], raw_rows, first_data_row: int = FIRST_DATA_ROW,
+) -> list[dict]:
     """Chuyển hàng thô → dict theo fieldname, GIỮ số hàng gốc trong file.
 
     Dòng trống bị loại khỏi kết quả, nên index trong list KHÔNG còn suy ra được
     số hàng Excel — ghi lại ở `SOURCE_ROW_KEY` để báo lỗi chỉ đúng chỗ.
+    `first_data_row` khác nhau giữa file mẫu (6) và file xuất bố cục cũ (3), nên
+    phải truyền vào chứ không đọc hằng số — sai là báo lỗi chỉ nhầm hàng.
     """
     result = []
     for offset, raw in enumerate(raw_rows):
@@ -699,7 +826,7 @@ def _rows_to_dicts(fieldnames: list[str], raw_rows) -> list[dict]:
             if fn
         }
         if any(v not in ("", None) for v in row.values()):
-            row[SOURCE_ROW_KEY] = FIRST_DATA_ROW + offset
+            row[SOURCE_ROW_KEY] = first_data_row + offset
             result.append(row)
     return result
 
@@ -875,8 +1002,52 @@ def resolve_links_to_display(doctype: str, rows: list[dict]) -> list[dict]:
     return rows
 
 
+# Hàng 5 của file xuất — parser BỎ QUA hàng này (vị trí hàng ví dụ của file mẫu).
+# Dùng nó để nói thẳng cho người dùng biết dữ liệu bắt đầu từ đâu.
+_EXPORT_EXAMPLE_ROW_NOTE = (
+    "↓ TỪ HÀNG 6 TRỞ XUỐNG LÀ DỮ LIỆU. Hàng này là hàng ví dụ của khung file — "
+    "hệ thống bỏ qua khi nhập lại. Đừng xoá 5 hàng khung ở trên."
+)
+
+
+def _export_banner(doctype: str, title: str) -> str:
+    """Banner hàng 1 — vừa hướng dẫn người dùng, vừa là DẤU NHẬN BIẾT bố cục.
+
+    `detect_first_data_row` dựa vào tiền tố này để biết file có 5 hàng khung;
+    đổi chuỗi ở đây mà quên hằng `TEMPLATE_BANNER_PREFIX` = nhập lại mất 3 hàng.
+    """
+    extra = ""
+    if doctype in GROUPED_IMPORT_DOCTYPES:
+        extra = (
+            " MỖI HÀNG = 1 hạng mục; các cột của mẫu lặp lại ở mọi hàng cùng mẫu — "
+            "hệ thống gộp theo Danh mục + Loại bảo trì."
+        )
+    return (
+        f"{TEMPLATE_BANNER_PREFIX}: {title} (file xuất từ hệ thống)  |  "
+        f"Sửa trực tiếp rồi nhập lại file này. Dữ liệu bắt đầu từ HÀNG {FIRST_DATA_ROW}; "
+        f"không xoá/không sửa 5 hàng khung ở trên. "
+        f"Cột tham chiếu đã in TÊN — giữ nguyên dạng TÊN, đừng đổi về mã.{extra}"
+    )
+
+
+def _export_column_hint(doctype: str, fieldname: str) -> str:
+    """Mô tả cột ở hàng 4 — nói rõ cột nào nhập lại được, cột nào chỉ để đọc."""
+    if fieldname == "name":
+        return "Mã hệ thống — chỉ để đối chiếu; khi nhập lại hệ thống bỏ qua cột này."
+    if fieldname in LINK_DISPLAY_BY_DOCTYPE.get(doctype, {}):
+        return "Điền TÊN như trong hệ thống, không điền mã."
+    choices = ENUM_DISPLAY_BY_DOCTYPE.get(doctype, {}).get(fieldname, {})
+    if choices:
+        return "Chọn một trong: " + " / ".join(choices.values())
+    return ""
+
+
 def export_ref_data(doctype: str) -> bytes:
-    """Export all records of a ref-data DocType to xlsx bytes."""
+    """Export all records of a ref-data DocType to xlsx bytes.
+
+    Bố cục ghi ra TRÙNG với file mẫu (5 hàng khung) để vòng
+    "Xuất Excel → sửa trong Excel → Nhập lại" không mất hàng nào.
+    """
     if doctype not in _REF_DATA_CONFIG:
         raise ValueError(f"DocType '{doctype}' không hỗ trợ export")
 
@@ -907,22 +1078,33 @@ def export_ref_data(doctype: str) -> bytes:
 
     wb = Workbook()
     ws = wb.active
-    ws.title = doctype
+    ws.title = _SHEET_NAME_MAP.get(doctype, doctype)
 
-    # Header row: Vietnamese labels
-    label_row = [labels.get(f, f) for f in fields]
-    ws.append(label_row)
-    header_fill = PatternFill("solid", fgColor="2E4053")
-    header_font = Font(bold=True, color="FFFFFF")
-    for cell in ws[1]:
-        cell.fill = header_fill
-        cell.font = header_font
+    # ── Khung 5 hàng — GIỐNG HỆT file mẫu ────────────────────────────────────
+    # File xuất ra chính là file nhập lại. Trước 2026-08-11 export chỉ ghi 2 hàng
+    # khung trong khi parser bỏ 5 ⇒ nhập lại mất im lặng 3 bản ghi đầu.
+    ws.append([_export_banner(doctype, ws.title)])
+    ws.append(fields)                                   # hàng 2 — hợp đồng parser
+    ws.append([labels.get(f, f) for f in fields])
+    ws.append([_export_column_hint(doctype, f) for f in fields])
+    ws.append([_EXPORT_EXAMPLE_ROW_NOTE])
 
-    # Fieldname row (for re-import)
-    ws.append(fields)
+    banner_fill = PatternFill("solid", fgColor="1A5276")
+    ws["A1"].fill = banner_fill
+    ws["A1"].font = Font(bold=True, color="FFFFFF")
     fn_fill = PatternFill("solid", fgColor="D6EAF8")
     for cell in ws[2]:
         cell.fill = fn_fill
+    header_fill = PatternFill("solid", fgColor="2E4053")
+    header_font = Font(bold=True, color="FFFFFF")
+    for cell in ws[3]:
+        cell.fill = header_fill
+        cell.font = header_font
+    desc_fill = PatternFill("solid", fgColor="EAF2F8")
+    for cell in ws[4]:
+        cell.fill = desc_fill
+    for cell in ws[5]:
+        cell.fill = PatternFill("solid", fgColor="EAFAF1")
 
     for i, row in enumerate(rows):
         data = [row.get(f) for f in fields]

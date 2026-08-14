@@ -9,8 +9,8 @@ Usage:
     python scripts/gen_fe_messages.py
 
 Output:
-    frontend/src/i18n/messages.ts      (generated, KHÔNG sửa tay)
-    frontend/src/i18n/messages.types.ts (type definitions, generated)
+    frontend/src/locales/messages.ts      (generated, KHÔNG sửa tay)
+    frontend/src/locales/messageTypes.ts (type definitions, generated)
 
 Exit codes:
     0 success
@@ -18,7 +18,7 @@ Exit codes:
     2 output write error
 
 CI guard:
-    Sau khi chạy generator, `git diff --exit-code frontend/src/i18n/messages.ts`
+    Sau khi chạy generator, `git diff --exit-code frontend/src/locales/messages.ts`
     sẽ fail nếu có drift → buộc dev commit kèm thay đổi messages.py.
 """
 from __future__ import annotations
@@ -31,9 +31,9 @@ from pathlib import Path
 # Resolve repo root (parent of scripts/)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_FILE = REPO_ROOT / "assetcore" / "utils" / "messages.py"
-OUT_DIR = REPO_ROOT / "frontend" / "src" / "i18n"
+OUT_DIR = REPO_ROOT / "frontend" / "src" / "locales"
 OUT_MESSAGES = OUT_DIR / "messages.ts"
-OUT_TYPES = OUT_DIR / "messages.types.ts"
+OUT_TYPES = OUT_DIR / "messageTypes.ts"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ def _render_messages(
     lines: list[str] = [
         HEADER.rstrip("\n"),
         "",
-        "import type { MessageEntry } from './messages.types'",
+        "import type { MessageEntry } from './messageTypes'",
         "",
         "/** MSG constants — autocomplete-friendly access. */",
         "export const MSG = {",
@@ -173,7 +173,7 @@ def _render_messages(
         lines.append(f"  {json.dumps(code)}: {json_entry},")
     lines.append("}")
     lines.append("")
-    lines.append("export type { MessageEntry, MessageCode, Severity } from './messages.types'")
+    lines.append("export type { MessageEntry, MessageCode, Severity } from './messageTypes'")
     lines.append("")
 
     return "\n".join(lines)
@@ -218,12 +218,12 @@ def main(argv: list[str] | None = None) -> int:
             if not p.exists() or p.read_text(encoding="utf-8") != content
         ]
         if drifted:
-            print("DRIFT: FE i18n lệch registry BE — chạy `python scripts/gen_fe_messages.py`:",
+            print("DRIFT: FE locales lệch registry BE — chạy `python scripts/gen_fe_messages.py`:",
                   file=sys.stderr)
             for p in drifted:
                 print(f"  ✗ {p.relative_to(REPO_ROOT)}", file=sys.stderr)
             return 1
-        print(f"OK (--check): FE i18n khớp registry — {len(msg_constants)} MSG / "
+        print(f"OK (--check): FE locales khớp registry — {len(msg_constants)} MSG / "
               f"{len(messages_dict)} MESSAGES, 0 drift")
         return 0
 

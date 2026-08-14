@@ -24,7 +24,7 @@ import {
   getLabelFormat, pageRuleFor,
   MAX_LABEL_BATCH,
   type LabelFormatKey,
-} from '@/constants/label'
+} from '@/constants/labelFormats'
 
 const route = useRoute()
 const router = useRouter()

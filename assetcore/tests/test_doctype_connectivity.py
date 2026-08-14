@@ -46,6 +46,7 @@ import os
 import unittest
 
 import frappe
+from assetcore.tests._helpers.paths import DOCTYPE_DIR
 
 # ---------------------------------------------------------------------------
 # SSoT — 12 hub doctype đợt 1 (SPEC §3 P1). Thêm hub ⇒ sửa DUY NHẤT chỗ này.
@@ -77,7 +78,7 @@ def _snake(doctype: str) -> str:
 
 def _doctype_json_path(doctype: str) -> str:
     s = _snake(doctype)
-    return frappe.get_app_path(_APP, _APP, "doctype", s, s + ".json")
+    return os.path.join(DOCTYPE_DIR, s, s + ".json")
 
 
 _META_CACHE: dict[str, dict] = {}
@@ -134,7 +135,7 @@ def _load_dashboard_data(hub: str) -> dict | None:
     ``get_data`` ⇒ ném lên để test ĐỎ đúng nguyên nhân, thay vì mất tab Connections câm.
     """
     s = _snake(hub)
-    path = frappe.get_app_path(_APP, _APP, "doctype", s, s + "_dashboard.py")
+    path = os.path.join(DOCTYPE_DIR, s, s + "_dashboard.py")
     if not os.path.exists(path):
         return None
     module = importlib.import_module(f"{_APP}.{_APP}.doctype.{s}.{s}_dashboard")

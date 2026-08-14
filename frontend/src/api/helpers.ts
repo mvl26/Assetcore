@@ -1,6 +1,6 @@
 import api from './axios'
 import { ApiError, ErrorCode, httpStatusToCode, type ErrorCodeType, type Severity } from './errors'
-import { MESSAGES } from '@/i18n/messages'
+import { MESSAGES } from '@/locales/messages'
 
 export interface ApiResponse<T> {
   success: boolean

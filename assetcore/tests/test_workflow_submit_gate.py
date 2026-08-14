@@ -37,6 +37,7 @@ import os
 import unittest
 
 import frappe
+from assetcore.tests._helpers.paths import WORKFLOW_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +45,7 @@ import frappe
 # ---------------------------------------------------------------------------
 def _source_workflow_files() -> list[str]:
     """MỌI file workflow NGUỒN — path mà fresh-install ``_sync_workflows`` import_doc."""
-    wf_dir = frappe.get_app_path("assetcore", "assetcore", "workflow")
+    wf_dir = WORKFLOW_DIR
     return sorted(glob.glob(os.path.join(wf_dir, "*.json")))
 
 

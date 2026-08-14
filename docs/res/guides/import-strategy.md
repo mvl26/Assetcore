@@ -385,7 +385,7 @@ trùng đã có trong hệ thống hoặc trùng trong file đều là lỗi ch�
 Với dữ liệu cây, bỏ qua cha thì bỏ qua luôn con (`_cascade_skip_for_tree`) để không
 sinh node mồ côi. Sau khi nhập xong tải báo cáo lỗi về sửa rồi nhập lại phần còn thiếu.
 
-Guard: `assetcore/tests/test_import_display_names.py` (17 TC) + `frontend/src/api/importRowLabels.test.ts` (4 TC).
+Guard: `assetcore/tests/test_import_display_names.py` (17 TC) + `frontend/src/api/tests/importRowLabels.test.ts` (4 TC).
 
 ### 8bis.1 Dữ liệu có BẢNG CON — mẫu bảng kiểm bảo trì (bổ sung 2026-08-11)
 
@@ -401,20 +401,89 @@ tiên không phẳng. Quyết định:
   không theo hàng liền nhau.
 - **Cột của mẫu lấy theo hàng đầu nhóm**; hàng sau khai lệch chỉ cảnh báo — chặn
   thì file thật (người ta copy/paste tay) không bao giờ nhập nổi.
-- **Mẫu đã tồn tại** ⇒ lỗi gắn vào mọi hàng của mẫu đó, nên 'bỏ qua dòng lỗi/trùng'
-  loại đúng mẫu trùng mà các mẫu khác trong file vẫn vào. Import KHÔNG ghi đè mẫu
-  cũ — sửa mẫu là việc của màn hình `/pm/templates`.
-- **Tạo bản ghi qua service layer** (`services.imm08.create_template`), không
-  `new_doc().insert()` trần: đánh số hạng mục (`ITEM-001…`) và quy tắc nghiệp vụ
-  nằm ở đó.
-- **`success` đếm theo DÒNG**, thêm `groups_created` cho số mẫu — giao diện hiện cả
-  hai ("3 hạng mục nhập thành công · Đã tạo 2 mẫu bảng kiểm").
+- **Nhiều mẫu trong CÙNG một file** là mặc định, không phải trường hợp đặc biệt:
+  điền tiếp xuống dưới với Danh mục / Loại bảo trì khác. Một hàng ví dụ đơn lẻ
+  KHÔNG dạy được điều đó, nên file mẫu có sheet **"Ví dụ minh hoạ"** bày 2 mẫu ×
+  3 hạng mục (2 khối màu + dòng "KẾT QUẢ: 6 hàng ⇒ 2 mẫu"). Sheet ví dụ không bao
+  giờ bị nhập: `_SHEET_NAME_MAP["PM Checklist Template"]` khoá parser vào sheet
+  "Bảng kiểm bảo trì".
+- **Mẫu đã tồn tại** ⇒ mặc định lỗi gắn vào mọi hàng của mẫu đó, nên 'bỏ qua dòng
+  lỗi/trùng' loại đúng mẫu trùng mà các mẫu khác trong file vẫn vào.
+  Bật **"Cập nhật mẫu bảng kiểm đã có"** (opt-in ở bước kiểm tra) thì mẫu trùng
+  chuyển từ lỗi sang **cảnh báo** và toàn bộ hạng mục cũ **bị thay** bằng nội dung
+  file — hợp đồng "file là bản chuẩn" của vòng Xuất → sửa → Nhập lại. Mẫu đã có
+  người phê duyệt còn thêm cảnh báo riêng (đụng hồ sơ QMS). Bật/tắt công tắc là
+  **hỏi lại server** (`preview_ref_data(update_existing=…)`), FE KHÔNG tự lọc lỗi.
+- **Tạo/cập nhật bản ghi qua service layer** (`services.imm08.create_template` /
+  `update_template`), không `new_doc().insert()` hay `db_set` trần: đánh số hạng
+  mục (`ITEM-001…`) và quy tắc nghiệp vụ nằm ở đó.
+- **`success` đếm theo DÒNG**, thêm `groups_created` + `groups_updated` cho số mẫu
+  — giao diện hiện cả hai ("3 hạng mục nhập thành công · Đã tạo 2 mẫu bảng kiểm").
+- **Bước kiểm tra tóm tắt theo NHÓM** (`preview.groups`): mỗi mẫu một dòng — tên
+  mẫu · danh mục · loại bảo trì · số hạng mục · trạng thái *Tạo mới / Cập nhật /
+  Đã tồn tại* · số hạng mục hiện có sẽ bị thay · **hàng thật trong file** để mở
+  đúng chỗ mà sửa. Đây là chỗ duy nhất trả lời được "30 hàng của tôi ra mấy mẫu".
 - **Cột Select cũng hỏi bằng tiếng Việt** (SSoT `ENUM_DISPLAY_BY_DOCTYPE`): template
   và export in "Hàng quý" / "Số đo"; import nhận cả nhãn VI lẫn giá trị gốc rồi đổi
   về giá trị gốc. Enum của DocType KHÔNG đổi.
 
-Guard: `assetcore/tests/test_import_pm_checklist_template.py` (11 TC) +
-`frontend/src/views/pm/pmTemplateImportWiring.test.ts` (5 TC).
+Guard: `assetcore/tests/test_import_pm_checklist_template.py` (19 TC) +
+`frontend/src/views/pm/tests/PmTemplateListView.importWiring.test.ts` (5 TC) +
+`frontend/src/composables/tests/importGroupedWizard.test.ts` (7 TC) +
+`frontend/src/components/import/tests/ImportWizardModal.groups.test.ts` (6 TC).
+
+### 8bis.1c Nhập để CẬP NHẬT bản ghi đã có (mở rộng 2026-08-11)
+
+Trước bản này, vòng "Xuất → sửa → Nhập lại" chỉ chạy cho **Người dùng** (upsert
+theo email) và **Mẫu bảng kiểm**. 6 loại còn lại chặn cứng "đã tồn tại"; riêng
+**Nhà cung cấp** không có validator nào nên nhập lại cùng file đẻ bản ghi trùng
+(đo thật: `AC-SUP-2026-1541` + `1542` cùng tên, không lỗi, không cảnh báo).
+
+Hợp đồng thống nhất cho MỌI loại dữ liệu:
+
+- **Nhận dạng bản ghi**: SSoT `UPDATE_KEY_BY_DOCTYPE` — danh sách cột theo thứ tự
+  ưu tiên, **mã trước tên sau** (có mã thì đổi được tên bằng import; khoá theo tên
+  thì đổi tên = đẻ bản ghi mới). Phải khớp cột validator dùng để báo trùng.
+- **Cập nhật là opt-in** (`update_existing`), mặc định TẮT. Bật thì lỗi trùng
+  thành cảnh báo — một chỗ duy nhất quyết định: `BaseImportValidator._dup_existing`.
+- **Ô để trống = giữ nguyên giá trị cũ.** Người nhập liệu chỉ quan tâm vài cột;
+  coi ô trống là "xoá" thì xuất 8 cột sửa 1 cột là mất 7. (Khác với bảng con của
+  mẫu bảng kiểm: ở đó file là bản chuẩn, hạng mục cũ bị thay sạch.)
+- **Cột nhạy cảm bị khoá** (`UPDATE_LOCKED_FIELDS_BY_DOCTYPE`): thiết bị không đổi
+  được `asset_code` · `manufacturer_sn` · `lifecycle_status` · `status` · `qr_token`
+  bằng file — đi kèm workflow + vết kiểm toán NĐ98. File đòi đổi ⇒ **cảnh báo ở
+  bước xem trước** rồi giữ nguyên, không im lặng bỏ qua.
+- **Xem trước tách bạch** `will_create` / `will_update`; `existing_rows` đếm cả khi
+  công tắc đang tắt để giao diện còn mời chào bật. Kết quả trả `updated`.
+- **Mọi loại nhập được đều phải có validator** — thiếu validator = không phát hiện
+  trùng = nhân đôi im lặng. Guard: `test_import_update_existing.py`.
+
+Guard: `assetcore/tests/test_import_update_existing.py` (11 TC) +
+`frontend/src/composables/tests/importGroupedWizard.test.ts` (11 TC).
+
+### 8bis.1b Khung file: XUẤT RA phải nhập lại được (sửa 2026-08-11)
+
+Lỗi P1 phát hiện cùng ngày: `export_ref_data` ghi khung **2 hàng** (nhãn +
+fieldname, dữ liệu từ hàng 3) trong khi parser luôn bỏ **5** hàng ⇒ vòng
+"Xuất Excel → sửa → Nhập lại" **nuốt im lặng 3 bản ghi đầu tiên** (đo thật: xuất
+78 danh mục, nhập lại đọc được 75 — không lỗi, không cảnh báo).
+
+Hợp đồng mới:
+
+- **File xuất ra dùng ĐÚNG khung 5 hàng của file mẫu**: banner · fieldname · nhãn
+  VI · mô tả cột · hàng ví dụ. Hàng 2 vẫn là fieldname ở cả hai bố cục.
+- Banner mang tiền tố nhận biết `TEMPLATE_BANNER_PREFIX = "📋 HƯỚNG DẪN IMPORT"`.
+  Đổi chuỗi này mà quên hằng ⇒ tái lập lại đúng lỗi trên.
+- **Parser tự nhận bố cục** (`detect_first_data_row`): banner ⇒ hàng 6; không có
+  banner thì so hàng 3 với hàng nhãn ⇒ hàng 6; còn lại là file xuất bố cục **cũ**
+  ⇒ hàng 3. File cũ đã nằm trong máy người dùng nên bắt buộc còn đọc được.
+- Hàng 4 của file xuất nói rõ cột nào nhập lại được: cột `name` ghi "Mã hệ thống —
+  chỉ để đối chiếu; khi nhập lại hệ thống bỏ qua cột này".
+- `_rows_to_dicts` nhận `first_data_row` thay vì đọc hằng — sai một hàng là báo lỗi
+  chỉ nhầm chỗ.
+
+Guard: `assetcore/tests/test_import_file_layout.py` (5 TC — round-trip theo SỐ
+LƯỢNG bản ghi, không theo vị trí; bố cục cũ; bố cục mẫu; banner bị xoá).
 
 ### 8bis.2 Cột Select hỏi bằng tiếng Việt — áp CẢ LOẠT (đồng bộ 2026-08-11)
 

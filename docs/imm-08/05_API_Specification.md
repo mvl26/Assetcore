@@ -1474,7 +1474,7 @@ qua `nthrow(MSG.IMM08_*)`; DocType `validate` hook (BR-08-06/08/09/10/02) raise 
 
 > Content tuân `messages.py` §quy chuẩn — Chủ thể + Hậu quả + Hành động, không từ
 > kỹ thuật, không đổ lỗi user. Sau khi thêm vào `messages.py`, chạy
-> `python scripts/gen_fe_messages.py` để regen `frontend/src/i18n/messages.ts`.
+> `python scripts/gen_fe_messages.py` để regen `frontend/src/locales/messages.ts`.
 
 ### 11.3 BE migration checklist (cho assetcore-be)
 
@@ -1485,7 +1485,7 @@ qua `nthrow(MSG.IMM08_*)`; DocType `validate` hook (BR-08-06/08/09/10/02) raise 
 - **BR-08-19 (Vòng 3, bịt lỗ vacuous-pass):** trong CÙNG hook, THÊM guard TRƯỚC vòng lặp
   thiếu-result — `if not (doc.checklist_results or []): nthrow_in_hook(MSG.IMM08_CHECKLIST_EMPTY)`.
   Thêm `MSG.IMM08_CHECKLIST_EMPTY` vào `utils/messages.py` (bảng §11.2) + regen
-  `frontend/src/i18n/messages.ts` (`python scripts/gen_fe_messages.py`). `submit_result`
+  `frontend/src/locales/messages.ts` (`python scripts/gen_fe_messages.py`). `submit_result`
   KHÔNG cần sửa (`wo.save()` → validate → ValidationError → `except` line ~1043 wrap
   `ServiceError(VALIDATION)`; status giữ + docstatus=0). **OPTIONAL BR-08-20:** guard idx-drift
   trong `submit_result` (khi WO ≥1 dòng) + `MSG.IMM08_CHECKLIST_IDX_UNKNOWN`.
@@ -2056,7 +2056,7 @@ Cite-parity đòi symbol **đã tồn tại ở dòng thật**; guard AC2 lại 
 service. Cả hai **chưa có trên đĩa** ⇒ dán OAS + guard ngay bây giờ = **ĐỎ tức thì**. Trình tự **BẮT BUỘC**:
 
 1. **[BE]** `utils/messages.py`: `MSG.VAL_INVALID_FILTER_KEY = "VAL-INVALID-FILTER-KEY"` + entry registry
-   (`04 §4.4`) → chạy `python3 scripts/gen_fe_messages.py` (sinh `frontend/src/i18n/messages.ts`) rồi
+   (`04 §4.4`) → chạy `python3 scripts/gen_fe_messages.py` (sinh `frontend/src/locales/messages.ts`) rồi
    `--check` phải OK.
 2. **[BE]** `services/shared/filters.py::assert_allowed_filter_keys` + `services/imm08.py`/`services/imm09.py`
    `_ALLOWED_FILTER_KEYS` + 1 dòng cắm ở `list_work_orders` (`04 §4.4` / imm-09 `04 §3.9`).

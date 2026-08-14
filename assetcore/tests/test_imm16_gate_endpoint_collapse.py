@@ -33,6 +33,7 @@ from frappe.utils import add_days, nowdate
 
 from assetcore.api import imm16 as api
 from assetcore.services.imm00 import check_capa_overdue
+from assetcore.tests._asset_cleanup import purge_asset
 
 _UID = str(int(time.time()) % 100000)
 _DT_CAPA = "IMM CAPA Record"
@@ -83,10 +84,9 @@ class TestGateEndpointCollapse(unittest.TestCase):
                     d.cancel()
                 frappe.delete_doc(_DT_CAPA, n, force=True, ignore_permissions=True,
                                   delete_permanently=True)
-        frappe.db.sql("DELETE FROM `tabIMM Audit Trail` WHERE asset=%s",
-                      (cls._asset.name,))
-        frappe.delete_doc("AC Asset", cls._asset.name, force=True,
-                          ignore_permissions=True)
+        # R-9: purge_asset là đường DUY NHẤT xoá được asset fixture — WR-03 (on_trash)
+        # chặn delete_doc khi còn Sự kiện vòng đời, kể cả force=True.
+        purge_asset(cls._asset.name)
         frappe.delete_doc("AC Asset Category", cls._cat.name, force=True,
                           ignore_permissions=True)
         frappe.db.commit()

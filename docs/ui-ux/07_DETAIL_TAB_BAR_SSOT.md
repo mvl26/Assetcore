@@ -33,7 +33,7 @@
 - **N2** — **KHÔNG** đổi/xoá/nới bất kỳ lời hứa cũ của `DetailTabBar`: `role="tablist"` · `role="tab"` · `aria-selected` hai chiều · `type="button"` · `data-testid="tab-<key>"` · `overflow-x-auto` ở container · `shrink-0 whitespace-nowrap` ở nút · **controlled** (chỉ emit, không tự giữ state).
 - **N3** — **KHÔNG** biến `CommissioningDetailView` từ tab-theo-route thành tab-state-cục-bộ (mất deep-link + mất nút Back của trình duyệt).
 - **N4** — **KHÔNG** đổi `v-show` → `v-if` ở `NeedsRequestDetailView` (mất chữ đã gõ ở tab «Chấm điểm ưu tiên»/«Dự toán»).
-- **N5** — **KHÔNG** đổi `v-if` → `v-show` ở panel «Bản ghi liên quan» của `AssetDetailView` (mất nạp lười — hợp đồng AC-CR-87/96, khoá bởi `relatedRecordsTabParity.test.ts`).
+- **N5** — **KHÔNG** đổi `v-if` → `v-show` ở panel «Bản ghi liên quan» của `AssetDetailView` (mất nạp lười — hợp đồng AC-CR-87/96, khoá bởi `relatedRecordsTabParity.guard.test.ts`).
 - **N6** — **KHÔNG** sửa file `.py`. Vòng này **0 dòng backend** ⇒ **không phát sinh nhu cầu restart `gunicorn --preload`**.
 - **N7** — **KHÔNG** nới 5 guard đang xanh (xem §8.6). Ngoại lệ **duy nhất, đã dự liệu**: một token trong miền giá trị cột «Vòng» — §8.6.
 
@@ -54,7 +54,7 @@
 Thêm một đính chính về **lệnh nghiệm thu** (§10 dùng bản đã sửa):
 
 ```bash
-# SAI — dính 2 dòng trong internalAuditDetailStates.test.ts (chuỗi trong ASSERT, không phải markup)
+# SAI — dính 2 dòng trong InternalAuditDetailView.states.test.ts (chuỗi trong ASSERT, không phải markup)
 grep -rn 'role="tablist"' frontend/src/views/            # ⇒ 3 hit hôm nay, 2 hit sau vòng ⇒ KHÔNG BAO GIỜ về 0
 # ĐÚNG — chỉ chấm markup
 grep -rn 'role="tablist"' frontend/src/views/ --include=*.vue   # ⇒ 1 hit hôm nay → 0 hit sau vòng
@@ -77,7 +77,7 @@ const SELF_DRAWN_TAB_RE = /<button\b[^>]*?:class\s*=\s*"[^"]*\b(?:activeTab|tab)
 ```
 
 - Quét **2 cây** `src/views` + `src/components` (thanh tab tự chế đã trốn được vào `components/` — §1.3).
-- Đo trên nguồn **đã strip comment** (`src/test/stripComments.ts` — dùng chung với `bareConfirmBudget.test.ts`; chú thích mô tả thanh tab **không phải** thanh tab).
+- Đo trên nguồn **đã strip comment** (`src/test/stripComments.ts` — dùng chung với `bareConfirmBudget.guard.test.ts`; chú thích mô tả thanh tab **không phải** thanh tab).
 - Đơn vị đếm = **nút-tab khai báo trong nguồn**, không phải «bar». Một `v-for` = 1; ba nút viết tay = 3.
 
 ### 1.3 Bản đồ per-file — mẫu số chấm DELTA (đo 2026-08-04)
@@ -236,11 +236,11 @@ function isAssetTabKey(v: string): v is AssetTabKey {
 
 | # | Bất biến | Khoá bởi |
 |---|---|---|
-| A-1 | `activeTab` giữ **nguyên tên** và vẫn là `ref` | `relatedRecordsTabParity.test.ts` (d) assert `v-if="activeTab === 'related'"` |
-| A-2 | Panel liên quan giữ `v-if` + `data-testid="tab-panel-related"` (`:1045`) | `relatedRecordsTabParity` (b)(c)(d) · `assetDetailRelatedTab.test.ts` |
-| A-3 | `onTabChange` chạy **đúng 1 lần / 1 lần bấm**, giữ nguyên 3 nhánh nạp lười (`timeline`/`kpi`/`audit`) | `assetTimelineTotalLoadMore.test.ts:89,206,215` |
-| A-4 | 6 testid `tab-info … tab-related` giữ nguyên chuỗi | `assetDetailRelatedTab.test.ts:128-161` |
-| A-5 | Nhãn «Bản ghi liên quan» và «Nhật ký truy vết» còn nguyên trong nguồn | `assetDetailTabBarResponsive.test.ts` |
+| A-1 | `activeTab` giữ **nguyên tên** và vẫn là `ref` | `relatedRecordsTabParity.guard.test.ts` (d) assert `v-if="activeTab === 'related'"` |
+| A-2 | Panel liên quan giữ `v-if` + `data-testid="tab-panel-related"` (`:1045`) | `relatedRecordsTabParity` (b)(c)(d) · `AssetDetailView.relatedTab.test.ts` |
+| A-3 | `onTabChange` chạy **đúng 1 lần / 1 lần bấm**, giữ nguyên 3 nhánh nạp lười (`timeline`/`kpi`/`audit`) | `AssetDetailView.timelineTotalLoadMore.test.ts:89,206,215` |
+| A-4 | 6 testid `tab-info … tab-related` giữ nguyên chuỗi | `AssetDetailView.relatedTab.test.ts:128-161` |
+| A-5 | Nhãn «Bản ghi liên quan» và «Nhật ký truy vết» còn nguyên trong nguồn | `AssetDetailView.tabBarResponsive.test.ts` |
 | A-6 | Không thêm `v-model` song song với `@update:model-value` | tránh ghi state 2 lần |
 
 ### 4.2 `views/commissioning/CommissioningDetailView.vue` — 3 tab, **theo route**, có badge
@@ -318,7 +318,7 @@ Mỗi màn ≥1 file test mount thật (khuôn `*DetailStates.test.ts` của `03
 
 ## §5. Test cũ phải viết lại — **relocation, KHÔNG phải nới lỏng**
 
-`frontend/src/views/asset/assetDetailTabBarResponsive.test.ts` (TC-RWD-07) là test **mức nguồn**: nó tìm chuỗi `'info', 'depreciation', 'timeline', 'kpi', 'audit', 'related'` rồi soi `<div>` đứng trước có `overflow-x-auto`, và soi khối `v-for="tab in ([…]` có `shrink-0`/`whitespace-nowrap`. Sau di trú, **markup đó không còn nằm trong `AssetDetailView.vue`** ⇒ test đỏ.
+`frontend/src/views/asset/tests/AssetDetailView.tabBarResponsive.test.ts` (TC-RWD-07) là test **mức nguồn**: nó tìm chuỗi `'info', 'depreciation', 'timeline', 'kpi', 'audit', 'related'` rồi soi `<div>` đứng trước có `overflow-x-auto`, và soi khối `v-for="tab in ([…]` có `shrink-0`/`whitespace-nowrap`. Sau di trú, **markup đó không còn nằm trong `AssetDetailView.vue`** ⇒ test đỏ.
 
 Chú thích trong chính file đó viết: *«TUYỆT ĐỐI KHÔNG nới lỏng assert overflow-x-auto/shrink-0»*. Cách xử lý **tôn trọng** câu đó:
 
@@ -326,7 +326,7 @@ Chú thích trong chính file đó viết: *«TUYỆT ĐỐI KHÔNG nới lỏng
 |---|---|
 | Xoá file · xoá 2 assert cuộn ngang · đổi thành `expect(true)` | **Dời** lời hứa về nơi markup thật sự sống |
 
-Lời hứa `overflow-x-auto` + `shrink-0` + `whitespace-nowrap` **đã có sẵn** ở `DetailTabBar.test.ts` (TC-CONNTAB-03) — nên không có lời hứa nào bị mất. `assetDetailTabBarResponsive.test.ts` được viết lại thành **test tiêu thụ**:
+Lời hứa `overflow-x-auto` + `shrink-0` + `whitespace-nowrap` **đã có sẵn** ở `DetailTabBar.test.ts` (TC-CONNTAB-03) — nên không có lời hứa nào bị mất. `AssetDetailView.tabBarResponsive.test.ts` được viết lại thành **test tiêu thụ**:
 
 | Assert mới | Ý nghĩa |
 |---|---|
@@ -337,15 +337,15 @@ Lời hứa `overflow-x-auto` + `shrink-0` + `whitespace-nowrap` **đã có sẵ
 
 Đổi tên `describe` giữ tiền tố `TC-RWD-07` để lịch sử truy được.
 
-**Test KHÔNG được đụng** (phải xanh nguyên trạng): `relatedRecordsTabParity.test.ts` · `assetDetailRelatedTab.test.ts` · `assetTimelineTotalLoadMore.test.ts` · `cmDetailRelatedTab.test.ts` · `DetailTabBar.test.ts` (3 describe cũ) · `internalAuditDetailStates.test.ts`.
+**Test KHÔNG được đụng** (phải xanh nguyên trạng): `relatedRecordsTabParity.guard.test.ts` · `AssetDetailView.relatedTab.test.ts` · `AssetDetailView.timelineTotalLoadMore.test.ts` · `CMWorkOrderDetailView.relatedTab.test.ts` · `DetailTabBar.test.ts` (3 describe cũ) · `InternalAuditDetailView.states.test.ts`.
 
 ---
 
-## §6. Guard CHỈ-GIẢM mới — `frontend/src/views/detailTabBarAdoption.test.ts` — **AC-UX-069**
+## §6. Guard CHỈ-GIẢM mới — `frontend/src/guards/detailTabBarAdoption.guard.test.ts` — **AC-UX-069**
 
 ### 6.1 Vì sao cần
 
-Nợ thanh tab đã sống 3 vòng dưới dạng **một câu văn sai** («27/32»). Câu văn không đỏ được. Và bản thân lỗi *«mọc thêm một thanh tab tự chế»* rất rẻ để tái phạm: 8 dòng `<button>` là xong. Guard theo khuôn `bareConfirmBudget.test.ts` (ADR-UX-18).
+Nợ thanh tab đã sống 3 vòng dưới dạng **một câu văn sai** («27/32»). Câu văn không đỏ được. Và bản thân lỗi *«mọc thêm một thanh tab tự chế»* rất rẻ để tái phạm: 8 dòng `<button>` là xong. Guard theo khuôn `bareConfirmBudget.guard.test.ts` (ADR-UX-18).
 
 ### 6.2 Hai phần — vì một phép đo không đủ
 
@@ -438,7 +438,7 @@ Biến thể gạch dưới `Minutes_Approved` là bắt buộc — Frappe trả
 | `Minutes Approved` + `Minutes_Approved` | `COLOR_GREEN` | mốc đã duyệt (cùng tông `Approved`) |
 | `Draft` · `Closed` | giữ nguyên `COLOR_GRAY` | đã có |
 
-### 7.3 Guard parity 2 nguồn (gộp vào `detailTabBarAdoption.test.ts` hoặc file riêng `mrStatusLabelParity.test.ts`)
+### 7.3 Guard parity 2 nguồn (gộp vào `detailTabBarAdoption.guard.test.ts` hoặc file riêng `mrStatusLabelParity.test.ts`)
 
 | Mã | Assert |
 |---|---|
@@ -453,10 +453,10 @@ TC-UXMR-02 là ô chốt: nó biến «nhãn phải trùng» từ lời dặn th
 
 ## §8. Bẫy đã biết — **ĐỌC TRƯỚC KHI CODE**
 
-### 8.1 `assetDetailTabBarResponsive.test.ts` sẽ đỏ ngay khi xoá markup — **đã lường trước**
+### 8.1 `AssetDetailView.tabBarResponsive.test.ts` sẽ đỏ ngay khi xoá markup — **đã lường trước**
 Đây không phải hồi quy. Xử lý theo §5 (dời lời hứa), **không** xoá assert.
 
-### 8.2 `relatedRecordsTabParity.test.ts` (d) đọc **chuỗi nguồn** `v-if="activeTab === 'related'"`
+### 8.2 `relatedRecordsTabParity.guard.test.ts` (d) đọc **chuỗi nguồn** `v-if="activeTab === 'related'"`
 Đổi tên biến `activeTab` (vd thành `tab`) ⇒ đỏ **5 màn** cùng lúc. Giữ nguyên tên.
 
 ### 8.3 `v-model` + `@update:model-value` cùng lúc
@@ -470,12 +470,12 @@ Truyền `computed` vào prop `modelValue` là bình thường; nhưng **cấm**
 
 ### 8.6 5 guard đang xanh — giữ nguyên, **một ngoại lệ đã dự liệu**
 
-Không đụng: `router/uiFixPlanParity.test.ts` · `components/common/modalOverlayHygiene.test.ts` · `components/ui/uiPrimitiveHygiene.test.ts` · `components/common/bareConfirmBudget.test.ts` · phần lớn `router/uiAuditDocParity.test.ts`.
+Không đụng: `router/uiFixPlanParity.guard.test.ts` · `components/common/modalOverlayHygiene.guard.test.ts` · `components/ui/uiPrimitiveHygiene.guard.test.ts` · `components/common/bareConfirmBudget.guard.test.ts` · phần lớn `router/uiAuditDocParity.guard.test.ts`.
 
 **Ngoại lệ duy nhất — bắt buộc, 1 token:**
 
 ```
-frontend/src/router/uiAuditDocParity.test.ts:35
+frontend/src/guards/uiAuditDocParity.guard.test.ts:35
 - const ROUND_VALUES = new Set(['2', '3', '4', '5', '6', '7'])
 + const ROUND_VALUES = new Set(['2', '3', '4', '5', '6', '7', '8'])
 ```
@@ -518,13 +518,13 @@ grep -n 'absolute inset-x-0 bottom-0 h-0.5' src/views/commissioning/Commissionin
 node -e "…SELF_DRAWN_TAB_RE…"                                         # ⇒ 3 file đích = 0 match
 
 # 3) Nợ tab còn lại — bản đồ CHỈ-GIẢM
-npx vitest run src/views/detailTabBarAdoption.test.ts                 # ⇒ tổng 12 → 7, file 9 → 6
+npx vitest run src/guards/detailTabBarAdoption.guard.test.ts                 # ⇒ tổng 12 → 7, file 9 → 6
 
 # 4) Nhãn MR
-npx vitest run src/utils/formatters.test.ts                           # TC-UXMR-01..04 xanh
+npx vitest run src/utils/tests/formatters.test.ts                           # TC-UXMR-01..04 xanh
 
 # 5) Hợp đồng cũ bất biến
-git diff --stat -- src/components/common/DetailTabBar.test.ts         # 3 describe cũ: 0 dòng đổi (chỉ +TC-CONNTAB-05..09)
+git diff --stat -- src/components/common/tests/DetailTabBar.test.ts         # 3 describe cũ: 0 dòng đổi (chỉ +TC-CONNTAB-05..09)
 
 # 6) Suite + kiểu
 npx vitest run                                                        # ⇒ ≥ 347 file / ≥ 3451 test, 0 ĐỎ, delta ≥ +4 file test

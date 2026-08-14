@@ -230,7 +230,7 @@ import {
 import RequirementTable from '@/components/tech-specs/RequirementTable.vue'
 import { submitBenchmark, submitLockInAssessment } from '@/api/imm02'
 import { useNotify } from '@/composables/useNotify'
-import { MSG } from '@/i18n/messages'
+import { MSG } from '@/locales/messages'
 import DetailPageShell from '@/components/common/DetailPageShell.vue'
 import { useDetailAccess } from '@/composables/useDetailAccess'
 

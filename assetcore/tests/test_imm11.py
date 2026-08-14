@@ -18,6 +18,7 @@ from assetcore.services.shared import (
     ErrorCode,
     ServiceError,
 )
+from assetcore.tests._helpers.paths import APP_ROOT
 
 
 # ─── Fixture helpers ──────────────────────────────────────────────────────────
@@ -4077,7 +4078,7 @@ class TestCalibrationReschedule(unittest.TestCase):
         import os
         from assetcore.services.imm11 import RESCHEDULE_CAL_STATES
         path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            APP_ROOT,
             "assetcore", "doctype", "imm_asset_calibration", "imm_asset_calibration.json")
         with open(path, encoding="utf-8") as fh:
             schema = json.load(fh)

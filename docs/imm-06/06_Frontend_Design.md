@@ -295,7 +295,7 @@
 - **Payload:** chỉ gửi các participant đã nhập điểm (hoặc gửi cả, BE strict-check unmatched — nhưng participant của buổi luôn khớp nên an toàn). KHÔNG gửi user ngoài `currentSession.participants`.
 - **Toast thành công** đọc `result.scored_count` + `result.competencies_created` (server-real), KHÔNG dùng `participants.length`/`len(results)`. Nếu shape `api/imm06.ts::completeSession` còn `participants_summary`/`new_state` → cập nhật type sang `{ name; workflow_state; scored_count; competencies_created }`.
 - **Khi BE raise** (VR-13 `Phải chấm điểm ít nhất 1 học viên…(BR-06-08)` / VR-14 user không thuộc buổi): `api.run` trả falsy → hiển thị **message lỗi từ server** (error toast/banner), state UI giữ nguyên (buổi vẫn In Progress). KHÔNG hiện toast thành công.
-- **Test guard (`sessionDetailCtaGating.test.ts` mở rộng):** (a) 0 điểm nhập → nút "Hoàn thành" `disabled`; (b) ≥1 điểm → enabled; (c) BE trả error envelope VALIDATION → render message lỗi, KHÔNG toast success; (d) BE trả `scored_count`/`competencies_created` → toast chứa đúng số server (không phải số dòng local).
+- **Test guard (`SessionDetailView.ctaGating.test.ts` mở rộng):** (a) 0 điểm nhập → nút "Hoàn thành" `disabled`; (b) ≥1 điểm → enabled; (c) BE trả error envelope VALIDATION → render message lỗi, KHÔNG toast success; (d) BE trả `scored_count`/`competencies_created` → toast chứa đúng số server (không phải số dòng local).
 
 ---
 
@@ -740,7 +740,7 @@ Màn danh sách của module này áp **khuôn dùng chung** `frontend/src/compo
 | Hợp đồng props/slots/`data-testid` | [`docs/ui-ux/02_LIST_PAGE_SHELL.md §3`](../ui-ux/02_LIST_PAGE_SHELL.md) |
 | Sổ lô 3 + delta từng file + bảng copy tiếng Việt | [`§14.2` / `§14.4`](../ui-ux/02_LIST_PAGE_SHELL.md) |
 | Bất biến `INV-UX3-24…29` + test `TC-UX3-44…46` | [`§14.5` / `§14.6`](../ui-ux/02_LIST_PAGE_SHELL.md) |
-| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/views/listShellAdoption.test.ts` |
+| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/guards/listShellAdoption.guard.test.ts` |
 
 - **Route thuộc lô 3 của module này:** `/imm06/programs` · `/imm06/sessions` · `/imm06/competencies`
 - **File view:** `views/training/ProgramListView.vue` · `views/training/SessionListView.vue` · `views/training/CompetencyListView.vue`

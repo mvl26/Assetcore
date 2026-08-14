@@ -56,6 +56,17 @@ ROLE_PROFILE_CATALOG: dict[str, list[str]] = {
         # catalog-only, KHÔNG chạm workflow JSON (giữ admin-override guard). Xem
         # tests/test_workflow_role_profile_coverage.py (INV-COV) + docs/imm-02.
         "Spec User",
+        # 2026-08-14 (5-vòng test toàn hệ thống): đóng nốt 3 dead-gate CÙNG DẠNG với
+        # 'Spec User' ở trên — role tầng thừa hành gate transition thật nhưng KHÔNG
+        # Role Profile nào cấp ⇒ chỉ Manager/Super Admin thao tác được, persona chủ
+        # đích bị khoá khỏi chính việc của mình:
+        #   'Needs User'         → 7 transition @ imm_01_needs_workflow
+        #   'Procurement User'   → 4 @ imm_03_decision + 2 @ imm_03_vendor_eval
+        #   'Commissioning User' → 11 @ imm_04_workflow
+        # Đặt cùng profile với role Manager tương ứng (Needs/Procurement/
+        # Commissioning Manager đều đã ở đây) — đúng tiền lệ 'Spec User', và VT-TTBYT
+        # là persona SOẠN đề xuất + hồ sơ mua sắm + nghiệm thu lắp đặt.
+        "Needs User", "Procurement User", "Commissioning User",
     ],
     "Trưởng xưởng kỹ thuật": [
         "PM Manager", "Repair Manager",
@@ -69,7 +80,10 @@ ROLE_PROFILE_CATALOG: dict[str, list[str]] = {
         "Compliance Manager", "Compliance User", Roles.AUDITOR,
     ],
     "Cán bộ hồ sơ": [
-        "Document Manager", "Document User", "Training Manager",
+        # 'Training User' (2026-08-14): dead-gate — 11 transition @ imm_06_competency
+        # + 8 @ imm_06_session gate role này mà không profile nào cấp. Đặt cạnh
+        # 'Training Manager' (đã ở đây) đúng tiền lệ 'Spec User'.
+        "Document Manager", "Document User", "Training Manager", "Training User",
     ],
     "Thủ kho phụ tùng": [
         "Inventory Manager", "Inventory User",

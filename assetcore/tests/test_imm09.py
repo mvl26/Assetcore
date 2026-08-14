@@ -35,6 +35,7 @@ from assetcore.services.imm09 import (
 from assetcore.services.shared import AssetStatus, ErrorCode, ServiceError
 from assetcore.tests._asset_cleanup import purge_asset
 from assetcore.utils.messages import MSG
+from assetcore.tests._helpers.paths import REPO_ROOT
 
 
 # ─── Shared fixture helpers ───────────────────────────────────────────────────
@@ -2305,7 +2306,7 @@ class TestConfirmInspectionOasBaselineUnchanged(unittest.TestCase):
     def _spec(self) -> dict:
         import yaml  # noqa: PLC0415
         from pathlib import Path  # noqa: PLC0415
-        repo_root = Path(__file__).resolve().parents[2]
+        repo_root = Path(REPO_ROOT)
         yaml_path = repo_root / "docs" / "mobile" / "openapi" / "assetcore-mobile.openapi.yaml"
         return yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
 

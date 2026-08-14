@@ -4,7 +4,7 @@
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Prerequisite:** Giai đoạn 1 đã merge — code-first registry `assetcore/utils/messages.py` + `frontend/src/i18n/messages.ts` đang chạy production, mọi `frappe.throw` / `toast.error` hardcode đã được migrate. Tham chiếu: [2026-05-20-notification-error-standardization.md](./2026-05-20-notification-error-standardization.md).
+**Prerequisite:** Giai đoạn 1 đã merge — code-first registry `assetcore/utils/messages.py` + `frontend/src/locales/messages.ts` đang chạy production, mọi `frappe.throw` / `toast.error` hardcode đã được migrate. Tham chiếu: [2026-05-20-notification-error-standardization.md](./2026-05-20-notification-error-standardization.md).
 
 **Goal:** Migrate registry từ code-first sang **DB-driven** với `Notification Template` doctype, cho phép BA chỉnh sửa câu chữ live (không cần deploy), bổ sung đa ngôn ngữ (vi/en), admin UI quản lý, audit trail thay đổi nội dung, và telemetry để biết message nào hay được trigger nhất.
 
@@ -95,7 +95,7 @@
 
 ### Frontend (sửa)
 
-- `frontend/src/i18n/messages.ts` — đổi thành **bundled fallback** (không phải primary). Generator vẫn chạy → vẫn commit; consumer chỉ dùng khi store empty.
+- `frontend/src/locales/messages.ts` — đổi thành **bundled fallback** (không phải primary). Generator vẫn chạy → vẫn commit; consumer chỉ dùng khi store empty.
 - `frontend/src/composables/useNotify.ts` — `render()` đọc từ `notifyStore.messages[code]` trước; fallback `MESSAGES` bundled.
 - `frontend/src/main.ts` — bootstrap: gọi `notifyStore.hydrate()` trước khi mount app.
 - `frontend/src/stores/auth.ts` — sau `login()` thành công, gọi `notifyStore.refresh()` (locale có thể đổi theo user).
@@ -573,7 +573,7 @@ def execute():
 
 **Files:**
 - Modify: `scripts/gen_fe_messages.py`
-- Modify: `frontend/src/i18n/messages.ts` (regen)
+- Modify: `frontend/src/locales/messages.ts` (regen)
 
 - [ ] **Step 1**: Generator giờ đọc từ DB (`frappe --site assetcore.local execute assetcore.api.notify.get_dict`) thay vì AST parse `messages.py`.
 - [ ] **Step 2**: Fallback nếu Frappe không khả dụng → parse AST như cũ.

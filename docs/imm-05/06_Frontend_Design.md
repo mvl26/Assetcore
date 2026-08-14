@@ -563,7 +563,7 @@ const canApprove = computed<boolean>(() => doc.value?.can_approve === 1)
 - **Tải lên phiên bản mới** (state ∈ {Active, Expired}): điều hướng tạo tài liệu MỚI (không transition phiếu hiện tại) → giữ nguyên.
 - **Nhãn terminal read-only** (`isTerminalState` = state ∈ {Archived, Expired}): display-only, được phép dùng `workflow_state ===`.
 
-**Test FE (vitest) bắt buộc:** file test CTA-gating mới (`views/document/documentDetailCtaGating.test.ts`) assert theo state × canApprove:
+**Test FE (vitest) bắt buộc:** file test CTA-gating mới (`views/document/DocumentDetailView.ctaGating.test.ts`) assert theo state × canApprove:
 - Pending Review + `can_approve=0` → KHÔNG có nút "Duyệt tài liệu"/"Từ chối".
 - Pending Review + `can_approve=1` → CÓ cả hai nút.
 - Draft → có "Gửi duyệt" + "Hủy bỏ" (Hủy bỏ chỉ khi canApprove=1); KHÔNG có "Phê duyệt".

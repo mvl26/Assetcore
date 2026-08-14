@@ -11,7 +11,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useCommissioningStore } from '@/stores/imm04'
-import { commissioningListResource } from '@/services/frappeResource'
+import { commissioningListResource } from '@/api/frappeResource'
 import type { CommissioningListItem } from '@/types/imm04'
 import { formatDate } from '@/utils/docUtils'
 

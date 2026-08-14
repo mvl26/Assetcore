@@ -288,7 +288,7 @@ Cover: happy + envelope `success=true`; invalid params → `code=INVALID_PARAMS`
 | `test_approve_procurement_manager_ok` ⬜ | `_approve_needs_request` (user Procurement Manager thuần) | `workflow_state=Approved`, docstatus=1; `write_audit_trail` được gọi (regression xanh) | ADR-IMM-01-02 |
 | `test_dashboard_kpis_format` ⬜ | `dashboard_kpis?period=2026-Q2` | 6 KPI key present *(cần khảo sát key chính xác)* | Use Case |
 
-> **FE vitest** `needsRequestDetailCtaGating.test.ts` (đối xứng `procurementPlanCtaGating.test.ts`): mount `NeedsRequestDetailView` với `currentDoc.allowed_transitions` = `["Phê duyệt","Bác đề xuất"]` → 2 nút render; = `[]` → 2 nút ẩn; field vắng → 0 nút, không crash. Grep guard: `NeedsRequestDetailView.vue` KHÔNG còn `isBoardApprover` HAY literal `'Pending Approval'` cho 2 CTA. `vue-tsc` sạch (type `NeedsRequestDoc.allowed_transitions?: string[]`).
+> **FE vitest** `NeedsRequestDetailView.ctaGating.test.ts` (đối xứng `ProcurementPlanDetailView.ctaGating.test.ts`): mount `NeedsRequestDetailView` với `currentDoc.allowed_transitions` = `["Phê duyệt","Bác đề xuất"]` → 2 nút render; = `[]` → 2 nút ẩn; field vắng → 0 nút, không crash. Grep guard: `NeedsRequestDetailView.vue` KHÔNG còn `isBoardApprover` HAY literal `'Pending Approval'` cho 2 CTA. `vue-tsc` sạch (type `NeedsRequestDoc.allowed_transitions?: string[]`).
 
 ## III.7. E2E browser (Playwright)
 

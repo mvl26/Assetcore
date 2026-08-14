@@ -110,6 +110,11 @@ def purge_asset(asset_name: str | None) -> None:
     frappe.db.commit()
     # 4) Asset now deletes cleanly
     frappe.delete_doc("AC Asset", asset_name, force=True, ignore_permissions=True)
+    # 5) CHỐT bằng commit — nếu thiếu, chỉ các bước 1-3 (đã commit) là bền, còn chính
+    # lệnh xoá asset nằm trong transaction đang mở và bị runner rollback ở cuối
+    # test/module ⇒ asset "sống lại" trong khi test vẫn báo OK. Đo 2026-08-14:
+    # test_imm09 rò đúng 1 `_Test Asset IMM09-fcr` MỖI LƯỢT chạy, đã tích 94 bản.
+    frappe.db.commit()
 
 
 def purge_assets_by_name_prefix(*prefixes: str) -> int:

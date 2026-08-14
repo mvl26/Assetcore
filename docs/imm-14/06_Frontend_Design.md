@@ -243,7 +243,7 @@ Trường nhập (nhãn VI):
 - **Route (NEW):** `frontend/src/router/index.ts` — `path: '/decommissions'`, `name: 'DecommissionList'`, `component: DecommissionListView`, `meta: { requiresAuth: true, title: 'Biên bản giải nhiệm', moduleId: 'imm14', requiredCapabilities: ['decommission.read'] }`.
 - **API client (EXTEND):** `frontend/src/api/imm14.ts` — thêm `listDecommissions(filters, page, pageSize)` + type `DecommissionListRow` + `ListResp<T>` (mirror `api/imm16.ts`).
 - **Sidebar (EDIT):** `frontend/src/constants/sidebarNav.ts` — `imm14.items` từ `[]` → 1 item.
-- **Test (NEW):** `frontend/src/views/decommission/DecommissionList.render.test.ts` (mirror `views/inventory/cycleCountList.render.test.ts`).
+- **Test (NEW):** `frontend/src/views/decommission/DecommissionListView.render.test.ts` (mirror `views/inventory/CycleCountListView.render.test.ts`).
 
 ### 12.2. FE API client (thêm vào `api/imm14.ts`)
 
@@ -312,7 +312,7 @@ imm14: {
 
 → module IMM-14 hết vô hình (mirror cách imm13 có 1 item "Phiếu điều chuyển").
 
-### 12.7. Render test (mirror `cycleCountList.render.test.ts`)
+### 12.7. Render test (mirror `CycleCountListView.render.test.ts`)
 
 - Mock `listDecommissions` trả 3 row (mỗi workflow_state 1 trạng thái + đủ 4 disposal_method mẫu, `responsible_name` set, `responsible` email set).
 - Assert: (a) 3 dòng render; (b) badge VI **Bản nháp/Đã duyệt/Đã huỷ** xuất hiện, KHÔNG có 'Draft'/'Approved'/'Cancelled' raw EN trong DOM; (c) cột người render `responsible_name`, **KHÔNG** xuất hiện chuỗi email `responsible` trong DOM (anti-leak); (d) empty-state hiện khi mock trả `data:[]`; (e) click row gọi `router.push('/assets/<asset>')`.
@@ -330,7 +330,7 @@ imm14: {
 - **View (NEW):** `frontend/src/views/eol/DecommissionDetailView.vue`.
 - **Route (NEW):** `frontend/src/router/index.ts` — `path: '/decommissions/:id'`, `name: 'DecommissionDetail'`, `component: () => import('@/views/eol/DecommissionDetailView.vue')`, `meta: { requiresAuth: true, title: 'Biên bản giải nhiệm', moduleId: 'imm14', requiredCapabilities: ['decommission.read'] }`. Đặt **trước/sau** route `/decommissions` (list) sao cho matcher không nuốt (path param `:id` khác path tĩnh — Vue Router phân biệt được).
 - **API client (EXTEND):** `frontend/src/api/imm14.ts` — mở rộng `DecommissionRecord` (return của `getDecommission`) thêm 7 field (`05 §8.4`). `getDecommission` + `approveDecommission` đã tồn tại — KHÔNG thêm hàm mới.
-- **Test (NEW):** `frontend/src/views/eol/decommissionDetailCtaGate.test.ts`.
+- **Test (NEW):** `frontend/src/views/eol/tests/DecommissionDetailView.ctaGate.test.ts`.
 
 ### 13.2. Layout màn chi tiết (nhãn VI 100%)
 
@@ -365,14 +365,14 @@ const canApprove = computed<boolean>(() => rec.value?.can_approve === 1)
 
 - `DecommissionListView` row-click → `router.push('/decommissions/' + row.name)` (biên bản), thay `/assets/:asset`.
 - Link tới asset chuyển xuống **vị trí phụ**: giữ 1 icon-link/nút phụ trong row (hoặc chỉ trong màn detail — nút "Xem thiết bị"). Row-click chính = mở biên bản.
-- Cập nhật `DecommissionList.render.test.ts`: assert click row gọi `router.push('/decommissions/<name>')` (thay assertion cũ `/assets/<asset>`).
+- Cập nhật `DecommissionListView.render.test.ts`: assert click row gọi `router.push('/decommissions/<name>')` (thay assertion cũ `/assets/<asset>`).
 
 ### 13.5. Không hồi quy quyền (acceptance 5)
 
 - Super Admin / Compliance Manager / Commissioning Manager (submit=1) mở draft → `can_approve=1` → thấy CTA.
 - Commissioning User (create=1/submit=0) mở CÙNG biên bản → xem đủ, CTA **ẩn**, hint = "Bạn không đủ quyền duyệt giải nhiệm.". KHÔNG cấp/nới DocPerm — cờ do BE (`rbac.can`) quyết định.
 
-### 13.6. Render/CTA gate test (`decommissionDetailCtaGate.test.ts`)
+### 13.6. Render/CTA gate test (`DecommissionDetailView.ctaGate.test.ts`)
 
 Matrix state × flag (mock `getDecommission`):
 - (a) `can_approve=1` (draft, approver) → nút `cta-approve` render; click → gọi `approveDecommission(name)`.
@@ -397,7 +397,7 @@ Màn danh sách của module này áp **khuôn dùng chung** `frontend/src/compo
 | Hợp đồng props/slots/`data-testid` | [`docs/ui-ux/02_LIST_PAGE_SHELL.md §3`](../ui-ux/02_LIST_PAGE_SHELL.md) |
 | Sổ lô 3 + delta từng file + bảng copy tiếng Việt | [`§14.2` / `§14.4`](../ui-ux/02_LIST_PAGE_SHELL.md) |
 | Bất biến `INV-UX3-24…29` + test `TC-UX3-38` | [`§14.5` / `§14.6`](../ui-ux/02_LIST_PAGE_SHELL.md) |
-| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/views/listShellAdoption.test.ts` |
+| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/guards/listShellAdoption.guard.test.ts` |
 
 - **Route thuộc lô 3 của module này:** `/decommissions`
 - **File view:** `views/eol/DecommissionListView.vue`

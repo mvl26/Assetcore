@@ -20,7 +20,7 @@ import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { useNotify } from '@/composables/useNotify'
 import ModalInlineError from '@/components/common/ModalInlineError.vue'
 import { useImm11Store } from '@/stores/imm11'
-import { MSG } from '@/i18n/messages'
+import { MSG } from '@/locales/messages'
 const notify = useNotify()
 const store = useImm11Store()
 

@@ -34,6 +34,12 @@ export function useImportWizard(doctype: RefDataDoctype, onSuccess?: () => void)
   const importErr = ref('')
   const isDragOver = ref(false)
   const importMode = ref<ImportMode>('strict')
+  /**
+   * "Cập nhật bản ghi đã có" — áp cho cả loại dữ liệu phẳng lẫn loại cha+bảng con.
+   * Mặc định TẮT: ghi đè dữ liệu đang dùng phải là hành động người dùng chọn,
+   * không phải mặc định của hệ thống.
+   */
+  const updateExisting = ref(false)
 
   async function open() {
     showImport.value = true
@@ -44,6 +50,7 @@ export function useImportWizard(doctype: RefDataDoctype, onSuccess?: () => void)
     importResult.value = null
     importErr.value = ''
     importMode.value = 'strict'
+    updateExisting.value = false
     try {
       importFolder.value = await initImportFolders(doctype)
     } catch {
@@ -97,7 +104,9 @@ export function useImportWizard(doctype: RefDataDoctype, onSuccess?: () => void)
     importLoading.value = true
     importErr.value = ''
     try {
-      previewData.value = await previewRefImport(doctype, uploadedFileUrl.value)
+      previewData.value = await previewRefImport(
+        doctype, uploadedFileUrl.value, updateExisting.value,
+      )
       importStep.value = 'preview'
     } catch (e: unknown) {
       importErr.value = e instanceof Error ? e.message : 'Lỗi đọc file'
@@ -106,11 +115,24 @@ export function useImportWizard(doctype: RefDataDoctype, onSuccess?: () => void)
     }
   }
 
+  /**
+   * Bật/tắt "cập nhật bản ghi đã có" ⇒ kiểm tra LẠI trên server.
+   * Không tự lọc lỗi ở FE: quyết định "trùng là lỗi hay là cập nhật" thuộc về
+   * validator, FE đoán lại = hai nguồn sự thật, lệch nhau lúc nào không biết.
+   */
+  async function toggleUpdateExisting(value: boolean) {
+    if (updateExisting.value === value) return
+    updateExisting.value = value
+    if (uploadedFileUrl.value) await runPreview()
+  }
+
   async function runImport() {
     importLoading.value = true
     importErr.value = ''
     try {
-      importResult.value = await importRefData(doctype, uploadedFileUrl.value, importMode.value)
+      importResult.value = await importRefData(
+        doctype, uploadedFileUrl.value, importMode.value, updateExisting.value,
+      )
       importStep.value = 'result'
     } catch (e: unknown) {
       importErr.value = e instanceof Error ? e.message : 'Lỗi import'
@@ -164,16 +186,29 @@ export function useImportWizard(doctype: RefDataDoctype, onSuccess?: () => void)
     return importMode.value === 'skip_invalid'
   })
 
+  /** Nhóm (bản ghi cha) sẽ tạo/cập nhật — rỗng với loại dữ liệu phẳng. */
+  const groups = computed(() => previewData.value?.groups ?? [])
+  /**
+   * Trong file có bản ghi ĐÃ TỒN TẠI không ⇒ mới mời chào công tắc cập nhật.
+   * Đúng cho cả hai kiểu dữ liệu: loại cha+bảng con đếm theo nhóm, loại phẳng
+   * đếm theo `existingRows` (BE đếm cả khi công tắc đang tắt — nhìn `willUpdate`
+   * lúc tắt luôn ra 0 thì công tắc không bao giờ hiện ra).
+   */
+  const hasExistingRecords = computed(() =>
+    groups.value.some(g => g.exists) || (previewData.value?.existingRows ?? 0) > 0,
+  )
+
   return {
     // state
     showImport, importStep, uploading, importLoading,
     uploadedFileUrl, uploadedFileName, importFolder,
-    previewData, importResult, importErr, isDragOver, importMode,
+    previewData, importResult, importErr, isDragOver, importMode, updateExisting,
     // actions
-    open, close, handleFileChange, handleDrop,
+    open, close, handleFileChange, handleDrop, toggleUpdateExisting,
     runImport, downloadErrorReport, doExport, doDownloadTemplate,
     // derived
     hasBlockingErrors, totalSkip, skipRatio, allRowsInvalid, canImport,
+    groups, hasExistingRecords,
   }
 }
 

@@ -95,11 +95,62 @@ frontend/src/
 ├── views/<domain>/         # DOMAIN-named — never immXX
 │   ├── ListView.vue
 │   ├── DetailView.vue
+│   ├── tests/              # ⇐ MỌI test của các .vue trong thư mục này
 │   └── components/...
-├── components/<domain>/    # shared sub-components (cards, modals)
+├── components/<domain>/    # shared sub-components (cards, modals) + tests/
 ├── router/index.ts         # add new routes here
-└── types/                  # cross-cutting types
+├── types/                  # cross-cutting types
+├── locales/                # NHÀ CHUỖI DUY NHẤT: vi/en.json (vue-i18n) + messages.ts (GENERATED từ BE)
+├── test/                   # harness dùng chung + paths.ts (SSoT đường dẫn cho guard)
+├── guards/                 # test ĐỌC ĐĨA / cưỡng chế quy ước / parity doc↔mã
+└── integration/            # test khởi động app · route · luồng chéo nhiều nguồn
 ```
+
+## 🧭 Vị trí & tên file test FE — BẮT BUỘC
+
+> SSoT cưỡng chế: `frontend/src/guards/testFileConvention.guard.test.ts` (K1–K9).
+> Spec đầy đủ: `docs/architecture/SPEC_chuan_hoa_cau_truc_frontend.md`.
+
+Mỗi file test chỉ được ở **một trong ba nhà**:
+
+| # | Loại test | Nhà | Tên file |
+|---|---|---|---|
+| 1 | Test của **MỘT** file nguồn | **`<thư-mục-nguồn>/tests/`** | `<Nguồn>.test.ts` — nếu là test duy nhất<br>`<Nguồn>.<khiaCanh>.test.ts` — nếu tách nhiều khía cạnh |
+| 2 | **Guard / parity / ngân sách** (đọc đĩa, cưỡng chế quy ước, đối chiếu doc↔mã) | **`src/guards/`** | `<chuDe>.guard.test.ts` |
+| 3 | **Tích hợp / khởi động / route** (không thuộc file nguồn nào) | **`src/integration/`** | `<luong>.integration.test.ts` |
+
+**Nhà #1 = thư mục con `tests/` NGAY CẠNH nguồn**, KHÔNG đặt ngang hàng file nguồn:
+
+```
+views/cm/
+├── CMCreateView.vue
+├── CMWorkOrderDetailView.vue
+└── tests/
+    ├── CMCreateView.test.ts
+    ├── CMCreateView.qrPrefill.test.ts
+    └── CMWorkOrderDetailView.allowedTransitions.test.ts
+```
+
+`<Nguồn>` khớp **CHÍNH XÁC** tên file nguồn ở **thư mục cha** của `tests/` (`PascalCase` cho `.vue`, `camelCase` cho `.ts`). `<khiaCanh>` là `camelCase`, **đã lược tiền tố trùng tên nguồn**.
+`src/guards/` và `src/integration/` **KHÔNG** thêm tầng `tests/` — bản thân chúng đã là nhà test riêng, không có file nguồn nào lẫn vào.
+
+| ❌ Sai | ✅ Đúng | Vì sao |
+|---|---|---|
+| `components/common/smartSelectResilience.test.ts` | `components/common/tests/SmartSelect.resilience.test.ts` | nguồn là `SmartSelect.vue`; tên phải nói ra + phải nằm trong `tests/` |
+| `views/asset/assetScanInfoSerial.test.ts` | `views/asset/tests/AssetScanInfoView.serial.test.ts` | |
+| `views/cm/CMCreateView.test.ts` | `views/cm/tests/CMCreateView.test.ts` | tên đúng nhưng **sai chỗ** — không đặt ngang hàng nguồn |
+| `views/detailShellAdoption.test.ts` | `guards/detailShellAdoption.guard.test.ts` | quét `SRC/views` ⇒ là guard |
+| `api/connectionsLegacyKeysRetired.acr92.test.ts` | `guards/connectionsLegacyKeys.guard.test.ts` | đọc đĩa ⇒ guard; **bỏ mã ticket khỏi tên** |
+| `App.auth.test.ts` | `integration/appAuth.integration.test.ts` | mount cả app + router ⇒ test khởi động |
+
+**CẤM (guard sẽ ĐỎ):**
+- Đặt file test **ngang hàng** file nguồn (K1a) · thư mục `__tests__/` (dùng `tests/`) · thư mục `tests/` **mồ côi** (cha không có file nguồn nào) · đuôi `.spec.ts` · mã ticket trong **tên file** (`acr92`, `AC-CR-…` → đưa vào `describe()`/`it()`).
+- Dấu chấm giữa tên file **nguồn** `.ts` (`messages.types.ts` ❌ → `messageTypes.ts` ✅).
+- Test **ngoài** `guards/` mà **quét thư mục** (`readdirSync`, `import.meta.glob`) hoặc **đọc file ở thư mục KHÁC** — đó là guard, phải chuyển vào `guards/`. Test trong `tests/` chỉ được đọc file nguồn ở **thư mục cha** (`resolve(__dirname, '..', 'X.vue')`).
+- Guard trong `guards/` mà tính đường dẫn theo **độ sâu** (`resolve(HERE, '../..')`, `resolve(__dirname, '..')`, `process.cwd()`) — phải lấy anchor từ **`@/test/paths`**.
+- Guard **quét thư mục** mà không **chốt dân số tối thiểu** — dùng `listFiles(DIR, { ext, min: N })` hoặc đánh dấu `// [K8] dân số:` ngay tại chỗ khoá. Thiếu chốt ⇒ thư mục bị dời thì guard đếm 0 và **PASS giả**.
+
+**Trước khi báo xong:** `cd frontend && npx vitest run src/guards/testFileConvention.guard.test.ts`
 
 ## Naming convention — NO EXCEPTIONS
 

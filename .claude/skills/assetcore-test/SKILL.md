@@ -283,9 +283,33 @@ Layout `assetcore/tests/`; chạy `bench --site miyano run-tests --module assetc
 
 ## Phần 1.5 — Frontend Unit Tests (vitest)
 
-TDD cho logic FE thuần (constants/mapping/persona/composable/component nhỏ) — `cd frontend && npm run test`. Test colocate cạnh file; mapping/enum phải assert khớp **nguồn BE thật** (không hardcode lại dict = tautology). vitest KHÔNG thay Playwright. DoD FE: `npm run test` + `typecheck` + `build` đều exit 0.
+TDD cho logic FE thuần (constants/mapping/persona/composable/component nhỏ) — `cd frontend && npm run test`. **Vị trí & tên file: xem R-13 ngay dưới** (test nằm trong `<thư-mục-nguồn>/tests/`, KHÔNG ngang hàng file nguồn). Mapping/enum phải assert khớp **nguồn BE thật** (không hardcode lại dict = tautology). vitest KHÔNG thay Playwright. DoD FE: `npm run test` + `typecheck` + `build` đều exit 0.
 
-> Heavy reference: see [references/frontend-unit-tests.md](references/frontend-unit-tests.md) — chạy, quy tắc colocate/TDD, anti-pattern enum-sync.
+> Heavy reference: see [references/frontend-unit-tests.md](references/frontend-unit-tests.md) — cách chạy, quy tắc TDD, anti-pattern enum-sync. (Vị trí/tên file test: R-13 là SSoT, reference chỉ trỏ về.)
+
+### 🧭 R-13: Vị trí & tên file test FE — BẮT BUỘC (SSoT: `frontend/src/guards/testFileConvention.guard.test.ts`)
+
+Mỗi file test FE chỉ được ở **một trong ba nhà — không có nhà thứ tư**:
+
+| # | Loại test | Nhà | Tên file |
+|---|---|---|---|
+| 1 | Test của **MỘT** file nguồn | **`<thư-mục-nguồn>/tests/`** | `<Nguồn>.test.ts` · `<Nguồn>.<khiaCanh>.test.ts` |
+| 2 | **Guard / parity / ngân sách** (đọc đĩa, cưỡng chế quy ước, doc↔mã) | **`src/guards/`** | `<chuDe>.guard.test.ts` |
+| 3 | **Tích hợp / khởi động / route** | **`src/integration/`** | `<luong>.integration.test.ts` |
+
+`<Nguồn>` khớp **CHÍNH XÁC** tên file nguồn ở **thư mục cha** của `tests/`. `<khiaCanh>` camelCase, đã lược tiền tố trùng tên nguồn.
+Vd: `views/cm/CMCreateView.vue` ⇒ `views/cm/tests/CMCreateView.qrPrefill.test.ts`.
+`src/guards/` và `src/integration/` **KHÔNG** thêm tầng `tests/` — chúng đã là nhà test riêng.
+
+**CẤM:** đặt test **ngang hàng** file nguồn · `__tests__/` (dùng `tests/`) · `tests/` **mồ côi** (cha không có nguồn) · `.spec.ts` · mã ticket trong tên file (đưa vào `describe()`) · dấu chấm trong tên file **nguồn** `.ts` · test ngoài `guards/` mà quét thư mục (`readdirSync`/`import.meta.glob`) hoặc đọc file ngoài **thư mục cha** của `tests/` · guard dùng đường dẫn theo **độ sâu** (`resolve(HERE,'../..')` / `process.cwd()`) thay vì `@/test/paths` · guard quét thư mục mà **không chốt dân số** (`listFiles(DIR,{ext,min:N})` hoặc dấu `// [K8] dân số:`).
+
+> **Vì sao chốt dân số là bắt buộc:** guard quét thư mục rồi khẳng định "không tìm thấy vi phạm". Nếu thư mục bị dời/đổi tên, bộ quét trả **0 file**, khẳng định đó đúng một cách **rỗng tuếch**, và suite vẫn XANH trong khi guard đã ngừng canh. `vue-tsc` KHÔNG bắt được — nó chỉ phủ đồ thị import, không phủ lớp đọc văn bản mã nguồn.
+
+**Test FE mới PHẢI làm `testFileConvention.guard.test.ts` XANH. Chạy guard này TRƯỚC khi báo xong:**
+```bash
+cd frontend && npx vitest run src/guards/testFileConvention.guard.test.ts
+```
+Spec đầy đủ + kế hoạch L0–L5: `docs/architecture/SPEC_chuan_hoa_cau_truc_frontend.md`.
 
 ## Phần 2 — UI Tests (Playwright MCP)
 

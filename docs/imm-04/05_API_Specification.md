@@ -1329,7 +1329,7 @@ Acceptance vòng yêu cầu *"`transitionState` bổ sung 422 `IMM04-GATE-G03-BA
 #### Boundaries (Always / Never) — §23
 
 - **Always:** thực hiện **SAU** khi service land (§23.0); đọc path-count + 4 test-counter **LIVE** trước khi assert/bump; giữ `additionalProperties:false`; ground mô tả VERBATIM theo `return` mới của `services/imm04.py`; assert path-count **KHÔNG đổi**; RED-before/GREEN-after.
-- **Never:** ❌ curate YAML trước khi BE land (mirror nói dối); ❌ thêm path/opId/param mới (đây là MODIFY); ❌ giữ `enum: [Pass]`; ❌ khai `422`/`404` status-line; ❌ sửa `frontend/src/i18n/messages.ts` bằng tay (dùng `gen_fe_messages.py`); ❌ đụng `listCommissioning`/`getCommissioning`/`BaselineTestItem` (0 blast-radius).
+- **Never:** ❌ curate YAML trước khi BE land (mirror nói dối); ❌ thêm path/opId/param mới (đây là MODIFY); ❌ giữ `enum: [Pass]`; ❌ khai `422`/`404` status-line; ❌ sửa `frontend/src/locales/messages.ts` bằng tay (dùng `gen_fe_messages.py`); ❌ đụng `listCommissioning`/`getCommissioning`/`BaselineTestItem` (0 blast-radius).
 
 ---
 

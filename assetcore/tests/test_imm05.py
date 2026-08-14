@@ -28,6 +28,7 @@ from assetcore.services.imm05 import (
 )
 from assetcore.services.shared import ServiceError
 from assetcore.tests._asset_cleanup import purge_asset, purge_assets_created_after
+from assetcore.tests._helpers.paths import SERVICES_DIR
 
 
 #: Mốc bắt đầu module — lưới an toàn purge asset sinh sau mốc này.
@@ -1577,7 +1578,7 @@ class TestAssetDossierTruth(_DossierFixtureMixin, unittest.TestCase):
 
     def test_cr75_20_no_stub_literal_in_source(self):
         """Guard A1: literal `"completeness_pct": 0` KHÔNG còn trong services/imm05.py."""
-        src = Path(__file__).resolve().parents[1] / "services" / "imm05.py"
+        src = Path(SERVICES_DIR) / "imm05.py"
         text = src.read_text(encoding="utf-8")
         self.assertNotIn(
             '"completeness_pct": 0', text,

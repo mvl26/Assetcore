@@ -303,7 +303,7 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 > (d) `row.get("file_attachment")` thay cho `row.pop(...)` ⇒ **#12 ĐỎ** (19 khoá ≠ 18).
 > Guard hợp đồng: rot cite `services/imm05.py:458-502 _resolve_file_meta` → `:2000` ⇒ **`cr81_c` ĐỎ**; hoàn nguyên ⇒ XANH (`test_mobile_oas` **983 OK**).
 
-**FE (vitest + `vue-tsc`) — test RENDER cho CẢ HAI nhánh (AC7):** `frontend/src/components/commissioning/DocumentDossierCard.test.ts`
+**FE (vitest + `vue-tsc`) — test RENDER cho CẢ HAI nhánh (AC7):** `frontend/src/components/commissioning/tests/DocumentDossierCard.test.ts`
 
 | # | TC ID | Ca | Assert |
 |---|---|---|---|

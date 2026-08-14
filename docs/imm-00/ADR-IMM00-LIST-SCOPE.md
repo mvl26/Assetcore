@@ -818,7 +818,7 @@ Không phải lỗ an ninh (kết quả vẫn ⊆ phạm vi được giao) nhưn
 | INV-COMM-SCOPE-2/3 · INV-CONN-27 · INV-CONN-21 | **append class mới** vào `assetcore/tests/test_rowscope_invariant.py` | đã có `_ensure_user` + kỷ luật `frappe.set_user` + là nhà của họ INV-ROWSCOPE. **Read-fresh rồi append** (file dirty ở phiên khác) |
 | INV-VENDORSCOPE-1..4 (đại số + 5 doctype) | **FILE MỚI** `assetcore/tests/test_vendor_scope_intersect.py` | thuần unit; **CẤM** append vào `test_rbac.py` (shared, đang dirty) |
 | INV-COMM-SCOPE-1/4 | delta trong `assetcore/tests/test_rowscope_scope_guard.py` | xoá 1 dòng backlog + thêm assert `len(...) <= 16` |
-| A9 (FE) | **FILE MỚI** `frontend/src/views/commissioning/commissioningScopedEmpty.test.ts` | xem `docs/imm-04/06_Frontend_Design.md §11` |
+| A9 (FE) | **FILE MỚI** `frontend/src/views/commissioning/tests/CommissioningListView.scopedEmpty.test.ts` | xem `docs/imm-04/06_Frontend_Design.md §11` |
 
 **DoD run list** (`timeout` tool ≥ 600000 ms, chấm theo **DELTA** đo từ đĩa — baseline trong prompt/STATE **luôn có thể stale**):
 `test_rowscope_scope_guard` · `test_rowscope_invariant` · `test_vendor_scope_intersect` (mới) · `test_imm04` · `test_rbac` · `test_connections_tree` · `test_connections_list_filter_parity` · `test_imm08` · `test_imm09` · `test_imm11` · `test_imm00`.
@@ -856,7 +856,7 @@ Không phải lỗ an ninh (kết quả vẫn ⊆ phạm vi được giao) nhưn
 | `assetcore/tests/test_rowscope_invariant.py` | **28** · 1161 dòng | **untracked** | INV-COMM-SCOPE-2/3 · INV-CONN-21/27 〃 |
 | `assetcore/tests/test_rowscope_docperm_gate.py` | **22** · 904 dòng | **untracked** | §10.6 (2 loại 403) 〃 |
 | `assetcore/tests/test_imm04.py` | **110** | tracked | baseline hồi quy |
-| `frontend/src/views/commissioning/commissioningScopedEmpty.test.ts` | **8** `it()` | untracked | 8/8 PASS 14:59 hôm nay (đã chạy thật) |
+| `frontend/src/views/commissioning/tests/CommissioningListView.scopedEmpty.test.ts` | **8** `it()` | untracked | 8/8 PASS 14:59 hôm nay (đã chạy thật) |
 | Tổng file test FE | **287** `*.test.ts` (KHÔNG phải 284) | — | prompt/STATE stale ⇒ **chấm theo delta** |
 
 **Lỗ chứng minh CHÍNH (đo tại chỗ):** nhánh tham số ảo `overdue=1` **đổi SHAPE** của predicate từ `dict` → **list-form** (`services/imm04.py:1100-1105` `_dict_to_list_filters` + append 3 điều kiện SoT), rồi mới vào **cùng** đường đếm/đọc (`:1113 count_with_or` → `:1116 frappe.get_list`). Toàn bộ TC hiện có cho nhánh này (`test_imm04.py:724 TestOverdueSlaLiveInvariant`, gọi `:786` và `:861`) là `unittest.TestCase` chạy dưới **`Administrator`** ⇒ `asset_commissioning_query` trả `""` (permissions.py:140) ⇒ **mọi engine đếm đều cho cùng số** ⇒ TC đó **không thể** ĐỎ khi row-scope bị bỏ. Nghĩa là: bất biến `count == rows` hiện chỉ được chứng minh cho **shape dict**, còn shape **list-form** đi qua đúng cái hàm vừa được đổi (`count_with_or` nhận `dict | list | None`) thì **0 TC** phủ dưới persona row-scoped.

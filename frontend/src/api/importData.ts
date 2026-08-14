@@ -2,6 +2,7 @@
 import { frappeGet, frappePost } from './helpers'
 import type {
   RefDataDoctype,
+  ImportGroupSummary,
   ImportIssue,
   ImportPreviewResult,
   ImportResult,
@@ -40,9 +41,39 @@ function toIssue(r: RawIssue): ImportIssue {
   }
 }
 
+/** Dạng tóm tắt nhóm thô từ BE — snake_case. */
+interface RawGroup {
+  key: string
+  name_value?: string
+  rows: number
+  items: number
+  first_source_row?: number
+  exists?: boolean
+  existing_items?: number
+  action: string
+  category?: string
+  pm_type?: string
+}
+
+function toGroup(g: RawGroup): ImportGroupSummary {
+  return {
+    key: g.key,
+    nameValue: g.name_value ?? '',
+    rows: g.rows,
+    items: g.items,
+    firstSourceRow: g.first_source_row ?? 0,
+    exists: Boolean(g.exists),
+    existingItems: g.existing_items ?? 0,
+    action: g.action as ImportGroupSummary['action'],
+    category: g.category,
+    pmType: g.pm_type,
+  }
+}
+
 export async function previewRefImport(
   doctype: RefDataDoctype,
   fileUrl: string,
+  updateExisting = false,
 ): Promise<ImportPreviewResult> {
   const raw = await frappePost<{
     doctype: string
@@ -54,7 +85,16 @@ export async function previewRefImport(
     errors: RawIssue[]
     warnings: RawIssue[]
     cascade_count?: number
-  }>(`${BASE}.preview_ref_data`, { doctype, file_url: fileUrl })
+    groups?: RawGroup[]
+    groups_total?: number
+    will_create?: number
+    will_update?: number
+    existing_rows?: number
+  }>(`${BASE}.preview_ref_data`, {
+    doctype,
+    file_url: fileUrl,
+    update_existing: updateExisting,
+  })
 
   return {
     doctype: raw.doctype as RefDataDoctype,
@@ -66,6 +106,11 @@ export async function previewRefImport(
     errors: (raw.errors ?? []).map(toIssue),
     warnings: (raw.warnings ?? []).map(toIssue),
     cascadeCount: raw.cascade_count ?? 0,
+    groups: raw.groups?.map(toGroup),
+    groupsTotal: raw.groups_total,
+    willCreate: raw.will_create,
+    willUpdate: raw.will_update,
+    existingRows: raw.existing_rows,
   }
 }
 
@@ -73,6 +118,7 @@ export async function importRefData(
   doctype: RefDataDoctype,
   fileUrl: string,
   mode: ImportMode = 'strict',
+  updateExisting = false,
 ): Promise<ImportResult> {
   const raw = await frappePost<{
     total: number
@@ -80,12 +126,15 @@ export async function importRefData(
     failed: number
     skipped?: number
     groups_created?: number
+    groups_updated?: number
+    updated?: number
     errors: RawIssue[]
     skipped_rows?: (RawIssue & { reason: string })[]
   }>(`${BASE}.import_ref_data`, {
     doctype,
     file_url: fileUrl,
     skip_invalid: mode === 'skip_invalid',
+    update_existing: updateExisting,
   })
 
   return {
@@ -94,6 +143,8 @@ export async function importRefData(
     failed: raw.failed,
     skipped: raw.skipped ?? 0,
     groupsCreated: raw.groups_created,
+    groupsUpdated: raw.groups_updated,
+    updated: raw.updated,
     errors: (raw.errors ?? []).map(toIssue),
     skippedRows: (raw.skipped_rows ?? []).map((r): ImportSkippedRow => ({
       row: r.row,

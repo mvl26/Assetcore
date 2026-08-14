@@ -37,6 +37,7 @@ import unittest
 from collections import defaultdict
 
 import frappe
+from assetcore.tests._helpers.paths import WORKFLOW_DIR, list_files
 
 # --- Admin-override + parity invariant helpers (FILE-driven) -----------------
 
@@ -50,6 +51,11 @@ def _source_workflow_dir() -> str:
     return frappe.get_app_path("assetcore", "assetcore", "workflow")
 
 
+#: Dân số tối thiểu của thư mục workflow nguồn — đo từ đĩa 2026-08-13: 22 file.
+#: Hạ xuống 18 để thêm/bớt vài workflow không gây đỏ giả; sửa số này phải CÓ Ý THỨC.
+_MIN_SOURCE_WORKFLOWS = 18
+
+
 def _load_source_workflows() -> list[tuple[str, dict]]:
     """Glob mọi file source workflow → list (basename, wf_dict).
 
@@ -57,7 +63,11 @@ def _load_source_workflows() -> list[tuple[str, dict]]:
     kiểm (KHÔNG hardcode danh sách 22 trong assert-path).
     """
     out: list[tuple[str, dict]] = []
-    for fp in sorted(glob.glob(os.path.join(_source_workflow_dir(), "*.json"))):
+    # `list_files(..., min_count=)` NÉM LỖI nếu thư mục biến mất hoặc hụt file.
+    # Trước đây dùng `glob` trần: thư mục workflow bị dời ⇒ trả [] ⇒ MỌI guard đọc
+    # hàm này thành đúng-rỗng-tuếch và XANH (đo 2026-08-13:
+    # `test_workflow_role_profile_coverage` đang ĐỎ chuyển thành OK khi xoá thư mục).
+    for fp in list_files(WORKFLOW_DIR, ".json", min_count=_MIN_SOURCE_WORKFLOWS, recursive=False):
         with open(fp, encoding="utf-8") as fh:
             out.append((os.path.basename(fp), json.load(fh)))
     return out

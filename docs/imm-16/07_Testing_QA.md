@@ -336,7 +336,7 @@ File (⬜ Planned): `tests/test_imm16_workflow.py`. **Bắt buộc** cover mọi
 | AT-16-16 (start_review guard) | `start_review` từ status ≠ Open (vd Under Review/Confirmed NC) | raise `BAD_STATE` |
 | **AT-16-17 (INVARIANT map⇄workflow, RED→GREEN)** | set-diff `codomain(_FINDING_VALID_TRANSITIONS)` ⇄ `next_state` graph `imm_16_finding_workflow.json` | `codomain − wf_next == ∅` · `wf_next − codomain == {Resolved, Closed}` = `EXCEPTION_EDGES` · `{Confirmed NC,False Positive,Waived,Resolved,Under Review} ⊆ wf_next` (§III.B.2 INV-16-A/B/C). RED trước round: `Under Review` ∉ EXCEPTION_EDGES ⇒ FAIL |
 
-**FE — `findingDetailCtaGating.test.ts` (vitest):**
+**FE — `FindingDetailView.ctaGating.test.ts` (vitest):**
 
 | # | Kịch bản (mock `getFinding`) | Kỳ vọng render |
 |---|---|---|
@@ -349,7 +349,7 @@ File (⬜ Planned): `tests/test_imm16_workflow.py`. **Bắt buộc** cover mọi
 | FE-16-7 | grep-guard: `FindingDetailView.vue` KHÔNG còn `finding.status ===` / `.includes(finding.status)` | 0 match |
 | FE-16-8 *(round 14)* | `compliance.write` + `allowed_transitions=['Under Review','Confirmed NC','False Positive','Waived']` | +nút "Bắt đầu xem xét" HIỆN; 3 CTA cũ KHÔNG regress |
 
-**DoD round (CR-WF-16-FIND):** `bench --site miyano run-tests --module assetcore.tests.test_imm16` **VÀ** `...test_workflows` → `Ran N OK` THẬT (đọc dòng cuối, KHÔNG false-green); AT-16-10..17 RED-before/GREEN-after; `findingDetailCtaGating.test.ts` xanh (FE KHÔNG regress); `vue-tsc` sạch. **Non-regress:** `test_workflow_admin_override` (root cause #1, Super Admin+System Manager mọi edge) GREEN 22/22 KHÔNG đổi — KHÔNG sửa `imm_16_finding_workflow.json`/fixtures ⇒ 0 reload/migrate. Nếu BE chọn đổi workflow JSON = HARD-STOP USER.
+**DoD round (CR-WF-16-FIND):** `bench --site miyano run-tests --module assetcore.tests.test_imm16` **VÀ** `...test_workflows` → `Ran N OK` THẬT (đọc dòng cuối, KHÔNG false-green); AT-16-10..17 RED-before/GREEN-after; `FindingDetailView.ctaGating.test.ts` xanh (FE KHÔNG regress); `vue-tsc` sạch. **Non-regress:** `test_workflow_admin_override` (root cause #1, Super Admin+System Manager mọi edge) GREEN 22/22 KHÔNG đổi — KHÔNG sửa `imm_16_finding_workflow.json`/fixtures ⇒ 0 reload/migrate. Nếu BE chọn đổi workflow JSON = HARD-STOP USER.
 
 ## III.4c. Server-driven CTA — Internal Audit lifecycle (ADR-IMM-16-02, GATE-8 / LL-FE-51)
 
@@ -398,9 +398,9 @@ File (⬜ Planned): `tests/test_imm16_workflow.py`. **Bắt buộc** cover mọi
 | INV-AUD-4 (values⊆enum) | `values(_AUDIT_ACTION_TO_NEXT_STATE) ⊆ AuditStatus enum` | True; + oracle độc-lập `{PLANNED,IN_PROGRESS,REPORTING,CLOSED} == 4-state literal` |
 | **INV-AUD-5 (per-state, RED→GREEN)** | ∀ state: `{resolver[a] for a in map[state]}` ⇄ `{next_state cạnh workflow từ state}` (deduped 9-entry→3-cạnh) | Aligned: `Planned→{In Progress}`, `In Progress→{Reporting}`, `Reporting→{Closed}`, `Closed→∅`. **RED-before THẬT:** đổi 1 entry resolver (`start→Reporting`) HOẶC thêm `'close'` vào `map[In Progress]` ⇒ FAIL `'DRIFT <state>: map ≠ workflow'`; revert → GREEN |
 
-**DoD round 22 (CR-WF-16-AUDIT reconcile-guard):** `bench --site miyano run-tests --module assetcore.tests.test_imm16` → `Ran N OK` THẬT (đọc DÒNG CUỐI, KHÔNG FAIL/ERROR/skip che — verified `Ran 101 OK`); INV-AUD-1..5 GREEN với **RED-before chứng minh THẬT** (resolver `start→Reporting` → INV-AUD-5 FAIL `'DRIFT Planned: map ≠ workflow (map→[Reporting] vs workflow→[In Progress])'` → revert GREEN); AA-16-13/14 guard-detect GREEN. **Non-regress (KHÔNG đụng):** `TestAuditServerDrivenLifecycle` (AA-16-1..12) + `TestFinding/Capa/MrWorkflowInvariant` + `test_workflow_admin_override` (`TestWorkflowAdminOverride` + `TestSourceWorkflowFiles`, `Ran 10 OK` — 22-workflow admin coverage) vẫn xanh; `internalAuditCtaGate.test.ts` **10 passed** (FE 0-change round này). **0 workflow-JSON / fixtures change ⇒ 0 reload/migrate** (map ⇄ workflow đã in-sync qua resolver). ⚠️ 2 guard legacy siết = service runtime → **cần worker reload để LIVE** (HARD-STOP USER deploy); test-runner re-import fresh nên verify GREEN không cần reload. Nếu buộc đổi workflow JSON = HARD-STOP USER.
+**DoD round 22 (CR-WF-16-AUDIT reconcile-guard):** `bench --site miyano run-tests --module assetcore.tests.test_imm16` → `Ran N OK` THẬT (đọc DÒNG CUỐI, KHÔNG FAIL/ERROR/skip che — verified `Ran 101 OK`); INV-AUD-1..5 GREEN với **RED-before chứng minh THẬT** (resolver `start→Reporting` → INV-AUD-5 FAIL `'DRIFT Planned: map ≠ workflow (map→[Reporting] vs workflow→[In Progress])'` → revert GREEN); AA-16-13/14 guard-detect GREEN. **Non-regress (KHÔNG đụng):** `TestAuditServerDrivenLifecycle` (AA-16-1..12) + `TestFinding/Capa/MrWorkflowInvariant` + `test_workflow_admin_override` (`TestWorkflowAdminOverride` + `TestSourceWorkflowFiles`, `Ran 10 OK` — 22-workflow admin coverage) vẫn xanh; `InternalAuditDetailView.ctaGate.test.ts` **10 passed** (FE 0-change round này). **0 workflow-JSON / fixtures change ⇒ 0 reload/migrate** (map ⇄ workflow đã in-sync qua resolver). ⚠️ 2 guard legacy siết = service runtime → **cần worker reload để LIVE** (HARD-STOP USER deploy); test-runner re-import fresh nên verify GREEN không cần reload. Nếu buộc đổi workflow JSON = HARD-STOP USER.
 
-**FE — `internalAuditCtaGate.test.ts` (vitest):**
+**FE — `InternalAuditDetailView.ctaGate.test.ts` (vitest):**
 
 | # | Kịch bản (mock `getAudit`) | Kỳ vọng render |
 |---|---|---|
@@ -413,7 +413,7 @@ File (⬜ Planned): `tests/test_imm16_workflow.py`. **Bắt buộc** cover mọi
 | FA-16-7 (anti-dead-control) | click Bắt đầu/Hoàn tất/Đóng | gọi `startAudit`/`completeAuditChecklist`/`closeAudit` đúng tên |
 | FA-16-8 (grep-guard) | `InternalAuditDetailView.vue` KHÔNG còn `audit.status ===` / `.includes(audit.status)` | 0 match |
 
-**DoD round:** `bench --site miyano run-tests` module test_imm16 → `Ran N OK`; `internalAuditCtaGate.test.ts` xanh; `vue-tsc` prod 0 error.
+**DoD round:** `bench --site miyano run-tests` module test_imm16 → `Ran N OK`; `InternalAuditDetailView.ctaGate.test.ts` xanh; `vue-tsc` prod 0 error.
 
 ## III.4d. Server-driven CTA — CAPA lifecycle (ADR-IMM-16-03, GATE-8 / LL-FE-51)
 
@@ -443,7 +443,7 @@ File (⬜ Planned): `tests/test_imm16_workflow.py`. **Bắt buộc** cover mọi
 
 > **`_CAPA_EXCEPTION_EDGES = frozenset()`** đặt **test-level** (KHÔNG trong `services/imm16.py` — round TEST-ONLY, 0 service change). `_load_capa_workflow_edges()` parse `imm_16_capa_workflow.json` THẬT (`frappe.get_app_path`) + `set()` dedupe cạnh lặp theo vai. `map_edges` đọc `svc._CAPA_TRANSITIONS` VERBATIM (KHÔNG map thứ hai).
 
-**FE — `capaCtaGate.test.ts` (vitest):**
+**FE — `CAPADetailView.ctaGate.test.ts` (vitest):**
 
 | # | Kịch bản (mock `getCapaDetail`) | Kỳ vọng render |
 |---|---|---|
@@ -458,7 +458,7 @@ File (⬜ Planned): `tests/test_imm16_workflow.py`. **Bắt buộc** cover mọi
 | FC-16-9 (anti-dead-control) | click Đóng CAPA / Mở lại | gọi `performEffectivenessCheck` (result Effective / Not Effective) |
 | FC-16-10 (grep-guard) | `CAPADetailView.vue` KHÔNG còn `const TRANSITIONS` / `interface Transition` / `isVerification` / `workflow_state ===` | 0 match |
 
-**DoD round:** `bench --site miyano run-tests` module test_imm16 → `Ran N OK`; `capaCtaGate.test.ts` xanh; `vue-tsc` prod 0 error; label CTA đầy đủ tiếng Việt (LL-FE-53); KHÔNG leak `workflow_state` raw/EN.
+**DoD round:** `bench --site miyano run-tests` module test_imm16 → `Ran N OK`; `CAPADetailView.ctaGate.test.ts` xanh; `vue-tsc` prod 0 error; label CTA đầy đủ tiếng Việt (LL-FE-53); KHÔNG leak `workflow_state` raw/EN.
 
 **DoD round 19 (CR-WF-16-CAPA reconcile-guard):** `bench --site miyano run-tests --module assetcore.tests.test_imm16` → `Ran N OK` THẬT (N tăng đúng +4 = `TestCapaWorkflowInvariant`; đọc DÒNG CUỐI, KHÔNG FAIL/ERROR/skip che); AT-16-CAPA-INV-1..4 GREEN với **RED-before chứng minh THẬT** (strip `Verification→Re-opened` → INV-2 FAIL → restore GREEN). **Non-regress (KHÔNG đụng):** `test_get_capa_allowed_transitions_by_state`@543 + `test_allowed_transitions_parity_with_advance_guard`@591 + `test_workflow_admin_override` (`TestWorkflowAdminOverride` + `TestSourceWorkflowFiles`) vẫn xanh. **0 service .py change, 0 workflow-JSON change, 0 reload, 0 migrate** (map đã in-sync 7-cạnh-khớp-1-1). Nếu BE thấy drift THẬT ⇒ fix map/JSON = HARD-STOP USER (không tự sửa workflow JSON).
 
@@ -481,7 +481,7 @@ File (⬜ Planned): `tests/test_imm16_workflow.py`. **Bắt buộc** cover mọi
 | AM-16-9 (invariant hint⊆guard) | ∀ T ∈ `allowed_transitions` | T≠'Closed' → `advance_mr_state(S,T)` KHÔNG raise `INVALID_STATE`; T=='Closed' → `finalize_management_review` KHÔNG raise `INVALID_STATE`; target ngoài `_MR_TRANSITIONS[S]` → `advance_mr_state` raise `INVALID_STATE` |
 | AM-16-10 (QTV full-quyền, root-cause) | user CHỈ role `AssetCore Super Admin` | `can_advance==can_close==True`; `advance_mr_state` Draft→Held→Minutes Approved + `finalize_management_review` Closed đều KHÔNG raise `FORBIDDEN` (chứng minh "QTV duyệt/đóng được") |
 
-**FE — `managementReviewCtaGate.test.ts` (vitest):**
+**FE — `ManagementReviewDetailView.ctaGate.test.ts` (vitest):**
 
 | ID | Given | Assert |
 |---|---|---|
@@ -495,7 +495,7 @@ File (⬜ Planned): `tests/test_imm16_workflow.py`. **Bắt buộc** cover mọi
 | FM-16-8 (anti-dead-control) | click Đóng và xuất biên bản (modal minutes_doc + ≥1 action) | gọi `finalizeManagementReview(name, minutes_doc, actions)` |
 | FM-16-9 (grep-guard) | `ManagementReviewDetailView.vue` KHÔNG còn `const NEXT_LABEL` / `nextStep` / `status === 'Minutes Approved'` | 0 match |
 
-**DoD round:** `bench --site miyano run-tests` module test_imm16 → `Ran N OK`; `managementReviewCtaGate.test.ts` + suite hiện có xanh; `vue-tsc` prod 0 error; nhãn CTA khớp EXACT workflow JSON; KHÔNG leak `status` raw/EN.
+**DoD round:** `bench --site miyano run-tests` module test_imm16 → `Ran N OK`; `ManagementReviewDetailView.ctaGate.test.ts` + suite hiện có xanh; `vue-tsc` prod 0 error; nhãn CTA khớp EXACT workflow JSON; KHÔNG leak `status` raw/EN.
 
 ### III.4e.INV. Reconcile-guard MR — `_MR_TRANSITIONS` ⇄ `imm_16_mr_workflow.json` (round 20 — CR-WF-16-MR)
 

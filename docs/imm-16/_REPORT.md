@@ -216,7 +216,7 @@ Mở rộng pattern server-driven CTA (GATE-8/LL-FE-51) sang CAPA — đối x�
 | `04_Backend_Design.md` | get_capa row +`allowed_transitions[]`+`can_advance`; +§III.D.1 (map SoT `_CAPA_TRANSITIONS`, emit gate-by-capability, invariant (a)-(d)) |
 | `05_API_Specification.md` | +sub-endpoint `3.4.1b get_capa` CTA-hint contract; `CapaRecord` TS += `allowed_transitions?`/`can_advance?` |
 | `06_Frontend_Design.md` | +§II.11 CAPADetailView — XOÁ client-map `TRANSITIONS`+`isVerification`, nút rời gate `can_advance && at.includes()` |
-| `07_Testing_QA.md` | +§III.4d — BE `TestCapaAllowedTransitions` (AC-16-1..10) + FE `capaCtaGate.test.ts` (FC-16-1..10) |
+| `07_Testing_QA.md` | +§III.4d — BE `TestCapaAllowedTransitions` (AC-16-1..10) + FE `CAPADetailView.ctaGate.test.ts` (FC-16-1..10) |
 
 **Numbering drift (pre-existing, KHÔNG renumber — light-touch report):** `05_API_Specification.md` bảng tóm tắt §3.4 đánh `get_capa=3.4.2` nhưng sub-header chi tiết dùng `3.4.2=advance_capa_state` (drift từ trước). Subsection get_capa CTA đặt nhãn `3.4.1b` để không renumber chuỗi header đang tồn tại. Đề xuất sprint sau: renumber toàn §3.4 detail cho khớp bảng (create=3.4.1, get=3.4.2, update=3.4.3, advance=3.4.4, effectiveness=3.4.5) — cần rà cross-link.
 

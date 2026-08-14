@@ -25,6 +25,7 @@ from unittest import mock
 import frappe
 
 from assetcore.api import openapi
+from assetcore.tests._helpers.paths import APP_ROOT
 
 
 class TestOasD7Serve(unittest.TestCase):
@@ -173,7 +174,7 @@ class TestOasD18SwaggerAssets(unittest.TestCase):
     """
 
     import pathlib as _pathlib
-    _APP_ROOT = _pathlib.Path(__file__).resolve().parents[1]  # assetcore/
+    _APP_ROOT = _pathlib.Path(APP_ROOT)
     _SWAGGER_DIR = _APP_ROOT / "public" / "swagger-ui"
     _HTML = _APP_ROOT / "www" / "api-docs.html"
     _REQUIRED_ASSETS = (

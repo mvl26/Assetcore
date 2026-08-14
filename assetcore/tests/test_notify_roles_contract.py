@@ -25,8 +25,9 @@ import frappe
 
 from assetcore.services.shared import notify_roles
 from assetcore.utils.helpers import _get_role_emails
+from assetcore.tests._helpers.paths import APP_ROOT
 
-_APP_ROOT = Path(__file__).resolve().parents[1]  # apps/assetcore/assetcore
+_APP_ROOT = Path(APP_ROOT)
 
 # Literal dead-role không được phép xuất hiện trong các file LIVE dưới đây.
 _DEAD_LITERALS = [

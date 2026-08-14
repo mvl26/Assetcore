@@ -16,8 +16,10 @@ from assetcore.utils.import_helpers import (
     GROUPED_IMPORT_DOCTYPES,
     LINK_DISPLAY_BY_DOCTYPE,
     SOURCE_ROW_KEY,
+    UPDATE_LOCKED_FIELDS_BY_DOCTYPE,
     enrich_issues,
     enum_to_stored,
+    find_existing_by_key,
 )
 from assetcore.utils.response import _err, _ok
 
@@ -103,16 +105,31 @@ def init_import_folders(doctype: str) -> dict:
 # PREVIEW
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _as_bool(value) -> bool:
+    """Cờ từ HTTP có thể tới dạng bool, số, hoặc chuỗi 'true'/'0'.
+
+    `cint("true")` trả 0 nên KHÔNG dùng được ở đây — một cờ đọc sai là ghi đè
+    dữ liệu ngoài ý muốn (update_existing) hoặc nhập thiếu (skip_invalid).
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
 @frappe.whitelist(methods=["POST"])
-def preview_ref_data(doctype: str, file_url: str) -> dict:
+def preview_ref_data(doctype: str, file_url: str, update_existing=False) -> dict:
     """
     Parse file + chạy pre-validators. KHÔNG insert.
-    Returns: {total_rows, valid_rows, preview (10 dòng), errors, warnings}
+    Returns: {total_rows, valid_rows, preview (10 dòng), errors, warnings,
+              groups (DocType cha + bảng con)}
+
+    update_existing=True: bản ghi đã tồn tại được xem là 'sẽ cập nhật' thay vì
+    lỗi trùng — FE gọi lại preview khi người dùng bật lựa chọn này.
     """
-    return _handle(_do_preview, doctype, file_url)
+    return _handle(_do_preview, doctype, file_url, _as_bool(update_existing))
 
 
-def _do_preview(doctype: str, file_url: str) -> dict:
+def _do_preview(doctype: str, file_url: str, update_existing: bool = False) -> dict:
     from assetcore.services.import_validators import get_validator
     from assetcore.utils.import_helpers import (
         SUPPORTED_REF_DOCTYPES,
@@ -130,7 +147,7 @@ def _do_preview(doctype: str, file_url: str) -> dict:
     if not rows:
         raise ServiceError(ErrorCode.VALIDATION, "File không có dòng dữ liệu (từ hàng 6 trở xuống).")
 
-    validator = get_validator(doctype)
+    validator = get_validator(doctype, update_existing=update_existing)
     all_issues = enrich_issues(doctype, rows, validator.validate_all(rows))
 
     errors   = [e for e in all_issues if e["severity"] == "error"]
@@ -144,7 +161,7 @@ def _do_preview(doctype: str, file_url: str) -> dict:
 
     from assetcore.utils.import_helpers import field_label
 
-    return {
+    result = {
         "doctype": doctype,
         "total_rows": len(rows),
         "valid_rows": len(rows) - len(invalid_rows) - cascade_count,
@@ -157,6 +174,146 @@ def _do_preview(doctype: str, file_url: str) -> dict:
         "warnings": warnings,
         "cascade_count": cascade_count,
     }
+
+    # DocType cha + bảng con: đếm DÒNG là vô nghĩa với người dùng — họ cần biết
+    # file này tạo/cập nhật MẤY BẢN GHI và mỗi bản ghi mấy dòng con.
+    if doctype in GROUPED_IMPORT_DOCTYPES:
+        groups = _summarise_groups(doctype, rows, invalid_rows, update_existing)
+        result["groups"] = groups
+        result["groups_total"] = len(groups)
+    else:
+        existing_by_row = find_existing_by_key(doctype, rows)
+        valid = [i for i in range(1, len(rows) + 1) if i not in invalid_rows]
+        # Chỉ đếm là "sẽ cập nhật" khi người dùng ĐÃ bật công tắc — tắt thì các
+        # dòng đó đang bị chặn, đếm vào là hứa hẹn thứ hệ thống sẽ không làm.
+        result["will_update"] = (
+            len([i for i in valid if i in existing_by_row]) if update_existing else 0
+        )
+        result["will_create"] = len([i for i in valid if i not in existing_by_row])
+        # Có bản ghi trùng nhưng chưa bật công tắc ⇒ FE vẫn phải mời chào bật.
+        result["existing_rows"] = len([
+            i for i in range(1, len(rows) + 1) if i in existing_by_row
+        ])
+        result["warnings"].extend(
+            enrich_issues(doctype, rows,
+                          _locked_field_warnings(doctype, rows, existing_by_row))
+            if update_existing else []
+        )
+    return result
+
+
+def _locked_field_warnings(
+    doctype: str, rows: list[dict], existing_by_row: dict[int, str],
+) -> list[dict]:
+    """Cảnh báo khi file đòi đổi cột bị khoá của bản ghi đã có.
+
+    Bỏ qua im lặng là tệ nhất: người dùng sửa 'trạng thái vòng đời' trong file,
+    nhập xong thấy báo thành công, tưởng đã đổi. Nói thẳng là đã giữ nguyên.
+    """
+    locked = UPDATE_LOCKED_FIELDS_BY_DOCTYPE.get(doctype, ())
+    if not locked or not existing_by_row:
+        return []
+
+    from assetcore.utils.import_helpers import enum_to_stored, field_label
+
+    issues: list[dict] = []
+    for row_idx, name in existing_by_row.items():
+        row = rows[row_idx - 1]
+        for field in locked:
+            value = str(row.get(field, "")).strip()
+            if not value:
+                continue
+            current = str(frappe.db.get_value(doctype, name, field) or "")
+            if enum_to_stored(doctype, field, value) == current:
+                continue
+            issues.append({
+                "row": row_idx,
+                "field": field,
+                "message": (
+                    f"'{field_label(doctype, field)}' không đổi được bằng nhập file "
+                    f"— giữ nguyên '{current}'. Sửa trên màn hình chi tiết để có "
+                    "đủ phê duyệt và lịch sử thay đổi."
+                ),
+                "severity": "warning",
+            })
+    return issues
+
+
+def _summarise_groups(
+    doctype: str, rows: list[dict], invalid_idx: set[int], update_existing: bool,
+) -> list[dict]:
+    """Xem trước theo NHÓM: mỗi bản ghi cha sẽ tạo/cập nhật + số dòng con.
+
+    Hàng lỗi bị loại khỏi số hạng mục để con số hiện ra khớp với thứ sẽ nhập
+    thật, không phải số hàng thô trong file.
+    """
+    cfg = GROUPED_IMPORT_DOCTYPES[doctype]
+    cache: dict[tuple[str, str], str] = {}
+    name_field = cfg.get("name_field", "")
+
+    groups: dict[tuple, dict] = {}
+    for i, row in enumerate(rows, start=1):
+        key = _group_key_of(doctype, cfg, row, cache)
+        key_text = " · ".join(str(k) for k in key if str(k).strip())
+        g = groups.setdefault(key, {
+            # Hàng thiếu cột khoá gộp vào một nhóm khoá rỗng — gọi tên nó ra,
+            # đừng để bảng tóm tắt hiện một dòng trống không ai hiểu là gì.
+            "key": key_text or "(thiếu thông tin nhận dạng)",
+            "name_value": str(row.get(name_field, "") or "") if name_field else "",
+            "rows": 0,
+            "items": 0,
+            "first_source_row": row.get(SOURCE_ROW_KEY) or i,
+        })
+        g["rows"] += 1
+        if i not in invalid_idx:
+            g["items"] += 1
+
+    summary: list[dict] = []
+    for key, g in groups.items():
+        filters = dict(zip(cfg["group_key_fields"], key))
+        existing = frappe.db.exists(doctype, filters)
+        display = _group_key_display(doctype, cfg, key)
+        summary.append({
+            **g,
+            **display,
+            "exists": bool(existing),
+            "existing_items": (
+                frappe.db.count(cfg["child_doctype"],
+                                {"parent": existing, "parenttype": doctype})
+                if existing else 0
+            ),
+            "action": (
+                ("update" if update_existing else "blocked") if existing else "create"
+            ),
+        })
+    return summary
+
+
+def _group_key_display(doctype: str, cfg: dict, key: tuple) -> dict:
+    """Khoá nhóm (mã + enum gốc) → chữ người dùng đọc được.
+
+    Khoá dựng bằng mã danh mục và enum tiếng Anh để gộp cho đúng; hiện ra màn
+    hình mà vẫn là mã thì người dùng không đối chiếu được với file họ vừa điền.
+    """
+    from assetcore.utils.import_helpers import enum_display
+
+    resolvable = _RESOLVABLE_LINKS_BY_DOCTYPE.get(doctype, {})
+    out: dict[str, str] = {}
+    for field, value in zip(cfg["group_key_fields"], key):
+        text = str(value or "")
+        link_cfg = resolvable.get(field)
+        if link_cfg and text:
+            link_dt, display_field = link_cfg
+            text = frappe.db.get_value(link_dt, text, display_field) or text
+        else:
+            text = enum_display(doctype, field, text)
+        out[_GROUP_KEY_ALIAS.get(field, field)] = text
+    return out
+
+
+# Tên khoá gửi cho FE — giữ ngắn và không phụ thuộc fieldname của một DocType
+# cụ thể, để màn hình khác dùng lại được khi có loại dữ liệu nhóm thứ hai.
+_GROUP_KEY_ALIAS = {"asset_category": "category"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -223,7 +380,9 @@ def _cascade_skip_for_tree(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist(methods=["POST"])
-def import_ref_data(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
+def import_ref_data(
+    doctype: str, file_url: str, skip_invalid=False, update_existing=False,
+) -> dict:
     """
     Validate + insert rows trực tiếp (không qua Frappe Data Import engine).
     Reference data không có side-effects → direct insert an toàn.
@@ -231,13 +390,21 @@ def import_ref_data(doctype: str, file_url: str, skip_invalid: bool = False) -> 
     skip_invalid=False (mặc định): có lỗi pre-validate → ServiceError, abort.
     skip_invalid=True: bỏ qua dòng lỗi (+ cascade child cho Tree DocType),
         vẫn insert phần hợp lệ. KHÔNG hỗ trợ cho `User` doctype.
+    update_existing=True: DocType cha+bảng con — bản ghi đã tồn tại được cập
+        nhật, TOÀN BỘ bảng con thay theo file. Mặc định False (chỉ tạo mới).
 
-    Returns: {total, success, failed, skipped, errors, skipped_rows}
+    Returns: {total, success, failed, skipped, errors, skipped_rows,
+              groups_created, groups_updated}
     """
-    return _handle(_do_import, doctype, file_url, skip_invalid)
+    return _handle(
+        _do_import, doctype, file_url, _as_bool(skip_invalid), _as_bool(update_existing),
+    )
 
 
-def _do_import(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
+def _do_import(
+    doctype: str, file_url: str, skip_invalid: bool = False,
+    update_existing: bool = False,
+) -> dict:
     from assetcore.services.import_validators import get_validator
     from assetcore.utils.import_helpers import (
         SUPPORTED_REF_DOCTYPES,
@@ -255,7 +422,7 @@ def _do_import(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
         raise ServiceError(ErrorCode.VALIDATION, "File không có dòng dữ liệu.")
 
     # ── Pre-validate ───────────────────────────────────────────────────────
-    validator = get_validator(doctype)
+    validator = get_validator(doctype, update_existing=update_existing)
     issues = validator.validate_all(rows)
     blocking = [e for e in issues if e["severity"] == "error"]
 
@@ -296,10 +463,12 @@ def _do_import(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
     if doctype == "User":
         return _do_import_users(rows, invalid_idx, skipped_rows)
     if doctype in GROUPED_IMPORT_DOCTYPES:
-        return _do_import_grouped(doctype, rows, invalid_idx, skipped_rows)
+        return _do_import_grouped(
+            doctype, rows, invalid_idx, skipped_rows, update_existing)
 
     resolvable_links = _RESOLVABLE_LINKS_BY_DOCTYPE.get(doctype, {})
     optional_links = _OPTIONAL_LINKS_BY_DOCTYPE.get(doctype, {})
+    existing_by_row = find_existing_by_key(doctype, rows) if update_existing else {}
 
     results: dict = {
         "total": len(rows),
@@ -308,6 +477,7 @@ def _do_import(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
         "skipped": len(invalid_idx),
         "errors": [],
         "skipped_rows": skipped_rows,
+        "updated": 0,
     }
 
     for i, row in enumerate(rows, start=1):
@@ -318,6 +488,12 @@ def _do_import(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
             _resolve_links(clean, resolvable_links)
             _restore_enum_values(doctype, clean)
             _drop_unresolved_optional_links(clean, optional_links)
+
+            if i in existing_by_row:
+                _update_flat_record(doctype, existing_by_row[i], clean)
+                results["updated"] += 1
+                results["success"] += 1
+                continue
 
             # AC Asset: workflow only allows new docs at "Draft". Capture the
             # desired status so we can transition AFTER insert (mirrors the
@@ -349,21 +525,53 @@ def _do_import(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
     return results
 
 
-def _group_key_of(doctype: str, cfg: dict, row: dict) -> tuple:
+def _update_flat_record(doctype: str, name: str, clean: dict) -> None:
+    """Ghi đè bản ghi đã có bằng các ô CÓ DỮ LIỆU trong file.
+
+    Hai luật đã chốt với người dùng (2026-08-11):
+      - **Ô để trống = giữ nguyên giá trị cũ.** Người nhập liệu thường chỉ quan
+        tâm vài cột; coi ô trống là "xoá" thì xuất 8 cột sửa 1 cột là mất 7.
+      - **Cột nhạy cảm bị khoá** (`UPDATE_LOCKED_FIELDS_BY_DOCTYPE`): trạng thái
+        vòng đời / mã tài sản / serial đi kèm workflow + vết kiểm toán, đổi bằng
+        file là đi vòng cả hai. Cảnh báo đã báo ở bước xem trước.
+    """
+    locked = set(UPDATE_LOCKED_FIELDS_BY_DOCTYPE.get(doctype, ()))
+    payload = {
+        field: value for field, value in clean.items()
+        if field not in locked and value not in ("", None)
+    }
+    doc = frappe.get_doc(doctype, name)
+    doc.update(payload)
+    doc.save(ignore_permissions=True)
+
+
+def _group_key_of(
+    doctype: str, cfg: dict, row: dict, cache: dict | None = None,
+) -> tuple:
     """Khoá định danh của nhóm — đã chuẩn hoá tên→mã và nhãn VI→giá trị lưu.
 
     Người dùng có thể viết "Máy thở" ở dòng này, mã "CAT-0007" ở dòng kia; cùng
     một mẫu thì phải rơi vào cùng nhóm, nếu không sẽ tạo 2 lần và đụng khoá.
+    `cache` gom kết quả tra Link cho cả file — không có nó thì file 300 hàng bắn
+    600 truy vấn cho đúng vài giá trị lặp lại.
     """
     resolvable = _RESOLVABLE_LINKS_BY_DOCTYPE.get(doctype, {})
+    if cache is None:
+        cache = {}
     key: list[str] = []
     for field in cfg["group_key_fields"]:
         value = str(row.get(field, "")).strip()
         cfgl = resolvable.get(field)
         if cfgl and value:
-            link_dt, display_field = cfgl
-            if not frappe.db.exists(link_dt, value):
-                value = frappe.db.get_value(link_dt, {display_field: value}, "name") or value
+            cache_key = (field, value)
+            if cache_key not in cache:
+                link_dt, display_field = cfgl
+                cache[cache_key] = (
+                    value if frappe.db.exists(link_dt, value)
+                    else (frappe.db.get_value(link_dt, {display_field: value}, "name")
+                          or value)
+                )
+            value = cache[cache_key]
         key.append(enum_to_stored(doctype, field, value))
     return tuple(key)
 
@@ -371,6 +579,7 @@ def _group_key_of(doctype: str, cfg: dict, row: dict) -> tuple:
 def _do_import_grouped(
     doctype: str, rows: list[dict],
     invalid_idx: set[int], skipped_rows: list[dict],
+    update_existing: bool = False,
 ) -> dict:
     """Nhập DocType có BẢNG CON từ file phẳng: gộp các hàng cùng khoá thành 1 bản ghi.
 
@@ -378,11 +587,18 @@ def _do_import_grouped(
     lấy theo hàng ĐẦU TIÊN của nhóm. Hàng lỗi bị bỏ qua vẫn cho phần còn lại của
     nhóm được tạo — đúng tinh thần 'bỏ qua dòng lỗi/trùng'.
 
-    Đi qua service layer (`services.imm08.create_template`) chứ KHÔNG
-    `new_doc().insert()` trần: quy tắc nghiệp vụ + đánh số hạng mục nằm ở đó.
+    `update_existing=True` (người dùng bật ở bước xem trước): bản ghi đã có được
+    CẬP NHẬT — toàn bộ bảng con thay bằng nội dung file, đúng vòng
+    "Xuất Excel → sửa → Nhập lại". Tắt (mặc định) thì bản ghi trùng đã bị
+    validator chặn từ trước, không tới được đây.
+
+    Đi qua service layer (`services.imm08.create_template` / `update_template`)
+    chứ KHÔNG `new_doc().insert()` trần: quy tắc nghiệp vụ + đánh số hạng mục
+    nằm ở đó.
     """
     cfg = GROUPED_IMPORT_DOCTYPES[doctype]
     resolvable = _RESOLVABLE_LINKS_BY_DOCTYPE.get(doctype, {})
+    cache: dict[tuple[str, str], str] = {}
 
     results: dict = {
         "total": len(rows),
@@ -392,6 +608,7 @@ def _do_import_grouped(
         "errors": [],
         "skipped_rows": skipped_rows,
         "groups_created": 0,
+        "groups_updated": 0,
     }
 
     # Gộp nhóm theo thứ tự xuất hiện để thông báo lỗi bám đúng hàng đầu nhóm.
@@ -399,7 +616,7 @@ def _do_import_grouped(
     for i, row in enumerate(rows, start=1):
         if i in invalid_idx:
             continue
-        key = _group_key_of(doctype, cfg, row)
+        key = _group_key_of(doctype, cfg, row, cache)
         group = groups.setdefault(key, {"first_row": i, "rows": [], "parent": {}})
         if not group["parent"]:
             parent = {f: row.get(f) for f in cfg["parent_fields"] if row.get(f) not in ("", None)}
@@ -416,8 +633,18 @@ def _do_import_grouped(
             children = [
                 _build_child_row(doctype, cfg, row) for _, row in group["rows"]
             ]
-            _create_grouped_record(doctype, group["parent"], cfg["child_table"], children)
-            results["groups_created"] += 1
+            existing = (
+                frappe.db.exists(doctype, dict(zip(cfg["group_key_fields"], key)))
+                if update_existing else None
+            )
+            if existing:
+                _update_grouped_record(
+                    doctype, str(existing), group["parent"], cfg["child_table"], children)
+                results["groups_updated"] += 1
+            else:
+                _create_grouped_record(
+                    doctype, group["parent"], cfg["child_table"], children)
+                results["groups_created"] += 1
             results["success"] += len(row_indexes)
         except Exception as e:            # noqa: BLE001 — lỗi 1 nhóm không được giết cả file
             frappe.log_error(f"Import group {key} failed: {e}", "Import Grouped Data")
@@ -463,6 +690,25 @@ def _create_grouped_record(
     raise ServiceError(
         ErrorCode.VALIDATION,
         f"DocType '{doctype}' chưa có đường tạo bản ghi theo nhóm",
+    )
+
+
+def _update_grouped_record(
+    doctype: str, name: str, parent: dict, child_table: str, children: list[dict],
+) -> None:
+    """Cập nhật bản ghi cha + THAY toàn bộ bảng con theo file.
+
+    Vẫn đi qua service layer để giữ nguyên validate nghiệp vụ và đánh số lại
+    hạng mục; không `db_set` thẳng vào bảng con.
+    """
+    if doctype == "PM Checklist Template":
+        from assetcore.services import imm08
+
+        imm08.update_template(name, {**parent, child_table: children})
+        return
+    raise ServiceError(
+        ErrorCode.VALIDATION,
+        f"DocType '{doctype}' chưa có đường cập nhật bản ghi theo nhóm",
     )
 
 
