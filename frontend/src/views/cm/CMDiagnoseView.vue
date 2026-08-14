@@ -4,7 +4,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm09Store } from '@/stores/imm09'
 import { useNotify } from '@/composables/useNotify'
-import { MSG } from '@/i18n/messages'
+import { MSG } from '@/locales/messages'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()

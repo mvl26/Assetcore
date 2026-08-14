@@ -12,7 +12,7 @@ import { useFormDraft } from '@/composables/useFormDraft'
 import { useApi } from '@/composables/useApi'
 import { useToast } from '@/composables/useToast'
 import { useNotify } from '@/composables/useNotify'
-import { MSG } from '@/i18n/messages'
+import { MSG } from '@/locales/messages'
 
 // Panel meta thiết bị — derive từ meta NẠC (getAssetActionMeta perm-aware, 6 field,
 // KHÔNG full-doc tài chính). Hiển thị display-name (device_model_name /

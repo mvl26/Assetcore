@@ -3,7 +3,7 @@
 import { onMounted, ref } from 'vue'
 import { useImm15Store } from '@/stores/imm15'
 import { useNotify } from '@/composables/useNotify'
-import { MSG } from '@/i18n/messages'
+import { MSG } from '@/locales/messages'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
