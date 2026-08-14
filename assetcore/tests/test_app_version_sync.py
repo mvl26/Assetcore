@@ -11,7 +11,7 @@ Trục phiên bản của sản phẩm:
 
 Bối cảnh: `AppSidebar.vue` từng hardcode "AssetCore v0.1.0" nên mỗi lần release
 phải sửa tay và dễ quên (commit ``1dedba9``). FE đã có guard đối ứng ở
-``frontend/src/constants/appVersion.test.ts``; test này khoá cùng bất biến từ
+``frontend/src/guards/appVersion.guard.test.ts``; test này khoá cùng bất biến từ
 phía BE để người chỉ chạy ``bench run-tests`` cũng bắt được lệch.
 
 Test thuần đọc file — KHÔNG cần site/DB.
@@ -27,9 +27,10 @@ from pathlib import Path
 
 import assetcore
 from assetcore.api import openapi
+from assetcore.tests._helpers.paths import REPO_ROOT
 
 # .../apps/assetcore/assetcore/tests/ → .../apps/assetcore/
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(REPO_ROOT)
 _FE_PACKAGE_JSON = _REPO_ROOT / "frontend" / "package.json"
 _FE_VITE_CONFIG = _REPO_ROOT / "frontend" / "vite.config.ts"
 _FE_VITEST_CONFIG = _REPO_ROOT / "frontend" / "vitest.config.ts"

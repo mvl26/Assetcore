@@ -27,6 +27,7 @@ from pathlib import Path
 import frappe
 
 from assetcore.setup.role_profile_catalog import BASE_ROLE
+from assetcore.tests._helpers.paths import APP_ROOT
 
 _UID = str(int(time.time()) % 1000000)
 
@@ -252,7 +253,7 @@ class TestNoRawUserQueryGuard(unittest.TestCase):
     ``services/shared/ac_users``.
     """
 
-    _APP = Path(__file__).resolve().parent.parent
+    _APP = Path(APP_ROOT)
     _SCAN_DIRS = ("api", "services", "repositories")
     # Ngoại lệ có lý do:
     #   * resolver — nơi DUY NHẤT được phép query gốc;

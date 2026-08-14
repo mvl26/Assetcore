@@ -42,8 +42,9 @@ from assetcore.utils.import_helpers import (
     get_template_path,
     source_row_of,
 )
+from assetcore.tests._helpers.paths import APP_ROOT
 
-_APP_ROOT = Path(__file__).resolve().parents[1]
+_APP_ROOT = Path(APP_ROOT)
 
 # Link fields trỏ tới User: khoá chính = email = giá trị người dùng gõ, nên
 # KHÔNG cần (và không được) khai vào map display→code.

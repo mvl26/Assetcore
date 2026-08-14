@@ -35,8 +35,9 @@ from assetcore.services.imm00 import (
     _RESERVED_NAME_SI_PREFIX,
 )
 from assetcore.tests._asset_cleanup import purge_asset
+from assetcore.tests._helpers.paths import APP_ROOT
 
-_APP_ROOT = Path(__file__).resolve().parents[1]  # …/assetcore (package root)
+_APP_ROOT = Path(APP_ROOT)
 
 
 def _insert_asset(data: dict):

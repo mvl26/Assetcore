@@ -81,10 +81,10 @@ import unittest
 from pathlib import Path
 
 import yaml
+from assetcore.tests._helpers.paths import REPO_ROOT
 
 # docs/mobile/openapi/assetcore-mobile.openapi.yaml — repo-relative (4 cấp lên từ file test).
-#   assetcore/assetcore/tests/test_mobile_oas.py → repo root = parents[2]
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(REPO_ROOT)
 _MOBILE_YAML = _REPO_ROOT / "docs" / "mobile" / "openapi" / "assetcore-mobile.openapi.yaml"
 
 

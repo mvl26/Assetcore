@@ -40,6 +40,7 @@ from frappe.utils import flt
 
 from assetcore.services import depreciation as depr_svc
 from assetcore.tests._asset_cleanup import purge_asset
+from assetcore.tests._helpers.paths import DOCTYPE_DIR
 
 _DT_ASSET = "AC Asset"
 
@@ -96,7 +97,7 @@ _MONEY_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 _DOCTYPE_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "assetcore", "doctype",
+    DOCTYPE_DIR,
 )
 
 

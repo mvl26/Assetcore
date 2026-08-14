@@ -37,10 +37,10 @@ from __future__ import annotations
 import re
 import unittest
 from pathlib import Path
+from assetcore.tests._helpers.paths import REPO_ROOT
 
 # docs/mobile — repo-relative (cùng anchor pattern test_mobile_oas.py:53-56).
-#   assetcore/assetcore/tests/test_mobile_docset.py → repo root = parents[2]
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(REPO_ROOT)
 _MOBILE_DIR = _REPO_ROOT / "docs" / "mobile"
 _README = _MOBILE_DIR / "README.md"
 _OPENAPI_REL = "openapi/assetcore-mobile.openapi.yaml"

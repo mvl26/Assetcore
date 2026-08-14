@@ -37,6 +37,7 @@ from assetcore.services.imm00 import (
     reserved_asset_names,
 )
 from assetcore.tests._asset_cleanup import purge_asset
+from assetcore.tests._helpers.paths import APP_ROOT
 
 
 def _insert_asset(data: dict):
@@ -324,7 +325,7 @@ class TestNoDuplicateReservedLiteral(FrappeTestCase):
     def test_reserved_literal_single_source(self):
         import os
         import re
-        base = frappe.get_app_path("assetcore")
+        base = APP_ROOT
         # bắt literal SI-% hoặc \_% trong .py (ngoài tests, ngoài SoT body)
         pat = re.compile(r"""['"](SI-%|\\_%)['"]""")
         offenders = []

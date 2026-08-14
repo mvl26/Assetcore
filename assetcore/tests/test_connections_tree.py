@@ -49,6 +49,7 @@ from assetcore.api.connections import get_connections
 from assetcore.services import connections as conn_service
 from assetcore.services.shared import connection_meta as cmeta
 from assetcore.tests._asset_cleanup import purge_asset, purge_category_by_name
+from assetcore.tests._helpers.paths import FRONTEND_SRC, WORKFLOW_DIR
 
 _CAT_NAME = "ConnTree Test Category"
 _CAT_CODE = "TEST-CAT-CONNTREE"
@@ -99,8 +100,7 @@ _CREATE_CAPABILITY_ABSTENTIONS = frozenset({
 })
 
 _FRONTEND_ROUTER = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "frontend", "src", "router", "index.ts",
+    FRONTEND_SRC, "router", "index.ts",
 )
 
 #: Họ field CẤM đưa vào preview (LL-BE-57 — endpoint meta, không phải hồ sơ).
@@ -110,7 +110,7 @@ _FORBIDDEN_FIELD_RE = re.compile(
 )
 
 _WORKFLOW_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assetcore", "workflow"
+    WORKFLOW_DIR
 )
 
 #: Sáu lời gọi ĐỌC-THEO-TẬP bị cấm ở tầng service (ADR §17 D-CR92-6 điều kiện (a)).

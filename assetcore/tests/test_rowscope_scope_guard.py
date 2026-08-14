@@ -27,8 +27,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from assetcore.repositories.base import _LIST_SCOPES, BaseRepository
+from assetcore.tests._helpers.paths import APP_ROOT
 
-_APP_ROOT = pathlib.Path(__file__).resolve().parents[1]
+_APP_ROOT = pathlib.Path(APP_ROOT)
 _SCAN_DIRS = ("services", "api", "repositories")
 
 # ── Allowlist call site KHÔNG chạy scope="user" ──────────────────────────────

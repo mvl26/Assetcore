@@ -50,6 +50,7 @@ import unittest
 from collections import defaultdict
 
 import frappe
+from assetcore.tests._helpers.paths import WORKFLOW_DIR
 
 # Cả hai admin role PHẢI hiện diện trong MỌI transition-group của MỌI workflow —
 # mirror `setup/backfill_workflow_admin.ADMIN_ROLES` (SoT sync live) + test_workflows.
@@ -73,7 +74,7 @@ def _load_source_workflows() -> dict[str, dict]:
     Đây CHÍNH là thư mục `setup/install._sync_workflows()` scan khi provision
     site MỚI — oracle độc lập với fixtures/workflow.json.
     """
-    wf_dir = frappe.get_app_path("assetcore", "assetcore", "workflow")
+    wf_dir = WORKFLOW_DIR
     out: dict[str, dict] = {}
     for fp in sorted(glob.glob(os.path.join(wf_dir, "*.json"))):
         with open(fp, encoding="utf-8") as fh:

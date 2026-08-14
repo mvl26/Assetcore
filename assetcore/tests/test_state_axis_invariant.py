@@ -44,6 +44,7 @@ import re
 import unittest
 
 import frappe
+from assetcore.tests._helpers.paths import WORKFLOW_DIR
 
 _APP = "assetcore"
 
@@ -95,7 +96,7 @@ def _load_json(path: str) -> dict:
 
 def _active_workflows() -> list[dict]:
     """Workflow nguồn có ``is_active=1`` (path mà fresh-install ``_sync_workflows`` import)."""
-    wf_dir = frappe.get_app_path(_APP, _APP, "workflow")
+    wf_dir = WORKFLOW_DIR
     workflows = [_load_json(p) for p in sorted(glob.glob(os.path.join(wf_dir, "*.json")))]
     return [w for w in workflows if w.get("is_active")]
 

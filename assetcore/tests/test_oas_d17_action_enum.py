@@ -42,6 +42,7 @@ from assetcore.tests.oas_baseline import (
     BASELINE_TOTAL,
     BASELINE_TYPED,
 )
+from assetcore.tests._helpers.paths import WORKFLOW_DIR
 
 # ── 5 op-tail (operationId-tail) PHẢI có enum cho property 'action' (D17). ──────
 _ENUM_OP_TAILS = frozenset(
@@ -56,12 +57,9 @@ _ENUM_OP_TAILS = frozenset(
 
 # ── Oracle ĐỘC LẬP: đọc fixture .json trên đĩa trực tiếp (KHÔNG copy hằng) ──────
 # Workflow fixture dir: <app-repo>/assetcore/assetcore/workflow/*.json.
-_WORKFLOW_DIR = (
-    pathlib.Path(openapi_overrides_file := ovr.__file__).resolve().parents[2]
-    / "assetcore"
-    / "assetcore"
-    / "workflow"
-)
+# Neo qua `_helpers.paths` (SPEC BE §5.2 N5) thay vì đếm cấp từ `ovr.__file__`:
+# `openapi_overrides.py` dời chỗ là đường dẫn này lệch ÂM THẦM.
+_WORKFLOW_DIR = pathlib.Path(WORKFLOW_DIR)
 
 # Map op_tail → fixture file(s) (oracle độc lập — đối chiếu với WORKFLOW_ACTION_OVERRIDES,
 # KHÔNG import map của module under test khi assert SSoT-value).

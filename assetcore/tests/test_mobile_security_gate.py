@@ -60,10 +60,10 @@ import frappe
 
 from assetcore.api.mobile import preflight
 from assetcore.utils import response as _resp
+from assetcore.tests._helpers.paths import REPO_ROOT
 
 # ── Path SSoT (STDLIB Path — KHÔNG DB) ───────────────────────────────────────
-# parents[2] = .../apps/assetcore (mirror test_mobile_docset._REPO_ROOT).
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(REPO_ROOT)
 _DOCS_MOBILE = _REPO_ROOT / "docs" / "mobile"
 _YAML = _DOCS_MOBILE / "openapi" / "assetcore-mobile.openapi.yaml"
 

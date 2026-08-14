@@ -16,6 +16,7 @@ from assetcore.services import imm15 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.tests._asset_cleanup import purge_asset
 from assetcore.utils.messages import MSG
+from assetcore.tests._helpers.paths import APP_ROOT
 
 
 def _ensure_doc(doctype: str, lookup: dict, data: dict) -> str:
@@ -892,7 +893,7 @@ class TestExpiringBatches(unittest.TestCase):
     def test_no_duplicate_string_dict_keys_in_repo(self):
         import ast
         import os
-        app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        app_root = APP_ROOT
         offenders: list[str] = []
         for dirpath, _dirs, files in os.walk(app_root):
             if "__pycache__" in dirpath or "/tests/" in dirpath:
