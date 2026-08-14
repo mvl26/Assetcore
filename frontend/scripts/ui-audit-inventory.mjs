@@ -25,10 +25,36 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve, relative } from 'node:path'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-const FRONTEND = resolve(HERE, '..')
+// Đường dẫn neo bằng MỐC (package.json + vite.config.ts), KHÔNG đếm số cấp `..`
+// — cùng nguyên tắc với `src/test/paths.ts` (SPEC §5.2 N5). Bộ dò này sinh ra bảng
+// trong `docs/ui-ux/00_AUDIT_HIEN_TRANG.md` và có guard parity đối chiếu, nên một
+// đường dẫn trượt âm thầm ở đây làm sai bảng audit mà không ai biết.
+function findFrontendRoot() {
+  let dir = dirname(fileURLToPath(import.meta.url))
+  for (let i = 0; i < 12; i += 1) {
+    if (existsSync(resolve(dir, 'package.json')) && existsSync(resolve(dir, 'vite.config.ts'))) return dir
+    const parent = dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  throw new Error('[ui-audit-inventory] không tìm thấy gốc frontend/ (mốc: package.json + vite.config.ts)')
+}
+
+/** Ném lỗi nếu thư mục neo biến mất — KHÔNG bỏ qua im lặng rồi kiểm kê thiếu. */
+function requireDir(p, label) {
+  if (!existsSync(p)) {
+    throw new Error(
+      `[ui-audit-inventory] thư mục ${label} không tồn tại: ${p}\n` +
+        'Cây thư mục đã đổi — cập nhật script này CÙNG LÚC với việc dời thư mục. ' +
+        'Bỏ qua im lặng sẽ sinh ra bảng audit thiếu màn mà trông vẫn hợp lệ.',
+    )
+  }
+  return p
+}
+
+const FRONTEND = findFrontendRoot()
 const REPO_ROOT = resolve(FRONTEND, '..')
-const SRC = resolve(FRONTEND, 'src')
+const SRC = requireDir(resolve(FRONTEND, 'src'), 'SRC')
 const ROUTER = resolve(SRC, 'router/index.ts')
 const DOC = resolve(REPO_ROOT, 'docs/ui-ux/00_AUDIT_HIEN_TRANG.md')
 
@@ -138,7 +164,15 @@ function shellDelegates(src, selfAbs) {
   return [...out].filter((p) => p !== selfAbs)
 }
 
-const COMPONENT_DIRS = [resolve(SRC, 'components'), resolve(SRC, 'views')]
+// `requireDir` chứ KHÔNG `existsSync(...) ? ... : bỏ qua`: nếu `views/` hay
+// `components/` bị dời, bộ dò phải chết ầm ĩ thay vì lặng lẽ kiểm kê thiếu vài
+// trăm màn rồi để guard parity so bảng-thiếu với doc-thiếu và báo XANH.
+const COMPONENT_DIRS = [
+  requireDir(resolve(SRC, 'components'), 'components'),
+  requireDir(resolve(SRC, 'views'), 'views'),
+]
+/** Dân số tối thiểu của chỉ mục `.vue` — đo từ đĩa 2026-08-13: 208 file. */
+const MIN_COMPONENT_INDEX = 180
 const componentIndex = (() => {
   const idx = new Map()
   const walk = (dir) => {
@@ -150,7 +184,14 @@ const componentIndex = (() => {
       }
     }
   }
-  for (const d of COMPONENT_DIRS) if (existsSync(d)) walk(d)
+  for (const d of COMPONENT_DIRS) walk(d)
+  if (idx.size < MIN_COMPONENT_INDEX) {
+    throw new Error(
+      `[ui-audit-inventory] chỉ mục component chỉ có ${idx.size} file .vue, ` +
+        `dưới ngưỡng ${MIN_COMPONENT_INDEX}. Thư mục quét đã bị dời/rỗng đi ⇒ mọi ` +
+        'bảng sinh ra từ đây đều thiếu. Sửa đường dẫn, đừng hạ ngưỡng.',
+    )
+  }
   return idx
 })()
 
