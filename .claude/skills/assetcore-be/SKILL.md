@@ -330,6 +330,43 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
 
 ---
 
+## 🧭 Vị trí & tên file test BE — BẮT BUỘC
+
+> SSoT cưỡng chế: `assetcore/tests/guards/test_test_layout_convention.py` (K1–K9 + guard §5.4).
+> Spec đầy đủ: `docs/architecture/SPEC_chuan_hoa_cau_truc_backend.md`.
+
+Mỗi file test chỉ được ở **một trong bốn nhà**:
+
+| # | Loại test | Nhà | Tên file |
+|---|---|---|---|
+| 1 | Test của **một DocType** (validate, hooks, naming, permission trên chính doc) | `assetcore/assetcore/doctype/<dt>/` — **chuẩn Frappe** | `test_<dt>.py` |
+| 2 | Test của **một module logic** (`services/<X>.py` / `api/<X>.py`) | `assetcore/tests/<X>/` | `test_<X>[_<khia_canh>].py` |
+| 3 | **Guard / hợp đồng / parity** — đọc đĩa, lint OAS, đối chiếu doc↔mã, không cần DB | `assetcore/tests/guards/` | `test_<chu_de>.py` |
+| 4 | **Tích hợp cắt ngang ≥2 module** | `assetcore/tests/integration/` | `test_<luong>.py` |
+
+Helper dùng chung → `assetcore/tests/_helpers/` (`paths.py`, `_asset_cleanup.py`, `oas_baseline.py`).
+
+**CẤM (guard sẽ ĐỎ):**
+- Để file test ở **gốc `assetcore/tests/`** · thư mục con thiếu `__init__.py` (R2 — `--module` sẽ gãy) · mã ticket trong **tên file** (đưa vào docstring/`test_*` method).
+- **Đổi tên file trong `patches/`** — Frappe nhận diện patch bằng **chuỗi dotted path** (`patch_handler.py:228`); đổi tên patch ĐÃ CHẠY ⇒ Frappe coi là patch mới ⇒ **chạy lại trên production** (R3).
+- Test **ghi DB** (`frappe.get_doc/new_doc/insert/db.set/delete_doc`) mà lớp cơ sở không phải **`FrappeTestCase`** — không rollback ⇒ rác rơi vào site thật.
+- Test **quét thư mục** (`os.walk`/`glob`/`listdir`) mà không ở `tests/guards/`; hoặc guard quét mà **không chốt dân số** (`list_files(DIR, ext, min_count=N)` / `assertGreater(len(files), N)`).
+- Guard tính đường dẫn theo **độ sâu** (`Path(__file__).resolve().parents[N]`, `os.path.dirname(os.path.dirname(...))`, `process.cwd()`) — phải lấy anchor từ **`assetcore.tests._helpers.paths`**.
+
+**Ranh giới `utils/` ⇄ `services/shared/` (§5.4 — MỘT CHIỀU):**
+
+| Nhà | Chứa gì | Được import |
+|---|---|---|
+| `assetcore/utils/` | hạ tầng kỹ thuật, không biết nghiệp vụ (response envelope, pagination, attachment, email, idempotency, FCM, `ServiceError`) | thư viện ngoài + `frappe`. **CẤM** import `services/**` ở mức module |
+| `assetcore/services/shared/` | nhân nghiệp vụ dùng chung (scope/RBAC, state machine, filters, connection meta) | được import `utils/` |
+
+Lazy-import **bên trong hàm** là lối thoát hợp lệ (không tạo vòng lúc nạp module) — vd `utils/fcm.py` gọi `services.mobile_device_token` chỉ khi gặp dead-token.
+
+**Trước khi báo xong:**
+```bash
+bench --site <site> run-tests --module assetcore.tests.guards.test_test_layout_convention
+```
+
 ## Build sequence module mới (exact file paths)
 
 > 🧱 **Incremental — thin vertical slice**: thay vì build trọn module 1 lượt, đi LÁT MỎNG dọc stack `DocType → repo → service → api → test` cho MỘT entrypoint (vd `create_repair`), chạy `run-tests` xanh, **commit nhỏ**, rồi mới sang entrypoint kế. Mỗi lát để hệ ở trạng thái build-được + test-được. **Safe default**: tham số/feature mới mặc định conservative (`notify=False`, flag tắt qua `site_config`). **Rollback-friendly**: ưu tiên thay đổi additive (file/field mới dễ revert); DocType/field deprecate qua Frappe patch riêng — KHÔNG xoá+thay trong cùng commit.
@@ -375,7 +412,7 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
    ```
    assetcore/tests/test_immXX.py
    ```
-   Update `assetcore/tests/test_workflows.py::EXPECTED_WORKFLOWS`.
+   Update `assetcore/tests/guards/test_workflows.py::EXPECTED_WORKFLOWS`.
 
 8. **hooks.py — 3 list update**:
    ```python
@@ -388,7 +425,7 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
    bench --site miyano export-fixtures --app assetcore
    bench --site miyano migrate
    bench --site miyano run-tests --module assetcore.tests.test_immXX
-   bench --site miyano run-tests --module assetcore.tests.test_workflows
+   bench --site miyano run-tests --module assetcore.tests.guards.test_workflows
    ```
 
 10. **Update docs**: `docs/imm-XX/04_Backend_Design.md` + `05_API_Specification.md` trong cùng commit với code.
