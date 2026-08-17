@@ -1,6 +1,6 @@
 # SPEC — Chuẩn hoá cấu trúc file & thư mục BACKEND
 
-> **Trạng thái:** DRAFT — chờ duyệt. **Chưa thi hành bất kỳ thay đổi nào.**
+> **Trạng thái:** ✅ **ĐÃ THI HÀNH TRỌN B0–B6 ngày 2026-08-13/14.** Mọi bảng «hiện trạng» bên dưới giữ nguyên số đo **TRƯỚC** khi thi hành — đó là ảnh chụp gốc, đừng viết đè. Kết quả + chỗ spec đo sai: xem §11.
 > **Phạm vi:** chỉ `assetcore/` (Python/Frappe). Frontend đã có spec riêng: [SPEC_chuan_hoa_cau_truc_frontend.md](SPEC_chuan_hoa_cau_truc_frontend.md).
 > **Ngày đo:** 2026-08-13 · **Nhánh:** `feature/hieuc/develop-v0.2.0`
 > **Nguyên tắc:** mọi con số đều **đo từ đĩa**, **tái lập được** bằng lệnh ở §9.
@@ -404,3 +404,47 @@ grep -rn "^from assetcore\.utils"            assetcore/services/shared/*.py
 | Ngày | Nội dung |
 |---|---|
 | 2026-08-13 | Bản đầu — phân tích hiện trạng + kế hoạch B0–B6. Chưa thi hành. |
+| 2026-08-13/14 | **THI HÀNH XONG B0–B6.** Baseline đo lại từ đĩa: `Ran 4753` (sau 4 commit sửa lỗi hậu-B1). Kết thúc: **`Ran 4764` — 0 lỗi mới so baseline**. |
+
+### 11.1 Kết quả đo được (trước → sau)
+
+| Chỉ số | Trước | Sau |
+|---|---|---|
+| File test ở **gốc phẳng** `assetcore/tests/` | 131 | **0** |
+| Thư mục con trong `tests/` | 0 | **29** (đều có `__init__.py`) |
+| Neo đường dẫn theo **độ sâu** trong test | 20 file | **0** |
+| Test ghi DB **không rollback** | 75 | **0** (68 đổi trực tiếp + 7 qua kế thừa) |
+| Nhà script | **3** (`scripts/` gốc · `assetcore/scripts/` · `assetcore/seed/`) | **1** (`assetcore/scripts/{seed,uat,maintenance}/`) |
+| File lẻ ở gốc `assetcore/scripts/` | 14 | **0** (chỉ còn `__init__.py`) |
+| Vòng lặp import `utils/` ⇄ `services/shared/` | có (3 điểm, phải `# noqa: E402`) | **0** ở mức module |
+| Guard **xanh giả** khi `workflow/` biến mất | 1/5 vẫn XANH | **0** — 6/6 ĐỎ |
+| Tổng test | 4753 | **4764** (+11 test của guard quy ước mới) |
+
+### 11.2 Chỗ spec đo SAI — sửa lại cho lần sau
+
+| Mục | Spec nói | Đo lại từ đĩa | Vì sao lệch |
+|---|---|---|---|
+| §3.5 #8 `assetcore/config/` | «0 file `.py`, rà lại có cần không» | **ĐANG DÙNG — không đụng** | `setup/install.py:378` đọc `config/erpnext_integration/asset_custom_fields.json`; có `test_install_module_map.py` phủ |
+| §3.5 #7 test lạc trong `docs/` | «dời hoặc bỏ» | **GIỮ NGUYÊN** | Đó là test của **script dựng tài liệu** (`shift_headings.py`), đặt đúng cạnh nguồn, ngoài cây app nên runner Frappe không thấy là ĐÚNG. K9 miễn trừ `docs/` |
+| §4 R4 «12 guard thiếu `assertGreater`» | 12 | **thành phần khác** | `test_imm15_low_stock_override` **không đọc đĩa** (chỉ DB); `test_notify_roles_contract` + `test_rowscope_scope_guard` đọc **danh sách file CỐ ĐỊNH** nên tự đỏ khi file mất. Rủi ro thật chỉ ở nhóm **glob/os.walk** |
+| §4 R4 (thiếu) | không nêu | **20 file neo theo ĐỘ SÂU** | `Path(__file__).resolve().parents[N]` / `os.path.dirname(os.path.dirname(...))`. Đây mới là bẫy lớn khi dời file — R6 nêu trừu tượng nhưng không liệt kê |
+| §3.3 nhóm C/D/F | C 19 · D 14 · E 6 · F 31 | C 24 · D 21 · F 22 | Heuristic phân loại khác nhau; số A (22) và B (39→43) khớp gần đúng |
+| §6 B4 «số test đỏ không đoán trước được» | cảnh báo rủi ro cao | **0 đổ vỡ** | Pilot `imm15` 0%, rollout 68 file cũng 0%. Lý do: 47/75 file dùng `setUpClass` (rollback per-test không đụng tới), phần còn lại vốn đã tự dọn |
+
+### 11.3 Sai khác có chủ ý so với spec
+
+1. **Q5 — dùng `tests/guards/` thay `tests/contracts/`** (user chốt): một từ vựng duy nhất cho cả FE lẫn BE.
+2. **Q3 — 13 file họ `oas` vào `tests/guards/`** (không phải `tests/oas/`): chúng lint YAML, không chạm DB ⇒ đúng luật nhà #3.
+3. **Q4 — KHÔNG tách `test_mobile_oas.py`** (34.569 dòng): user đã chốt "không chia file".
+4. **`ServiceError` chuyển xuống `utils/errors.py`** (B6): nó bị **cả hai tầng** dùng nên phải nằm ở tầng THẤP hơn; `services/shared/errors.py` re-export một chiều ⇒ ~73 call-site không phải sửa dòng nào.
+5. **Guard B6 chỉ cấm import mức MODULE.** Lazy-import trong hàm là lối thoát hợp lệ của Python và không tạo vòng lúc nạp module (vd `utils/fcm.py` gọi `services.mobile_device_token` chỉ khi gặp dead-token).
+6. **Script kế hoạch đổi tên `test_layout_plan.py` → `plan_test_layout.py`**: tên `test_*` khiến `os.walk` của runner coi nó là test module. Chính guard K9 bắt được lỗi này.
+
+### 11.4 Công cụ mới sinh ra
+
+| File | Vai trò |
+|---|---|
+| `assetcore/tests/_helpers/paths.py` | SSoT đường dẫn BE. `require_dir()` ném lỗi lúc import; `list_files(dir, ext, min_count=)` ném lỗi khi hụt dân số. 17 hằng số neo bằng `frappe.get_app_path`, không đếm cấp `..` |
+| `assetcore/tests/guards/test_test_layout_convention.py` | Cưỡng chế K1–K9 + guard §5.4. Allowlist K5 (9 dòng) và K7 (**0 dòng**) đều **đóng băng, chỉ-giảm**. Đã kiểm bằng **5 phép thử âm tính** |
+| `assetcore/scripts/maintenance/plan_test_layout.py` | Sinh bảng ánh xạ di chuyển (chỉ in, `--csv`, `--group`) |
+| `assetcore/utils/errors.py` | Nhà mới của `ServiceError` — tầng hạ tầng, phá vòng import |
