@@ -1,7 +1,5 @@
 # ASSETCORE — CLAUDE PROJECT CONTEXT
 
----
-
 ## 0. Memory 2 lớp (ĐỌC TRƯỚC — luôn áp dụng)
 
 Claude có **2 lớp memory** cho dự án này — luôn tham chiếu, KHÔNG trộn:
@@ -15,8 +13,6 @@ Claude có **2 lớp memory** cho dự án này — luôn tham chiếu, KHÔNG t
 - Ranh giới: sẽ-hết-khi-việc-xong → `.claude/contexts/`; đúng-mãi-về-sau → `memory/`.
 - Ghi/đọc per-request để **nhất quán khi sửa + tránh lỗi đã biết** (CLAUDE.md §17, §20).
 
----
-
 ## 1. What This Is
 
 AssetCore là hệ thống quản lý vòng đời thiết bị y tế (HTM) xây trên ERPNext (Frappe).
@@ -24,8 +20,6 @@ AssetCore là hệ thống quản lý vòng đời thiết bị y tế (HTM) xâ
 KHÔNG phải CMMS đơn lẻ → là operating architecture quản trị toàn lifecycle:
 Needs → Procurement → Installation → Operation → Maintenance → Decommission
 (WHO HTM lifecycle)
-
----
 
 ## 2. Tech Stack
 
@@ -35,8 +29,6 @@ Needs → Procurement → Installation → Operation → Maintenance → Decommi
 - REST / OpenAPI / FHIR
 - Claude Code
 
----
-
 ## 3. Key Commands
 
 Run system: `bench start`
@@ -44,22 +36,19 @@ Run tests: `bench --site \[site] run-tests`
 Migrate: `bench migrate`
 Install app: `bench --site \[site] install-app assetcore`
 
----
+## 4. Project Structure
 
-## 4. Project Structure (Logical)
+```
+assetcore/   api/ services/ repositories/ utils/ setup/ patches/ notifications/ www/
+             assetcore/ (module Frappe: doctype/ workflow/ workspace/)
+             scripts/{seed,uat,maintenance}/   tests/{<module>,guards,integration,_helpers}/
+frontend/src/ api/ stores/ composables/ constants/ utils/ types/ router/ locales/
+             views/<domain>/ components/<domain>/ (+ <thư-mục>/tests/)
+             guards/ integration/ test/(harness)
+docs/        imm-XX/ architecture/ ui-ux/ res/ template/
+```
 
-/apps/assetcore/
-
-- doctype/ → data model
-- workflows/ → workflow config
-- services/ → business logic
-- api/ → integration
-- events/ → lifecycle events
-- reports/ → dashboard
-- tests/ → unit tests
-- docs/ → BA + architecture
-
----
+→ Chi tiết "file này đi đâu, đặt tên sao": skill **`assetcore-structure`**.
 
 ## 5. Architecture Principles (CRITICAL)
 
@@ -70,13 +59,9 @@ Install app: `bench --site \[site] install-app assetcore`
 - Dashboard phải truy về source
 - Workflow + SLA là bắt buộc
 
----
-
 ## 6. System Layers
 
 User → Workflow → Business (IMM) → Data → Integration → Analytics → QMS
-
----
 
 ## 7. Module Structure
 
@@ -84,8 +69,6 @@ A. Planning: IMM-01→03
 B. Deployment: IMM-04→06
 C. Operation: IMM-07→12,15–17
 D. End-of-Life: IMM-13→14
-
----
 
 ## 8. Wave 1 Scope
 
@@ -96,60 +79,35 @@ IMM-09 (Repair)
 IMM-11 (Calibration)
 IMM-12 (Corrective)
 
----
-
 ## 9. Domain Model
 
-Master:
+- **Master**: Device Model, Vendor, Location, Contract
 
-- Device Model, Vendor, Location, Contract
+- **Operational**: Asset, Work Order, Maintenance Plan, Incident, Spare Part
 
-Operational:
-
-- Asset, Work Order, Maintenance Plan, Incident, Spare Part
-
-Governance:
-
-- QMS Document, CAPA, Risk, SLA
-
----
+- **Governance**: QMS Document, CAPA, Risk, SLA
 
 ## 10. Core Concept — Lifecycle Event
 
 Trục trung tâm hệ thống:
 
-Event gồm:
-asset, event_type, timestamp, actor, from→to status, root_record
+**Event gồm**: asset, event_type, timestamp, actor, from→to status, root_record
 
-Ví dụ:
-installed, commissioned, pm_completed, failure_reported, repaired, retired
+**Ví dụ**: installed, commissioned, pm_completed, failure_reported, repaired, retired
 
 → đảm bảo traceability
 
----
-
 ## 11. CMMS Core
 
-Work Order = engine trung tâm:
-
-- PM, CM, Calibration, Inspection
+- **Work Order = engine trung tâm**: PM, CM, Calibration, Inspection
 
 Không có action ngoài Work Order
-
----
 
 ## 12. QMS Integration (MANDATORY)
 
 QC → PR → WI → BM → HS → KPI
 
-Bắt buộc:
-
-- Document control
-- Change control
-- CAPA
-- Audit trail
-
----
+- **Bắt buộc**: Document control, Change control, CAPA, Audit trail
 
 ## 13. Data & Compliance
 
@@ -157,23 +115,14 @@ Bắt buộc:
 - Device nomenclature
 - WHO HTM + NĐ98
 
-Data phải:
-
-- versioned
-- auditable
-- traceable
-
----
+- **Data phải**: versioned, auditable, traceable
 
 ## 14. Integration
 
 - FHIR (clinical)
 - OpenAPI (system)
 
-Connect:
-HIS / EMR / LIS / RIS / PACS / Insurance
-
----
+**Connect**: HIS / EMR / LIS / RIS / PACS / Insurance
 
 ## 15. Code Style
 
@@ -181,9 +130,7 @@ HIS / EMR / LIS / RIS / PACS / Insurance
 - Bắt buộc docstring
 - Naming theo domain (vd: `maintenance\_schedule`)
 - Không viết logic trong controller → dùng service layer
-- **Cấu trúc & tên file FE (`frontend/`)**: theo `docs/architecture/SPEC_chuan_hoa_cau_truc_frontend.md`. Test chỉ có **3 nhà** — **`<thư-mục-nguồn>/tests/`** (`<Nguồn>[.<khiaCanh>].test.ts`, KHÔNG đặt ngang hàng nguồn) · `src/guards/` (`<chuDe>.guard.test.ts`) · `src/integration/` (`<luong>.integration.test.ts`). SSoT **cưỡng chế bằng máy** = `frontend/src/guards/testFileConvention.guard.test.ts`; đường dẫn của guard lấy từ `frontend/src/test/paths.ts`, KHÔNG tính theo độ sâu.
-
----
+- **Vị trí & tên MỌI file mới** (FE·BE·test·doc·script·patch): skill **`assetcore-structure`** là SSoT — invoke TRƯỚC khi tạo file. Spec gốc: `docs/architecture/SPEC_chuan_hoa_cau_truc_{frontend,backend}.md`. Cưỡng chế bằng máy: `frontend/src/guards/{testFileConvention,sourceLayout}.guard.test.ts` + `assetcore/tests/guards/test_{test,source}_layout_convention.py`.
 
 ## 16. Domain Terms
 
@@ -195,8 +142,6 @@ HIS / EMR / LIS / RIS / PACS / Insurance
 - Calibration = hiệu chuẩn
 - Lifecycle Event = sự kiện vòng đời
 
----
-
 ## 17. Workflow for New Features
 
 1. Confirm requirement
@@ -207,21 +152,9 @@ HIS / EMR / LIS / RIS / PACS / Insurance
 6. Tạo DocType + Workflow + API
 7. Update CLAUDE.md nếu có pattern mới
 
----
-
 ## 18. Output Rules (MANDATORY)
 
-Luôn include:
-
-- Module (IMM-xx)
-- Actor
-- Input / Output
-- Data model
-- Workflow
-- Audit trail
-- KPI (nếu có)
-
----
+- **Luôn include**: Module (IMM-xx), Actor, Input / Output, Data model, Workflow, Audit trail, KPI (nếu có)
 
 ## 19. Do NOT
 
@@ -231,8 +164,6 @@ Luôn include:
 - Gộp domain sai
 - Modify ERPNext core
 
----
-
 ## 20. Do ALWAYS
 
 - **Đọc session context (§0) TRƯỚC khi làm + checkpoint SAU mỗi việc đáng kể**
@@ -241,8 +172,6 @@ Luôn include:
 - Tách domain rõ
 - Gắn workflow + SLA
 - Đảm bảo traceability
-
----
 
 ## 21. Maintenance Rule
 
