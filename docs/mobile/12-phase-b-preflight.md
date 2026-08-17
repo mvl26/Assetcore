@@ -154,7 +154,7 @@ Hiện trạng thật @source (chưa provision). Hành động: USER tạo `OAut
 |---|---|
 | Verifier chạy được read-only, count==0 → `ready=false` + blocker VI, KHÔNG raise/leak | `bench --site miyano execute assetcore.api.mobile.preflight.verify_oauth_client` |
 | 7 check B-1 đủ mặt; mỗi check `{field, expected, actual, pass}` | report `checks` (len ≥1 khi count==0; =7 khi count≥1) |
-| Drift-guard ĐỎ nếu Frappe đổi schema `OAuth Client` (doc không drift âm thầm) | `assetcore/tests/test_mobile_preflight.py` (TC-MOB-PRE-01..05) |
+| Drift-guard ĐỎ nếu Frappe đổi schema `OAuth Client` (doc không drift âm thầm) | `assetcore/tests/guards/test_mobile_preflight.py` (TC-MOB-PRE-01..05) |
 | Verifier không ghi DB (count bất biến) + chịu count==0 | TC-MOB-PRE-07/09 |
 | Gate System Manager (no allow_guest) — admin-only, ngoài hợp đồng app | `@frappe.whitelist()` + `frappe.only_for("System Manager")`; KHÔNG vào openapi yaml |
 | No-regression OAS | `test_oas_generator` · `test_oas_signatures` · `test_mobile_oas` GREEN |
@@ -169,5 +169,5 @@ Hiện trạng thật @source (chưa provision). Hành động: USER tạo `OAut
 - **3 quyết định + glossary:** [`00-overview.md §2`](./00-overview.md) · convention đặt tên [`00-overview.md §6`](./00-overview.md)
 - **ADR quyền 1 SSoT (wire-not-write · capability):** [`ADR-MOBILE-001.md`](./ADR-MOBILE-001.md) (a/b)
 - **Verifier (code):** `../../assetcore/api/mobile/preflight.py` — `verify_oauth_client()`
-- **Drift-guard test:** `../../assetcore/tests/test_mobile_preflight.py`
+- **Drift-guard test:** `../../assetcore/tests/guards/test_mobile_preflight.py`
 - **Provider Frappe (chỉ đọc, KHÔNG sửa):** `../../../frappe/frappe/integrations/doctype/oauth_client/oauth_client.json`

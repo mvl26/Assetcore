@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | **ADR-MOBILE-009** (C3-split cross-domain — `*Envelope`/`*Item` RIÊNG khi field-set THẬT khác) · **ADR-MOBILE-001 (d)/(f)/(g)** (OpenAPI = hợp đồng máy-đọc; closed-schema Decision-B KHÔNG discriminator) · **C6-DETAIL** (`getIncident`/`getCalibration` precedent 200 = oneOf [Detail-Env, Error]) · **C7** (`IncidentListEnvelope` items-key + closed envelope) · Core Doc IMM-13 [`05_API_Specification.md §7`](../imm-13/05_API_Specification.md) + Core Doc IMM-00 [`ADR-IMM00-OPENAPI.md`](../imm-00/ADR-IMM00-OPENAPI.md) |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm00.py:2047-2085`, `assetcore/assetcore/doctype/asset_transfer/asset_transfer.json`, `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_mobile_docset.py`). Contract narrative (Bước-4 bồi): [`04-api-contract.md` §8.27](./04-api-contract.md) + MÀN↔API [`05-personas-mvp.md §3`](./05-personas-mvp.md). Narrative roadmap: [`13-be-completion-roadmap.md`](./13-be-completion-roadmap.md).
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm00.py:2047-2085`, `assetcore/assetcore/doctype/asset_transfer/asset_transfer.json`, `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/guards/test_mobile_docset.py`). Contract narrative (Bước-4 bồi): [`04-api-contract.md` §8.27](./04-api-contract.md) + MÀN↔API [`05-personas-mvp.md §3`](./05-personas-mvp.md). Narrative roadmap: [`13-be-completion-roadmap.md`](./13-be-completion-roadmap.md).
 
 ---
 

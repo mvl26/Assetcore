@@ -190,7 +190,7 @@ Dẫn từ artefact phân tích (02) sang test layer. Mỗi US/BR/Activity phả
 
 ## III.2. Unit test — Service Layer
 
-**File ground truth:** `assetcore/tests/test_imm03.py` — pure-Python `unittest`, KHÔNG mở DB (dùng `SimpleNamespace`). Các class dưới đây là **Live** (đã viết & chạy).
+**File ground truth:** `assetcore/tests/imm03/test_imm03.py` — pure-Python `unittest`, KHÔNG mở DB (dùng `SimpleNamespace`). Các class dưới đây là **Live** (đã viết & chạy).
 
 | Test class | Function cover | Kỹ thuật | Cases | Trạng thái |
 |---|---|---|---|---|
@@ -239,7 +239,7 @@ Cổng tie-break INV-VE-TIE (02 §IV.7). **Viết test TRƯỚC, RED-prove trên
 
 > **Harness note:** `_make_eval_doc` (line 91-93) phải thêm `name="VE-TEST"` + khởi tạo `has_top_tie=0`, `tied_candidates=""` vào `SimpleNamespace` để assert field mới (hiện chỉ có `recommended_candidate=None`). `_make_candidate` đã có `weighted_score`.
 >
-> **RED-prove bắt buộc:** chạy TC-32/33 trên code cũ → FAIL (recommended = first/second row). Áp patch `_compute_eval_scores` (tie-detect) → GREEN. `bench --site miyano run-tests --module assetcore.tests.test_imm03` PASS toàn bộ (3 tie mới + 3 cũ `TestComputeEvalScores` + phần còn lại), no leak.
+> **RED-prove bắt buộc:** chạy TC-32/33 trên code cũ → FAIL (recommended = first/second row). Áp patch `_compute_eval_scores` (tie-detect) → GREEN. `bench --site miyano run-tests --module assetcore.tests.imm03.test_imm03` PASS toàn bộ (3 tie mới + 3 cũ `TestComputeEvalScores` + phần còn lại), no leak.
 
 ### III.2.z — TestDecisionDrillParity — INVARIANT card==drill (spec INV-DEC-DRILL, 02 §IV.8)
 
@@ -256,7 +256,7 @@ Bảo toàn INVARIANT **count tile == total list** cho 3 state decision. **Viế
 | TC-DEC-DRILL-07 (vitest) | INV-DEC-DRILL-7 | tile active (filter trùng) | click tile active lần 2 / click "Xóa tất cả" | `filters.workflow_state` về `''`; `aria-pressed`/active class off; list về full; không kẹt |
 | TC-DEC-DRILL-08 (vitest/tsc) | INV-DEC-DRILL-8 | render badge các state | grep EN-leak + vue-tsc | `StatusBadge`/`stateLabel` phủ đủ `DECISION_STATES`; 0 nhãn EN; vue-tsc 0 lỗi |
 
-> **RED-prove bắt buộc:** TC-DEC-DRILL-02 chạy trên code cũ → FAIL (total list Awarded = tile + #cancelled). Áp patch `_list_decisions` (bơm `docstatus<2` mặc định) → GREEN. `bench --site miyano run-tests --module assetcore.tests.test_imm03` GREEN + `vitest` FE GREEN, no leak. KHÔNG sửa hành vi BE list/kpis ngoài việc đồng nhất predicate.
+> **RED-prove bắt buộc:** TC-DEC-DRILL-02 chạy trên code cũ → FAIL (total list Awarded = tile + #cancelled). Áp patch `_list_decisions` (bơm `docstatus<2` mặc định) → GREEN. `bench --site miyano run-tests --module assetcore.tests.imm03.test_imm03` GREEN + `vitest` FE GREEN, no leak. KHÔNG sửa hành vi BE list/kpis ngoài việc đồng nhất predicate.
 
 ## III.3. Integration — DocType lifecycle
 
@@ -360,7 +360,7 @@ Class `TestAvlAllowedTransitions` + `TestAvlWorkflowEnforcement` (module `imm03`
 
 > **Boundary enforcement (KHÔNG nới lỏng):** `allowed_transitions` role-filtered là hint hiển thị (⊆ guard-permitted); `_require_avl_transition_role` (SoT `_AVL_VALID_TRANSITIONS`) là **chốt enforcement** — reject BAD_STATE/FORBIDDEN sạch TRƯỚC mutation (LL-BE-62). Lỗi nghiệp vụ = in-handler HTTP-200 + Error envelope (BAD_STATE/FORBIDDEN/VALIDATION), KHÔNG raise→4xx. 2 loại 403: dispatcher-403 (guest/no-token) vs in-handler cap-403 (FORBIDDEN qua `_handle`).
 
-**AC5 — chạy THẬT:** `bench --site miyano run-tests --module assetcore.tests.test_imm03` → đọc **dòng cuối** `Ran N OK` (KHÔNG skip/false-green). RED-before demo: tạm bỏ `set_avl_conditional` (hoặc bỏ nhánh) → `test_avl_action_endpoint_map_complete` + `test_set_avl_conditional_*` FAIL; restore → GREEN.
+**AC5 — chạy THẬT:** `bench --site miyano run-tests --module assetcore.tests.imm03.test_imm03` → đọc **dòng cuối** `Ran N OK` (KHÔNG skip/false-green). RED-before demo: tạm bỏ `set_avl_conditional` (hoặc bỏ nhánh) → `test_avl_action_endpoint_map_complete` + `test_set_avl_conditional_*` FAIL; restore → GREEN.
 
 **FE vitest** (`AvlListView.ctaGating.test.ts` — parity `decisionCtaGate`): mock row `allowed_transitions`:
 - `['Phê duyệt AVL','Cấp Conditional']` (Draft) → render **Cấp Conditional**; click → mở modal condition_notes; nhập notes + confirm → `store.setAvlConditional(name, notes)` gọi đúng args; notes rỗng → nút confirm disabled.
@@ -458,9 +458,9 @@ Class `TestAvlAllowedTransitions` + `TestAvlWorkflowEnforcement` (module `imm03`
 
 ```bash
 # Module test
-bench --site [site] run-tests --app assetcore --module assetcore.tests.test_imm03
+bench --site [site] run-tests --app assetcore --module assetcore.tests.imm03.test_imm03
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm03 && coverage report
+coverage run -m unittest assetcore.tests.imm03.test_imm03 && coverage report
 # Run riêng 1 class
 bench --site [site] run-tests --module assetcore.tests.test_imm03.TestGateG04Method
 ```
@@ -786,7 +786,7 @@ Decision: ☐ Pass / ☐ Pass with conditions / ☐ Fail (block). *(Hiện: có 
 
 ## III.A RBAC hardening `AC Purchase` — test plan (02 §IV.12, ADR-IMM-03-05/06)
 
-**File mới `assetcore/tests/test_purchase.py`** (chạy `bench --site miyano run-tests --module assetcore.tests.test_purchase`). Pattern gate: monkeypatch `rbac.require` (kiểu `test_imm01.py:332` / `test_create_calls_rbac_require_before_insert`).
+**File mới `assetcore/tests/purchase/test_purchase.py`** (chạy `bench --site miyano run-tests --module assetcore.tests.purchase.test_purchase`). Pattern gate: monkeypatch `rbac.require` (kiểu `test_imm01.py:332` / `test_create_calls_rbac_require_before_insert`).
 
 | TC | Loại | Kỳ vọng |
 |---|---|---|
@@ -828,7 +828,7 @@ Decision: ☐ Pass / ☐ Pass with conditions / ☐ Fail (block). *(Hiện: có 
 - [ ] Audit chain test (intact + tampered) — Planned (VR-03-06 không hard-enforce ở IMM-03)
 - [ ] API test ≥ 60% + permission matrix — Planned
 - [ ] Performance target xác định (có target, chưa chạy)
-- [x] CI command chạy (`bench run-tests --module assetcore.tests.test_imm03`)
+- [x] CI command chạy (`bench run-tests --module assetcore.tests.imm03.test_imm03`)
 - [ ] SonarQube Quality Gate + Lighthouse — chưa có report
 
 ## IV. Traceability

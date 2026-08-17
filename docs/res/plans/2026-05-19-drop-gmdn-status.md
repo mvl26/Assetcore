@@ -19,7 +19,7 @@
 - `assetcore/services/imm00.py` — xoá `update_gmdn_status`, `toggle_gmdn_status_via_qr`, constants `_GMDN_STATUS_*`, `_GMDN_BLOCKED_LIFECYCLE`
 - `assetcore/api/imm00.py` — xoá 2 whitelist endpoints, xoá param `gmdn_status` trong `list_assets`, thêm param `gmdn_code`, mở rộng `or_filters` search
 - `assetcore/assetcore/doctype/ac_asset/ac_asset.json` — xoá field `gmdn_status` khỏi `field_order` và `fields`
-- `assetcore/tests/test_imm00_list_assets.py` — **NEW** unit test cho filter `gmdn_code` + search
+- `assetcore/tests/imm00/test_imm00_list_assets.py` — **NEW** unit test cho filter `gmdn_code` + search
 
 ### Backend (tạo mới)
 
@@ -53,12 +53,12 @@
 ### Task 1: Viết test failing cho list_assets filter `gmdn_code`
 
 **Files:**
-- Create: `assetcore/tests/test_imm00_list_assets.py`
+- Create: `assetcore/tests/imm00/test_imm00_list_assets.py`
 
 - [ ] **Step 1: Tạo test file**
 
 ```python
-# assetcore/tests/test_imm00_list_assets.py
+# assetcore/tests/imm00/test_imm00_list_assets.py
 # Copyright (c) 2026, AssetCore Team
 """Unit tests cho list_assets filter theo gmdn_code + search mở rộng."""
 from __future__ import annotations
@@ -106,7 +106,7 @@ class TestListAssetsGmdnFilter(FrappeTestCase):
 
 - [ ] **Step 2: Chạy test, xác nhận fail**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm00_list_assets`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.imm00.test_imm00_list_assets`
 
 Expected: FAIL — `list_assets() got an unexpected keyword argument 'gmdn_code'` (test 1, 2) + test 3 sẽ pass sau khi xoá param ở Task 3.
 
@@ -145,7 +145,7 @@ Expected: không có kết quả.
 
 ```bash
 cd /home/miyano/frappe-bench/apps/assetcore
-git add assetcore/services/imm00.py assetcore/tests/test_imm00_list_assets.py
+git add assetcore/services/imm00.py assetcore/tests/imm00/test_imm00_list_assets.py
 git commit -m "refactor(imm00): drop gmdn_status service functions"
 ```
 
@@ -250,7 +250,7 @@ def toggle_gmdn_status(name: str):
 
 - [ ] **Step 6: Chạy lại test, xác nhận 3 test pass**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm00_list_assets`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.imm00.test_imm00_list_assets`
 
 Expected: 3 PASS.
 
@@ -790,7 +790,7 @@ Expected: không kết quả (file analysis được phép giữ vì là tài li
 
 - [ ] **Step 4: Chạy lại full test suite**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm00_list_assets`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.imm00.test_imm00_list_assets`
 
 Expected: 3 PASS.
 

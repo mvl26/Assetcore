@@ -527,7 +527,7 @@ Vì sao chọn hướng này (không re-gate `imm_02_spec_workflow.json`):
 
 #### INVARIANT own-file mới (RED-trước → GREEN-sau)
 
-File RIÊNG `assetcore/tests/test_workflow_role_profile_coverage.py` (FILE-driven — glob source JSON + đọc `ROLE_PROFILE_CATALOG`, mirror helper `_transition_groups` của `test_workflows.py`). 2 assert:
+File RIÊNG `assetcore/tests/guards/test_workflow_role_profile_coverage.py` (FILE-driven — glob source JSON + đọc `ROLE_PROFILE_CATALOG`, mirror helper `_transition_groups` của `test_workflows.py`). 2 assert:
 
 - **INV-COV (coverage):** với **mọi** transition trong **22** source workflow JSON, mọi `allowed` role **non-admin** PHẢI ∈ `ALLOWED = (∪ roles_for_profile(p) ∀ p ∈ ROLE_PROFILE_CATALOG) ∪ {AssetCore Super Admin, System Manager} ∪ EXCEPTION_ROLES`, với `EXCEPTION_ROLES = frozenset({"Vendor Engineer"})`. **RED-trước:** `Spec User ∉ ALLOWED` → assert liệt kê `{Spec User}`. **GREEN-sau:** thêm `Spec User` vào catalog → `Spec User ∈ ∪roles_for_profile` → tập uncovered rỗng.
 - **INV-EXC-REACH (EXCEPTION không thành dead-gate thật):** mọi **transition-group** `(state, action, next_state)` mà tập `allowed` **giao** `EXCEPTION_ROLES` PHẢI đồng thời chứa ≥1 role profile-backed (∈ `∪roles_for_profile`). Assert **KHÔNG group nào sole-gated bằng EXCEPTION role**. Thực tế: 3 group IMM-04 gating `Vendor Engineer` đều co-list `PM User` → GREEN. (Guard này chặn việc "biến EXCEPTION thành cửa hậu chết": nếu ai đó thêm 1 cạnh chỉ Vendor Engineer → RED.)

@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | ADR-MOBILE-006 (POST-action route-by-VALUE + 403 SINGLE-SHAPE) · §8.15/ADR-IMM11-MOB-02 (`submitCalibration` C3-split Calibration RIÊNG) · ADR-MOBILE-010 §(4)/(2) (`updated` GENUINE integer count precedent; flip-vs-clean discipline) · Decision-B (closed-schema oneOf) · C6/C7 (200 oneOf [Env, Error]) · VERB-PARITY CLOSURE (R33 2026-06-27: 3 write-action flip `methods=['POST']`, `_PARITY_VERB_ALLOWLIST`→`set()`) |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm11.py`, `assetcore/services/imm11.py`, `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_oas_d12_error_surface.py`, `assetcore/tests/test_oas_d17_action_enum.py`). Contract: [`04-api-contract.md §8.24`](./04-api-contract.md). Core Doc IMM-11: `docs/imm-11/05_API_Specification.md §0.1.4` + `docs/imm-11/04_Backend_Design.md §3.2 / §5 (ADR-IMM11-MOB-03)`.
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm11.py`, `assetcore/services/imm11.py`, `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/guards/test_oas_d12_error_surface.py`, `assetcore/tests/guards/test_oas_d17_action_enum.py`). Contract: [`04-api-contract.md §8.24`](./04-api-contract.md). Core Doc IMM-11: `docs/imm-11/05_API_Specification.md §0.1.4` + `docs/imm-11/04_Backend_Design.md §3.2 / §5 (ADR-IMM11-MOB-03)`.
 
 ---
 

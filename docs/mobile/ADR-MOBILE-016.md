@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | **ADR-MOBILE-015** (đối-xứng `IncidentMine` — gap "next" nêu đích danh ở §Consequences) · ADR-MOBILE-001 (g — envelope list-read 2 rows-key) · C-LISTREAD (`04-api-contract.md §6.1/§6.2/§8.4`) · Core Doc IMM-08 `05_API_Specification.md §2 #1` + `ADR-IMM08-MOB-04` |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm08.py`, `assetcore/services/imm08.py`, `assetcore/repositories/base.py`, `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_imm08.py`, `assetcore/tests/test_mobile_docset.py`). Contract: [`04-api-contract.md`](./04-api-contract.md). Core Doc IMM-08: `docs/imm-08/05_API_Specification.md §2 #1 (list_pm_work_orders — filter mine)` + `ADR-IMM08-MOB-04`.
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm08.py`, `assetcore/services/imm08.py`, `assetcore/repositories/base.py`, `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/imm08/test_imm08.py`, `assetcore/tests/guards/test_mobile_docset.py`). Contract: [`04-api-contract.md`](./04-api-contract.md). Core Doc IMM-08: `docs/imm-08/05_API_Specification.md §2 #1 (list_pm_work_orders — filter mine)` + `ADR-IMM08-MOB-04`.
 
 ---
 

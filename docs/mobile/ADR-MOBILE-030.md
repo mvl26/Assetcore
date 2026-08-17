@@ -122,7 +122,7 @@ Vòng này **curate 1 path POST** `attach_repair_checklist_photo` vào `assetcor
 
 ## Handoff BE/Test (Bước-4 — kế-hoạch, ATOMIC pure-yaml)
 
-> **CONTRACT-ONLY** — TUYỆT ĐỐI KHÔNG đụng `api/imm09.py`/`services/imm09.py` (`attach_repair_checklist_photo`+hằng `_REPAIR_PHOTO_*`/`MAX_REPAIR_CHECKLIST_*` ĐÃ LIVE trên đĩa). Không reload/migrate/commit. DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_mobile_oas` + `.test_mobile_docset` = **'Ran N OK' THẬT** (đọc dòng cuối, KHÔNG false-green; guard-suite sums +10 synced).
+> **CONTRACT-ONLY** — TUYỆT ĐỐI KHÔNG đụng `api/imm09.py`/`services/imm09.py` (`attach_repair_checklist_photo`+hằng `_REPAIR_PHOTO_*`/`MAX_REPAIR_CHECKLIST_*` ĐÃ LIVE trên đĩa). Không reload/migrate/commit. DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.guards.test_mobile_oas` + `.test_mobile_docset` = **'Ran N OK' THẬT** (đọc dòng cuối, KHÔNG false-green; guard-suite sums +10 synced).
 
 **(1) yaml** (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`):
 - +1 path `POST /api/method/assetcore.api.imm09.attach_repair_checklist_photo` (opId `attachRepairChecklistPhoto`, **tag `work-order`**); requestBody `multipart/form-data` DUY NHẤT (`required:true`, schema `$ref AttachRepairChecklistPhotoRequest`); 200 = `oneOf [AttachRepairChecklistPhotoEnvelope, Error]`; slot `{200,401,403}` (`401 Unauthorized401`, **`403 Forbidden` SINGLE-SHAPE** — KHÔNG dual-403).

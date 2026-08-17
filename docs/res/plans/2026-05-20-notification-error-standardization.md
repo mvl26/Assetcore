@@ -60,7 +60,7 @@
 
 - `assetcore/utils/messages.py` — **NEW** central message registry (Python). Class `MSG` chứa hằng số mã lỗi; dict `MESSAGES` chứa `{code: {title, template, action_hint, severity, http_status}}`.
 - `assetcore/utils/notify.py` — **NEW** helpers `nthrow()` (raise ServiceError + lookup), `nmsg()` (msgprint chuẩn — chỉ dùng trong Frappe Desk legacy), `format_message(code, ctx)`.
-- `assetcore/tests/test_notification_framework.py` — **NEW** unit test: lookup, template render, context missing, fallback `SYS-500`, envelope shape.
+- `assetcore/tests/integration/test_notification_framework.py` — **NEW** unit test: lookup, template render, context missing, fallback `SYS-500`, envelope shape.
 - `scripts/gen_fe_messages.py` — **NEW** generator: parse `utils/messages.py` → emit `frontend/src/locales/messages.ts`.
 
 ### Frontend (sửa)
@@ -710,10 +710,10 @@ def nthrow_in_hook(message_code, **ctx):
 ### Test evidence
 
 ```
-bench --site miyano run-tests --module assetcore.tests.test_notification_framework
+bench --site miyano run-tests --module assetcore.tests.integration.test_notification_framework
 → Ran 14 tests in 0.158s. OK (0 fail).
 
-bench --site miyano run-tests --module assetcore.tests.test_imm04
+bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04
 → Ran 31 tests in 0.175s. OK (0 fail) — no regression sau khi migrate get_form_context.
 
 cd frontend && npm run typecheck

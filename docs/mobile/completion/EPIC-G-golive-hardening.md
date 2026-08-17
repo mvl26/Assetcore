@@ -82,7 +82,7 @@ Mỗi điều kiện gắn lệnh verify ở `G4`.
 | `assetcore_qr_base_url` | QR deep-link host (`06 §5.2` / `10 §3`) — không thuộc G4 gate nhưng cần cho flow-2 (quét QR) | `None` | public HTTPS host (set ở B/G2) |
 
 ### 3.4 Helper verify-only đã có (consume trong G4)
-- `assetcore/api/mobile/preflight.py::verify_oauth_client()` — READ-ONLY, `:147`; trả `ready: bool`+`checks`+`blockers` VI, **KHÔNG raise**, **KHÔNG leak traceback** (`:23/:151`); 7 điều kiện B-1 (`client_count` + 6 cấp-record `:179-213`). Test: `assetcore/tests/test_mobile_preflight.py` (TC 01–09).
+- `assetcore/api/mobile/preflight.py::verify_oauth_client()` — READ-ONLY, `:147`; trả `ready: bool`+`checks`+`blockers` VI, **KHÔNG raise**, **KHÔNG leak traceback** (`:23/:151`); 7 điều kiện B-1 (`client_count` + 6 cấp-record `:179-213`). Test: `assetcore/tests/guards/test_mobile_preflight.py` (TC 01–09).
 - CI-guard placeholder host: `openapi/assetcore-mobile.openapi.yaml` servers placeholder `REPLACE-WITH-PUBLIC-HOST` (yaml:107) + version skeleton `0.1.0-skeleton` (yaml:89) — guard chặn lọt prod build.
 
 ### 3.5 Runbook nền đã có (EPIC-G chỉ *tham chiếu* — KHÔNG nhân đôi)
@@ -180,11 +180,11 @@ chặn placeholder host (`REPLACE-WITH-PUBLIC-HOST` yaml:107) + version skeleton
 (`0.1.0-skeleton` yaml:89) lọt prod build. [BE] cung cấp test guard read-only; [QA] chạy smoke
 curl trên public host.
 
-- **Files (Create — [BE]/[QA], AUTO):** `assetcore/tests/test_mobile_security_gate.py` — guard introspection-only: assert (1) `verify_oauth_client()` không leak traceback (re-use preflight); (2) yaml servers KHÔNG còn placeholder `REPLACE-WITH-PUBLIC-HOST` + version KHÔNG `*-skeleton` khi build prod-flagged; (3) không có `allow_cors:'*'` literal trong docset đặc tả prod; (4) `_err` body luôn có `http_status` (status-line-vs-body invariant — phản ánh §3.2). KHÔNG sửa `api/*.py`.
+- **Files (Create — [BE]/[QA], AUTO):** `assetcore/tests/guards/test_mobile_security_gate.py` — guard introspection-only: assert (1) `verify_oauth_client()` không leak traceback (re-use preflight); (2) yaml servers KHÔNG còn placeholder `REPLACE-WITH-PUBLIC-HOST` + version KHÔNG `*-skeleton` khi build prod-flagged; (3) không có `allow_cors:'*'` literal trong docset đặc tả prod; (4) `_err` body luôn có `http_status` (status-line-vs-body invariant — phản ánh §3.2). KHÔNG sửa `api/*.py`.
 - **Files (Modify — [BA], AUTO):** `docs/mobile/08-security-compliance.md §5` (Acceptance bảo mật: thêm 4 lệnh gate) · `docs/mobile/10-deploy-ops.md §6.3` (post-verify smoke).
 - **Acceptance:**
-  - `bench --site <site> run-tests --app assetcore --module assetcore.tests.test_mobile_security_gate` → exit 0.
-  - `bench --site <site> run-tests --app assetcore --module assetcore.tests.test_mobile_preflight` → exit 0 (verifier read-only + no-raise).
+  - `bench --site <site> run-tests --app assetcore --module assetcore.tests.guards.test_mobile_security_gate` → exit 0.
+  - `bench --site <site> run-tests --app assetcore --module assetcore.tests.guards.test_mobile_preflight` → exit 0 (verifier read-only + no-raise).
   - (a) no-traceback: `curl -s https://<host>/api/method/<auth-method>` (guest) body KHÔNG có `Traceback`.
   - (b) CORS: `grep -c '\*' <(python3 -c "import json;print(json.load(open('sites/<site>/site_config.json')).get('allow_cors'))")` == 0 (no-wildcard) HOẶC `allow_cors=None` (native OFF).
   - (c) no token-leak: response 200 envelope của `getAsset`/`getAssetScanInfo` KHÔNG chứa `qr_token` (đã `_strip_qr_token` — imm00.py:307; cross-ref EPIC-C getAsset stub).

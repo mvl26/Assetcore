@@ -382,7 +382,7 @@ def _nr_allowed_transition_actions(doc) -> list[str]:
 3. IMM-01 **KHÔNG** re-assert every-edge-super-admin (đã global) — IMM-04 INV-04-WF-2 có.
 
 **Boundaries.**
-- **Always:** guard là **test-only** (class mới trong `assetcore.tests.test_imm01`), **0 chạm runtime `.py`** → 0 gunicorn `--preload` reload / 0 `bench migrate`. Oracle độc lập (parse-file JSON + `inspect` hằng service) + assert THẬT trên workflow **live** (DB, `get_workflow_name`) + emit **cả 2 surface** live. Full suite `test_imm01` GREEN, không regression; đọc dòng cuối `Ran N OK` (không false-green).
+- **Always:** guard là **test-only** (class mới trong `assetcore.tests.imm01.test_imm01`), **0 chạm runtime `.py`** → 0 gunicorn `--preload` reload / 0 `bench migrate`. Oracle độc lập (parse-file JSON + `inspect` hằng service) + assert THẬT trên workflow **live** (DB, `get_workflow_name`) + emit **cả 2 surface** live. Full suite `test_imm01` GREEN, không regression; đọc dòng cuối `Ran N OK` (không false-green).
 - **Never:** KHÔNG "sửa" hành vi `except Exception: return []` trong `api/imm01.py` ở CR này (giữ nguyên `:187-217`, `:476-506`). KHÔNG nới lộ quyền / hardcode để test xanh giả. KHÔNG dựa `test_workflow_admin_override` để phủ lỗ này. KHÔNG re-assert every-edge-super-admin. KHÔNG git commit/push (HARD-STOP USER — working tree UNCOMMITTED).
 - **[ROADMAP] observability (tách khỏi core — HARD-STOP USER):** thay `except Exception: return []` câm bằng `frappe.log_error(...)` trước return để lỗi **quan-sát-được** là **thay đổi runtime** → cần reload worker → **KHÔNG auto-apply** trong CR test-only này. Ghi backlog, chờ USER quyết.
 

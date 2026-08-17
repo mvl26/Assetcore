@@ -977,7 +977,7 @@ INCIDENT_ESCALATION_OPS: list[str] = OPS_MANAGER    # ["Maintenance Manager"]
 
 > **Trạng thái thực tế trên đĩa (verify `@source` 2026-07-27):** controller **0** `frappe.throw(`; 3 validator lazy-import và gọi CHÍNH 3 predicate SSoT của `services/imm12.py`; `on_submit` dùng `nthrow_in_hook(MSG.IMM12_RCA_SUBMIT_NOT_COMPLETED, status=…)`.
 > Vị trí THẬT sau khi land: `validate_five_why_payload` `services/imm12.py:974-1025` · `validate_rca_assignment` `:1028-1040` · `validate_rca_completion` `:1043-1071` · `_nthrow_violation` `:1074-1077` · `_nthrow_violation_in_hook` `:1080-1086` · PRE-CHECK trong `submit_rca` `:1236-1250` (NGAY SAU guard trạng thái `:1230`, TRƯỚC phép gán đầu tiên `:1253`).
-> Guard đang xanh: `test_imm12::TestRcaSubmitEnvelope` (11 TC) + `TestRcaValidatorSsot` (3 TC) — `bench --site miyano run-tests --module assetcore.tests.test_imm12` ⇒ **Ran 198 OK**.
+> Guard đang xanh: `test_imm12::TestRcaSubmitEnvelope` (11 TC) + `TestRcaValidatorSsot` (3 TC) — `bench --site miyano run-tests --module assetcore.tests.imm12.test_imm12` ⇒ **Ran 198 OK**.
 
 
 **File:** `assetcore/assetcore/doctype/imm_rca_record/imm_rca_record.py` — **6 → 0** lời gọi `frappe.throw(`.

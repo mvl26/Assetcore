@@ -385,7 +385,7 @@ trùng đã có trong hệ thống hoặc trùng trong file đều là lỗi ch�
 Với dữ liệu cây, bỏ qua cha thì bỏ qua luôn con (`_cascade_skip_for_tree`) để không
 sinh node mồ côi. Sau khi nhập xong tải báo cáo lỗi về sửa rồi nhập lại phần còn thiếu.
 
-Guard: `assetcore/tests/test_import_display_names.py` (17 TC) + `frontend/src/api/tests/importRowLabels.test.ts` (4 TC).
+Guard: `assetcore/tests/import_data/test_import_display_names.py` (17 TC) + `frontend/src/api/tests/importRowLabels.test.ts` (4 TC).
 
 ### 8bis.1 Dữ liệu có BẢNG CON — mẫu bảng kiểm bảo trì (bổ sung 2026-08-11)
 
@@ -427,7 +427,7 @@ tiên không phẳng. Quyết định:
   và export in "Hàng quý" / "Số đo"; import nhận cả nhãn VI lẫn giá trị gốc rồi đổi
   về giá trị gốc. Enum của DocType KHÔNG đổi.
 
-Guard: `assetcore/tests/test_import_pm_checklist_template.py` (19 TC) +
+Guard: `assetcore/tests/integration/test_import_pm_checklist_template.py` (19 TC) +
 `frontend/src/views/pm/tests/PmTemplateListView.importWiring.test.ts` (5 TC) +
 `frontend/src/composables/tests/importGroupedWizard.test.ts` (7 TC) +
 `frontend/src/components/import/tests/ImportWizardModal.groups.test.ts` (6 TC).
@@ -458,7 +458,7 @@ Hợp đồng thống nhất cho MỌI loại dữ liệu:
 - **Mọi loại nhập được đều phải có validator** — thiếu validator = không phát hiện
   trùng = nhân đôi im lặng. Guard: `test_import_update_existing.py`.
 
-Guard: `assetcore/tests/test_import_update_existing.py` (11 TC) +
+Guard: `assetcore/tests/integration/test_import_update_existing.py` (11 TC) +
 `frontend/src/composables/tests/importGroupedWizard.test.ts` (11 TC).
 
 ### 8bis.1b Khung file: XUẤT RA phải nhập lại được (sửa 2026-08-11)
@@ -482,7 +482,7 @@ Hợp đồng mới:
 - `_rows_to_dicts` nhận `first_data_row` thay vì đọc hằng — sai một hàng là báo lỗi
   chỉ nhầm chỗ.
 
-Guard: `assetcore/tests/test_import_file_layout.py` (5 TC — round-trip theo SỐ
+Guard: `assetcore/tests/import_data/test_import_file_layout.py` (5 TC — round-trip theo SỐ
 LƯỢNG bản ghi, không theo vị trí; bố cục cũ; bố cục mẫu; banner bị xoá).
 
 ### 8bis.2 Cột Select hỏi bằng tiếng Việt — áp CẢ LOẠT (đồng bộ 2026-08-11)
@@ -516,7 +516,7 @@ Nhãn phải trùng nhãn trên màn hình, nên các map nhãn còn nằm rải
 được gom về `frontend/src/constants/labels.ts` (`CLINICAL_AREA_TYPE_LABEL`,
 `INFECTION_CONTROL_LEVEL_LABEL`, `SPARE_PART_CATEGORY_LABEL`, `VENDOR_TYPE_LABEL`).
 
-Guard `assetcore/tests/test_import_enum_labels.py` (7 TC / 4 tầng: phủ kín ·
+Guard `assetcore/tests/guards/test_import_enum_labels.py` (7 TC / 4 tầng: phủ kín ·
 không khoá rác · parity với SSoT của giao diện · dropdown trong file `.xlsx` thật)
 — thêm một cột Select mới mà quên nhãn là đỏ ngay.
 

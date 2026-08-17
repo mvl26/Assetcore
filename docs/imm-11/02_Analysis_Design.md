@@ -581,7 +581,7 @@ Chi tiết write-path + helper ở `04_Backend_Design.md §4.1.7`.
 | 5 | `docstatus==1`, KHÔNG khoá, gọi add_measurement | **`nthrow IMM11_ALREADY_SUBMITTED`** (guard KHÔNG nới — giữ nguyên hôm nay) |
 | 6 | Replay (HIT) | KHÔNG sinh nghiệp vụ/audit mới (add_measurement 0 lifecycle-event; return-cache đứng TRƯỚC append/save) |
 | 7 | Envelope | shape 2-key `{name, measurement_count}` KHÔNG đổi; lần-1 == lần-2 byte-đối-byte |
-| 8 | Regression | `bench --site miyano run-tests` module-isolated `assetcore.tests.test_imm11` XANH (`Ran N OK`); test đỏ do đề mục = 0 |
+| 8 | Regression | `bench --site miyano run-tests` module-isolated `assetcore.tests.imm11.test_imm11` XANH (`Ran N OK`); test đỏ do đề mục = 0 |
 
 **Winner-reread race (`docstatus==1` + có khoá):** một request re-drain concurrent CÙNG khoá đã append+submit+cache GIỮA pre-check và đây → re-read cache khớp khoá → trả idempotent thay `IMM11_ALREADY_SUBMITTED`. Không khớp khoá (người khác đóng phiếu) → giữ lỗi cũ. Mirror `services/imm08.py:1024-1032`.
 

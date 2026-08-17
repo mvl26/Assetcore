@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | **ADR-MOBILE-009** (C3-split cross-domain — `*Envelope`/`*Data` RIÊNG khi field-set THẬT khác) · **ADR-MOBILE-001 (d)** (OpenAPI = hợp đồng máy-đọc) · **FLOW-1 BOOTSTRAP `getUserContext`** (precedent allow_guest session who-am-I — KHÁC slot) · Core Doc IMM-00 `05_API_Specification.md` (layout session endpoints) + `ADR-IMM00-OPENAPI.md` |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/layout.py:237-258`, `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_mobile_docset.py`). Contract: [`04-api-contract.md`](./04-api-contract.md) §8.1 + MÀN↔API [`05-personas-mvp.md §3`](./05-personas-mvp.md). Narrative: [`13-be-completion-roadmap.md §3.1`](./13-be-completion-roadmap.md).
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/layout.py:237-258`, `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/guards/test_mobile_docset.py`). Contract: [`04-api-contract.md`](./04-api-contract.md) §8.1 + MÀN↔API [`05-personas-mvp.md §3`](./05-personas-mvp.md). Narrative: [`13-be-completion-roadmap.md §3.1`](./13-be-completion-roadmap.md).
 
 ---
 

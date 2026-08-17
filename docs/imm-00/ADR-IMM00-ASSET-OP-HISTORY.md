@@ -445,10 +445,10 @@ Assert này là **hiện thân của `D-OPH-12`** — nay đã bị supersede. F
 ### 10.8 Boundaries — Always / Ask first / Never (`AC-CR-115`)
 
 **Always**
-- Chạm **đúng 2 file sản phẩm**: `frontend/src/components/asset/AssetOperationalHistory.vue` · `frontend/src/views/asset/AssetDetailView.vue`. Cộng **file test**: sửa `components/asset/AssetOperationalHistory.test.ts` (+ `views/asset/AssetDetailView.relatedTab.test.ts` nếu đỏ/thêm TC thứ tự) · **thêm** `assetcore/tests/test_asset_operational_history_contract.py` ≥3 invariant mới (thêm vào file **đã có**).
+- Chạm **đúng 2 file sản phẩm**: `frontend/src/components/asset/AssetOperationalHistory.vue` · `frontend/src/views/asset/AssetDetailView.vue`. Cộng **file test**: sửa `components/asset/AssetOperationalHistory.test.ts` (+ `views/asset/AssetDetailView.relatedTab.test.ts` nếu đỏ/thêm TC thứ tự) · **thêm** `assetcore/tests/integration/test_asset_operational_history_contract.py` ≥3 invariant mới (thêm vào file **đã có**).
 - Điều kiện render dải dẫn xuất từ **`N − M > 0`** (`D-OPH-17`); `M`, `N` lấy từ **payload + rows**, không từ cờ.
 - Chuỗi microcopy **chép nguyên** §5.3 (2 hàng MỚI); tiêu đề khối 1 **giữ nguyên** chuỗi đang có.
-- DoD chấm bằng `npx vitest run` + `npx vue-tsc --noEmit` + `bench --site miyano run-tests --module assetcore.tests.test_asset_operational_history_contract` (**timeout tool ≥600000ms**); baseline đọc **TỪ ĐĨA**, chấm **delta**.
+- DoD chấm bằng `npx vitest run` + `npx vue-tsc --noEmit` + `bench --site miyano run-tests --module assetcore.tests.integration.test_asset_operational_history_contract` (**timeout tool ≥600000ms**); baseline đọc **TỪ ĐĨA**, chấm **delta**.
 
 **Ask first (BA/PM ratify trước khi làm)**
 - Đổi chuỗi dải, đổi `[op-history-truncation]`/`[related-block-heading]`, đổi thứ tự 2 khối, hay thêm khối thứ 3 vào `[tab-panel-related]`.
@@ -668,12 +668,12 @@ assert_doctype_read_permission(_DT_PM_TASK_LOG)   # L0 ROLE — SSoT gate, KHÔN
 
 | File | Dòng | Hiện tại | Sửa thành |
 |---|---|---|---|
-| `assetcore/tests/test_mobile_capability_map.py` | `:52` | `_EXPECTED_CAP_SET_VERSION = "v104.e46d05d9a66d"` | giá trị **ĐO** (`v105.<digest>`) + comment cite `AC-CR-119` |
+| `assetcore/tests/integration/test_mobile_capability_map.py` | `:52` | `_EXPECTED_CAP_SET_VERSION = "v104.e46d05d9a66d"` | giá trị **ĐO** (`v105.<digest>`) + comment cite `AC-CR-119` |
 | ” | `:53` | `_EXPECTED_CAP_COUNT = 104` | `105` |
-| `assetcore/tests/test_imm00.py` | `:4233` | `startswith("v104.")` | `"v105."` |
+| `assetcore/tests/imm00/test_imm00.py` | `:4233` | `startswith("v104.")` | `"v105."` |
 | ” | `:4237` | `assertEqual(len(CAPABILITY_MAP), 104)` | `105` |
 | ” | `:8974` · `:9601` · `:9913` · `:10207` · `:10569` · `:10939` · `:11102` · `:11405` | `assertEqual(CAP_SET_VERSION, "v104.e46d05d9a66d")` **×8** | giá trị ĐO + message ghi thêm «`AC-CR-119` +`pm.read_history`» |
-| `assetcore/tests/test_purchase.py` | `:26` | `_EXPECTED_CAP_VERSION_PREFIX = "v104."` | `"v105."` |
+| `assetcore/tests/purchase/test_purchase.py` | `:26` | `_EXPECTED_CAP_VERSION_PREFIX = "v104."` | `"v105."` |
 | `frontend/src/stores/auth.ts` | `:51` | `export const CAP_SET_VERSION = 'v104.e46d05d9a66d'` **(prod)** | giá trị ĐO — **bắt buộc**: lệch ⇒ `isCapCacheStale` (`:91`) drop caps **mỗi lần khởi tạo store** ⇒ nhấp nháy nút gate |
 
 **B. Cite-drift phải sửa (claim «hiện hành» hoá SAI — không đỏ test):**
@@ -681,7 +681,7 @@ assert_doctype_read_permission(_DT_PM_TASK_LOG)   # L0 ROLE — SSoT gate, KHÔN
 | File | Dòng | Ghi chú |
 |---|---|---|
 | `assetcore/services/imm00.py` | `:982` | «`CAP_SET_VERSION` **hiện hành** v104…» → cập nhật + cite `AC-CR-119` |
-| `assetcore/tests/test_imm00.py` | `:11098` · `:11116` | comment «hiện hành v104…» |
+| `assetcore/tests/imm00/test_imm00.py` | `:11098` · `:11116` | comment «hiện hành v104…» |
 | `docs/imm-03/02_Analysis_Design.md` | `:656` | `INV-PUR-COUNT`: `len(CAPABILITY_MAP)==104`, prefix `v104.` → **105 / v105.** |
 | `docs/imm-03/07_Testing_QA.md` | `:794` | `TC-PUR-CAP-02`: cùng nội dung |
 

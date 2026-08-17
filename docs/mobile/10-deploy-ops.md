@@ -282,7 +282,7 @@ curl -sS "https://$HOST/api/method/assetcore.api.imm00.get_asset_scan_info?token
 > Gate bảo mật chia 2 lớp: (1) **local AUTO** chạy NGAY (introspection, KHÔNG cần cloud); (2) **4 curl gate**
 > = **HARD-STOP USER** chạy trên cloud SAU khi G1–G3 xong (host/HTTPS live + traceback OFF + reload).
 
-- [ ] **(sec-auto)** **[AUTO]** `bench --site <site> run-tests --module assetcore.tests.test_mobile_security_gate` → exit 0 (GUARD-1 no-traceback-leak re-use preflight · GUARD-2 CI placeholder/skeleton · GUARD-3 CORS no-wildcard literal · GUARD-4 `_err.http_status` invariant §3.2). Đặc tả gate: [`08-security-compliance.md §5.1`](./08-security-compliance.md).
+- [ ] **(sec-auto)** **[AUTO]** `bench --site <site> run-tests --module assetcore.tests.guards.test_mobile_security_gate` → exit 0 (GUARD-1 no-traceback-leak re-use preflight · GUARD-2 CI placeholder/skeleton · GUARD-3 CORS no-wildcard literal · GUARD-4 `_err.http_status` invariant §3.2). Đặc tả gate: [`08-security-compliance.md §5.1`](./08-security-compliance.md).
 - [ ] **(sec-a) no-traceback** — **[HARD-STOP USER]** `curl -s https://$HOST/api/method/<auth-method>` (guest) → body KHÔNG chứa `Traceback (most recent call last)` (gate `is_traceback_allowed()` OFF — G-U4 / §6.2 note)
 - [ ] **(sec-b) CORS no-wildcard** — **[HARD-STOP USER]** `grep -c '*' <(python3 -c "import json;print(json.load(open('sites/$SITE/site_config.json')).get('allow_cors'))")` → `0` (hoặc `allow_cors=None` native OFF) (§2, `app.py:275`)
 - [ ] **(sec-c) no-token-leak** — **[HARD-STOP USER]** Smoke 2 envelope của `getAsset`/`getAssetScanInfo` KHÔNG chứa `qr_token` thô (đã `_strip_qr_token` `imm00.py:203/507`)

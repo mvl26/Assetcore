@@ -89,7 +89,7 @@ Source of truth re-verified: `assetcore/services/imm01.py`, `assetcore/api/imm01
 
 ## 2026-05-14 Deep Doc-Sync Pass (full audit 02→09)
 
-Source of truth re-verified: `assetcore/services/imm01.py` (~500 LOC), `assetcore/api/imm01.py` (~430 LOC), 7 DocType JSON (`imm_needs_request`, `imm_procurement_plan`, `imm_demand_forecast`, `needs_priority_scoring`, `budget_estimate_line`, `procurement_plan_line`, `forecast_driver`), 2 workflow fixtures (`IMM-01 Needs Workflow`, `IMM-01 Plan Workflow`), patch `v3_1.001_install_imm01`, test `assetcore/tests/test_imm01.py` (123 LOC), `hooks.py` scheduler entries.
+Source of truth re-verified: `assetcore/services/imm01.py` (~500 LOC), `assetcore/api/imm01.py` (~430 LOC), 7 DocType JSON (`imm_needs_request`, `imm_procurement_plan`, `imm_demand_forecast`, `needs_priority_scoring`, `budget_estimate_line`, `procurement_plan_line`, `forecast_driver`), 2 workflow fixtures (`IMM-01 Needs Workflow`, `IMM-01 Plan Workflow`), patch `v3_1.001_install_imm01`, test `assetcore/tests/imm01/test_imm01.py` (123 LOC), `hooks.py` scheduler entries.
 
 ### Files touched
 

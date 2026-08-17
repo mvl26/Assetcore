@@ -124,7 +124,7 @@ Light-touch updates to files NOT covered in Pass 1.
 |---|---|
 | `02_Analysis_Design.md` | Header `PLANNED — Wave 3` → `IMPLEMENTED — Wave 2`; version `0.1.0` → `1.0.0-rc.2`; date `2026-05-08` → `2026-05-14`. Body sections (KPI formulas, BR-IDs, BPMN narrative) preserved — code paths đã đúng. |
 | `03_Diagrams.md` | Header banner + table updated tương tự. ERD/state machine/sequence diagrams giữ nguyên — entities (`IMM_SPARE_ALLOCATION`, `IMM_STOCK_CYCLE_COUNT`, `IMM_SPARE_PART_FORECAST`, `IMM_CRITICAL_SPARE_WATCHLIST`) khớp DocType folder thực tế. |
-| `07_Testing_QA.md` | Header updated. PREPENDED §0 — Test Suite Inventory liệt kê 7 TestCase class + 11 test method thực tế trong `assetcore/tests/test_imm15.py`. Cảnh báo §II–§III template là backlog. |
+| `07_Testing_QA.md` | Header updated. PREPENDED §0 — Test Suite Inventory liệt kê 7 TestCase class + 11 test method thực tế trong `assetcore/tests/imm15/test_imm15.py`. Cảnh báo §II–§III template là backlog. |
 | `08_Deployment.md` | Header updated. PREPENDED §0 — Wired Artefacts với hook list verified từ `hooks.py` (3 doc_events + 6 scheduler tasks), fixture list (`imm15_custom_fields.json` + workflow JSONs), 14 DocType folder name thực tế, note `patches.txt` không có entry IMM-15 riêng. |
 | `05_API_Specification.md` (Pass 1 leftover) | §3 heading `PLANNED (imm15.py)` → `IMPLEMENTED (assetcore/api/imm15.py)`. |
 

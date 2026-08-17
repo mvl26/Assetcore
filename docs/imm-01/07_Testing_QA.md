@@ -9,7 +9,7 @@
 
 > **Mục đích**: Suy ra test case có hệ thống từ phân tích (file 02) bằng kỹ thuật black-box + white-box, không liệt kê tự phát. Bao gồm: phân tích đối tượng test → chọn kỹ thuật → viết test → traceability → UAT → security → code quality. Phần VI là gate go-live.
 
-> **Trạng thái Wave 2 — Live.** Test suite hiện tại: `assetcore/tests/test_imm01.py` (≈ 322 LOC, 9 test class, 38 test method) — cover scoring formula, priority classification, device target, VR-01-04 target_year, VR-01-05 score consistency, và Gates G01/G02/G03/G05. Các test class còn lại (lifecycle integration, workflow transition, API endpoint, `roll_into_plan`/`generate_demand_forecast`/`check_pending_request_overdue`) vẫn là **roadmap** chưa implement.
+> **Trạng thái Wave 2 — Live.** Test suite hiện tại: `assetcore/tests/imm01/test_imm01.py` (≈ 322 LOC, 9 test class, 38 test method) — cover scoring formula, priority classification, device target, VR-01-04 target_year, VR-01-05 score consistency, và Gates G01/G02/G03/G05. Các test class còn lại (lifecycle integration, workflow transition, API endpoint, `roll_into_plan`/`generate_demand_forecast`/`check_pending_request_overdue`) vẫn là **roadmap** chưa implement.
 
 ---
 
@@ -169,7 +169,7 @@ Mọi service function phải có test trước khi code (TDD — `CLAUDE.md §1
 
 ## III.2. Unit test — Service Layer
 
-File hiện có: `assetcore/tests/test_imm01.py` (≈ 322 LOC). Mỗi test class trace về ≥ 1 dòng I.1.
+File hiện có: `assetcore/tests/imm01/test_imm01.py` (≈ 322 LOC). Mỗi test class trace về ≥ 1 dòng I.1.
 
 | Test class | Status | Function cover | Kỹ thuật | Cases (happy/negative) |
 |---|---|---|---|---|
@@ -192,7 +192,7 @@ File hiện có: `assetcore/tests/test_imm01.py` (≈ 322 LOC). Mỗi test class
 Test sử dụng `SimpleNamespace` (không DB) — chạy ms-level, an toàn offline. Trích pattern thực tế:
 
 ```python
-# assetcore/tests/test_imm01.py — actual file
+# assetcore/tests/imm01/test_imm01.py — actual file
 class TestComputePriorityScore(unittest.TestCase):
     def test_brd_example_from_us_01_010(self):
         # clinical=5 risk=5 util=4 replace=5 compliance=3 budget=3 → 4.35
@@ -251,7 +251,7 @@ File: `tests/test_imm01.py` → class **`TestImm01WorkflowSurfaceIntegrity`** (�
 | **TC-01-WF-SURFACE-06** | INV-01-SURFACE-C (degrade Plan) | Đối xứng Plan: base-role user → `_plan_allowed_transition_actions=[]` graceful; payload `_get_procurement_plan` intact. | như trên |
 
 **RED-before demo (chứng minh guard cắn — chạy THẬT, không false-green):**
-1. Baseline `bench --site miyano run-tests --module assetcore.tests.test_imm01` → đọc dòng cuối `Ran N OK`.
+1. Baseline `bench --site miyano run-tests --module assetcore.tests.imm01.test_imm01` → đọc dòng cuối `Ran N OK`.
 2. **RED vector A (rename):** tạm đổi `name` `IMM-01 Needs Workflow` → `IMM-01 Needs Workflow-X` trong **bản-sao** workflow live (hoặc temp Workflow doctype `is_active`) → **TC-01-WF-SURFACE-01** FAIL (resolve ≠ kỳ vọng) → revert.
 3. **RED vector B (monkeypatch):** `unittest.mock.patch('frappe.model.workflow.get_transitions', side_effect=Exception)` trong 1 TC riêng → **TC-01-WF-SURFACE-03/04** FAIL (`emit == []` permanent) → chứng minh surface `except→[]` là silent-loss thật; SURFACE-C (TC-05/06) VẪN `[]` graceful → **phân-định** đúng.
 4. Restore → **GREEN**. `test_workflow_admin_override` 5-class **VẪN GREEN** và **KHÔNG** bị re-assert (every-edge-super-admin đã cover global — cross-ref, không chép).
@@ -316,11 +316,11 @@ UAT data phải thực tế (tên bệnh viện VN, mã NCC chuẩn). Backend te
 
 ```bash
 # Module test
-bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm01
+bench --site miyano run-tests --app assetcore --module assetcore.tests.imm01.test_imm01
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm01 && coverage report
+coverage run -m unittest assetcore.tests.imm01.test_imm01 && coverage report
 # Workflow smoke
-bench --site miyano run-tests --module assetcore.tests.test_imm00_smoke
+bench --site miyano run-tests --module assetcore.tests.imm00.test_imm00_smoke
 ```
 
 | Layer | Target coverage | Đo |
@@ -678,7 +678,7 @@ Gắn screenshot SonarQube + Lighthouse vào `09 §Release Notes` khi báo cáo 
 - [ ] Audit chain test (intact + tampered) — *chưa tạo*
 - [ ] API test ≥ 60% coverage + permission matrix — *file `test_imm01_api.py` chưa tạo*
 - [x] Performance target xác định (target-only, chưa baseline)
-- [x] CI command chạy clean (`bench run-tests --module assetcore.tests.test_imm01`)
+- [x] CI command chạy clean (`bench run-tests --module assetcore.tests.imm01.test_imm01`)
 - [ ] **SonarQube Quality Gate pass** + **Lighthouse score ≥ target** — *chưa chạy/đính kèm báo cáo*
 
 ## IV. Traceability

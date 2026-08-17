@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | **ADR-MOBILE-001** (Decision-B route-by-VALUE `body.success`, Error envelope HTTP-200, 0 discriminator) · **ADR-MOBILE-021** (`listTransfers` SINGLE-shape — handler LUÔN `_ok`, 0 `_err` in-handler ⇒ KHÔNG `oneOf [Env,Error]`) · **ADR-MOBILE-023** (`getAssetPmHistory` single-shape list, int-vs-bool trap Check→`integer enum[0,1]`) · Core Doc IMM-00 [`05_API_Specification.md`](../imm-00/05_API_Specification.md) (§III.3 `list_departments`) |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm00.py` `list_departments` @vùng ~1378-1387, `assetcore/assetcore/doctype/ac_department/ac_department.json` — `is_group`/`is_active` = `Check`, `is_tree=1`, `assetcore/utils/response.py` `_ok`, `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_mobile_docset.py`). Contract mirror: [`openapi/assetcore-mobile.openapi.yaml`](./openapi/assetcore-mobile.openapi.yaml). Narrative: [`04-api-contract.md`](./04-api-contract.md) (§8.31 `listDepartments`).
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm00.py` `list_departments` @vùng ~1378-1387, `assetcore/assetcore/doctype/ac_department/ac_department.json` — `is_group`/`is_active` = `Check`, `is_tree=1`, `assetcore/utils/response.py` `_ok`, `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/guards/test_mobile_docset.py`). Contract mirror: [`openapi/assetcore-mobile.openapi.yaml`](./openapi/assetcore-mobile.openapi.yaml). Narrative: [`04-api-contract.md`](./04-api-contract.md) (§8.31 `listDepartments`).
 
 ---
 
@@ -97,7 +97,7 @@ Decision-B (ADR-MOBILE-001): lỗi nghiệp vụ = **HTTP-200 + Error envelope**
 
 ## Handoff BE/Test (Bước-4 — kế-hoạch, ATOMIC pure-yaml)
 
-> **CONTRACT-ONLY** — TUYỆT ĐỐI KHÔNG đụng `api/imm00.py`/`services/imm00.py` (`list_departments` ĐÃ LIVE). Không reload/migrate/commit. DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_mobile_oas` + `.test_mobile_docset` = **'Ran N OK' THẬT** (guard-suite sums +9 synced).
+> **CONTRACT-ONLY** — TUYỆT ĐỐI KHÔNG đụng `api/imm00.py`/`services/imm00.py` (`list_departments` ĐÃ LIVE). Không reload/migrate/commit. DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.guards.test_mobile_oas` + `.test_mobile_docset` = **'Ran N OK' THẬT** (guard-suite sums +9 synced).
 
 **(1) yaml** (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`):
 - +1 path `GET /api/method/assetcore.api.imm00.list_departments` (opId `listDepartments`, tag `asset`); slot `{200,401,403}` (`401 Unauthorized401`, `403 Forbidden`); 200 = SINGLE `$ref DepartmentListEnvelope` (**KHÔNG `oneOf`**); param `$ref DepartmentParent`.

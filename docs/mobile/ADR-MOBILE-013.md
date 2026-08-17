@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | ADR-MOBILE-006 (POST-action route-by-VALUE + 403 SINGLE-SHAPE) · ADR-MOBILE-011/012 §(VERB-FLIP-THIS-ROUND discipline + C3-split RIÊNG-schema) · Decision-B (closed-schema oneOf) · C6/C7 (200 oneOf [Env, Error]) · VERB-PARITY CLOSURE R33 (`_PARITY_VERB_ALLOWLIST`→`set()`) |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm08.py`, `assetcore/services/imm08.py`, `assetcore/services/shared/constants.py`, `assetcore/utils/messages.py`, `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_imm08.py`, `assetcore/tests/test_oas_d12_error_surface.py`, `assetcore/tests/test_oas_d15_external_docs.py`, `assetcore/tests/test_oas_d17_action_enum.py`). Contract: [`04-api-contract.md`](./04-api-contract.md). Core Doc IMM-08: `docs/imm-08/05_API_Specification.md §0.1.2` + `§5` + `04_Backend_Design.md §5`.
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm08.py`, `assetcore/services/imm08.py`, `assetcore/services/shared/constants.py`, `assetcore/utils/messages.py`, `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/imm08/test_imm08.py`, `assetcore/tests/guards/test_oas_d12_error_surface.py`, `assetcore/tests/guards/test_oas_d15_external_docs.py`, `assetcore/tests/guards/test_oas_d17_action_enum.py`). Contract: [`04-api-contract.md`](./04-api-contract.md). Core Doc IMM-08: `docs/imm-08/05_API_Specification.md §0.1.2` + `§5` + `04_Backend_Design.md §5`.
 
 ---
 

@@ -91,7 +91,7 @@ EPIC-V là **cổng đóng cuối** của bộ BE-completion: chứng minh hợp
 ```
 
 - = **runnable-config** `generator-cli.version: 7.23.0` + khối `generators` **3 target** (`mobile-dart` `dart-dio` · `mobile-kotlin` `kotlin` `jvm-retrofit2` · `mobile-typescript` `typescript-axios`). Mỗi target có `generatorName` + `inputSpec` trỏ ĐÚNG `docs/mobile/openapi/assetcore-mobile.openapi.yaml` + `output` → `npx @openapitools/openapi-generator-cli generate` đọc config, sinh CẢ 3 vào `build/codegen/<lang>` (KHÔNG cần truyền `-g`/`-i`/`-o` ở CLI).
-- **CHỈ còn HARD-STOP USER = toolchain** (`java`/`npx`+generator — §3.1 NOT FOUND @2026-06-11). Config-validity (KHÔNG cần toolchain) = **guard máy-kiểm** `assetcore.tests.test_mobile_oas::TestMobileCodegenConfig` (TC-MOB-OAS-28a..j, STDLIB `json.load`) — assert version-pin + generators non-empty + MỌI `inputSpec` resolve == `_MOBILE_YAML` SSoT (`test_mobile_oas.py:86`) + file tồn tại + name/output non-empty; RED-before/GREEN-after (inject sai-path / xoá generators / version='' → RED). Drift config↔YAML (handoff codegen fail-câm máy USER) = bắt NGAY.
+- **CHỈ còn HARD-STOP USER = toolchain** (`java`/`npx`+generator — §3.1 NOT FOUND @2026-06-11). Config-validity (KHÔNG cần toolchain) = **guard máy-kiểm** `assetcore.tests.guards.test_mobile_oas::TestMobileCodegenConfig` (TC-MOB-OAS-28a..j, STDLIB `json.load`) — assert version-pin + generators non-empty + MỌI `inputSpec` resolve == `_MOBILE_YAML` SSoT (`test_mobile_oas.py:86`) + file tồn tại + name/output non-empty; RED-before/GREEN-after (inject sai-path / xoá generators / version='' → RED). Drift config↔YAML (handoff codegen fail-câm máy USER) = bắt NGAY.
 - `$schema` trỏ `./node_modules/...` (chưa cài → schema-resolve fail trong IDE; KHÔNG ảnh hưởng codegen-validity — guard `TestMobileCodegenConfig` STDLIB-only, không cần `$schema` resolve).
 
 ### 3.3 Hợp đồng OpenAPI — trạng thái contract (nguồn sinh client)
@@ -113,14 +113,14 @@ EPIC-V là **cổng đóng cuối** của bộ BE-completion: chứng minh hợp
 
 | Test module | #test methods (probe) | Vai trò proxy cho V |
 |---|---|---|
-| `assetcore/tests/test_mobile_oas.py` | **141** (count HIỆN HÀNH @source G3 2026-06-12 — `Ran 141 tests ... OK`; SSoT `_EXPECTED_TEST_COUNT=141` + meta-guard `TestMobileOasCountSelfVerify`; lineage `[SUPERSEDED]` interim: _106 @landing Vòng 9 → 107 @baseline Vòng 11 → 108 @F-C3 meta-guard → 118 @C-DoD-CFG Vòng 12 → 122 @F-C4 Vòng 13 → 133 @F-B → 137 @F-B4 → **141 @G3 2026-06-12** (+4 `TestMobileTracebackHardeningDocGuard`)_; khớp ACCEPTANCE-CHECKLIST §Baseline) | 0 dangling `$ref` · orphan ⊆ `_RESERVED_ORPHANS` (`:434`) · `_STUB_PATHS` guard (`:152`) · **openapitools.json ↔ `_MOBILE_YAML` config-validity** (`TestMobileCodegenConfig` 28a..j) — codegen-validity proxy |
-| `assetcore/tests/test_oas_generator.py` | **49** | envelope/error-code/operationId-unique introspection |
-| `assetcore/tests/test_oas_signatures.py` | **11** | signature ↔ yaml param parity |
-| `assetcore/tests/test_oas_serve.py` | **13** (count HIỆN HÀNH @source Vòng 9 2026-06-11) | serve `api-docs` + cache-bust on cap-set version |
-| `assetcore/tests/test_mobile_docset.py` | **9** (5 cũ + 4 TC F-C3 round-2 `TestMobileGuardSuiteCountParity`) | FS↔index parity + link-health (`TC-MOB-DOC-01..05`) + guard-suite-sum count-parity (06..09) |
-| `assetcore/tests/test_mobile_preflight.py` | **26** (count HIỆN HÀNH @source 2026-06-12 — `Ran 26 tests ... OK`; SSoT `_EXPECTED_PREFLIGHT_TEST_COUNT=26` @F-B7 `test_mobile_preflight.py:114` + meta-guard self-count; `[SUPERSEDED]` "9" = base trước F-B3..F-B7) | preflight `verify_oauth_client()` ([EPIC-B] gate) + doc-value/report-shape/blocker-VI/count-self/stale-line-ref guard |
-| `assetcore/tests/test_mobile_capability_map.py` | **6** | endpoint↔capability binding (`TC-MOB-CAP-01..06`) |
-| `assetcore/tests/test_mobile_security_gate.py` | **52** (count HIỆN HÀNH @source 2026-06-12 — `Ran 52 tests ... OK`; SSoT `_EXPECTED_SECURITY_GATE_TEST_COUNT=52` + meta-guard `TestSecGateSelfCount`; module guard thứ 7 thêm @G-A8 GUARD-9 `TestSecGateHostNameIssuerDoc` host_name/issuer go-live G4(f)) | 9 security invariant introspection (GUARD-1..9: no-traceback-leak · CI-placeholder · CORS-no-wildcard · `http_status`-invariant · traceback-gate · no-token-leak · rate-limit-header · audit-actor NĐ98 · host_name/issuer go-live) |
+| `assetcore/tests/guards/test_mobile_oas.py` | **141** (count HIỆN HÀNH @source G3 2026-06-12 — `Ran 141 tests ... OK`; SSoT `_EXPECTED_TEST_COUNT=141` + meta-guard `TestMobileOasCountSelfVerify`; lineage `[SUPERSEDED]` interim: _106 @landing Vòng 9 → 107 @baseline Vòng 11 → 108 @F-C3 meta-guard → 118 @C-DoD-CFG Vòng 12 → 122 @F-C4 Vòng 13 → 133 @F-B → 137 @F-B4 → **141 @G3 2026-06-12** (+4 `TestMobileTracebackHardeningDocGuard`)_; khớp ACCEPTANCE-CHECKLIST §Baseline) | 0 dangling `$ref` · orphan ⊆ `_RESERVED_ORPHANS` (`:434`) · `_STUB_PATHS` guard (`:152`) · **openapitools.json ↔ `_MOBILE_YAML` config-validity** (`TestMobileCodegenConfig` 28a..j) — codegen-validity proxy |
+| `assetcore/tests/guards/test_oas_generator.py` | **49** | envelope/error-code/operationId-unique introspection |
+| `assetcore/tests/guards/test_oas_signatures.py` | **11** | signature ↔ yaml param parity |
+| `assetcore/tests/guards/test_oas_serve.py` | **13** (count HIỆN HÀNH @source Vòng 9 2026-06-11) | serve `api-docs` + cache-bust on cap-set version |
+| `assetcore/tests/guards/test_mobile_docset.py` | **9** (5 cũ + 4 TC F-C3 round-2 `TestMobileGuardSuiteCountParity`) | FS↔index parity + link-health (`TC-MOB-DOC-01..05`) + guard-suite-sum count-parity (06..09) |
+| `assetcore/tests/guards/test_mobile_preflight.py` | **26** (count HIỆN HÀNH @source 2026-06-12 — `Ran 26 tests ... OK`; SSoT `_EXPECTED_PREFLIGHT_TEST_COUNT=26` @F-B7 `test_mobile_preflight.py:114` + meta-guard self-count; `[SUPERSEDED]` "9" = base trước F-B3..F-B7) | preflight `verify_oauth_client()` ([EPIC-B] gate) + doc-value/report-shape/blocker-VI/count-self/stale-line-ref guard |
+| `assetcore/tests/integration/test_mobile_capability_map.py` | **6** | endpoint↔capability binding (`TC-MOB-CAP-01..06`) |
+| `assetcore/tests/guards/test_mobile_security_gate.py` | **52** (count HIỆN HÀNH @source 2026-06-12 — `Ran 52 tests ... OK`; SSoT `_EXPECTED_SECURITY_GATE_TEST_COUNT=52` + meta-guard `TestSecGateSelfCount`; module guard thứ 7 thêm @G-A8 GUARD-9 `TestSecGateHostNameIssuerDoc` host_name/issuer go-live G4(f)) | 9 security invariant introspection (GUARD-1..9: no-traceback-leak · CI-placeholder · CORS-no-wildcard · `http_status`-invariant · traceback-gate · no-token-leak · rate-limit-header · audit-actor NĐ98 · host_name/issuer go-live) |
 
 > **Guard-suite total (re-run @source G-A8 2026-06-12):** guard-suite **7-module** (oas+generator+serve+signatures+docset+capability_map+**security_gate**) = 141+49+13+11+9+6+52 = **281 OK** (byte-match SSoT `test_mobile_docset.py:517 _GUARD_SUITE_SUM=281`), +`test_mobile_preflight` 26 = **307 mobile/OAS** (byte-match `test_mobile_docset.py:543 _MOBILE_OAS_TOTAL=307` + ACCEPTANCE-CHECKLIST §Baseline + GO-2). _`[SUPERSEDED]` interim (audit-trail, KHÔNG current-truth): Vòng 12 6-module 118+49+13+11+9+6 = 206 OK / +preflight 9 = 215 mobile/OAS. Reconcile @source G-A8: sec-gate ENTER guard-suite (module thứ 7, +52 G-A8 GUARD-9 host_name/issuer); oas 118→141 (G-A2/G3 +23); preflight 9→26 (F-B3..F-B7 +17); guard-suite 206→281; mobile/OAS 215→307._ PyYAML/json introspection = **proxy** cho codegen-DoD (KHÔNG codegen THẬT) tới khi USER cấp toolchain `java`+`npx` (re-probe 2026-06-12 = NOT FOUND) → V-U1/V-U2 GIỮ `[ ]`.
 
@@ -171,10 +171,10 @@ EPIC-V là **cổng đóng cuối** của bộ BE-completion: chứng minh hợp
 - **Acceptance:**
   - `[AUTO]` (proxy — không cần toolchain): PyYAML introspection 0 dangling `$ref`:
     ```bash
-    bench --site miyano run-tests --module assetcore.tests.test_mobile_oas
+    bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas
     # PASS: Ran 141 tests ... OK (count HIỆN HÀNH @source G3 2026-06-12; 0 dangling $ref; orphan ⊆ _RESERVED_ORPHANS; gồm class TestMobileCodegenConfig 28a..j; SSoT _EXPECTED_TEST_COUNT=141)
     ```
-  - ✅ `[AUTO]` config non-empty (ĐÃ có guard máy-kiểm — Vòng 12 C-DoD-CFG): `openapitools.json` = runnable-config (`generator-cli.generators` ≥1 target, `inputSpec` trỏ mobile YAML SSoT, `generatorName`/`output` non-empty). Guard `assetcore.tests.test_mobile_oas::TestMobileCodegenConfig` (TC-MOB-OAS-28a..j, STDLIB `json.load` — KHÔNG toolchain) THAY 1-liner python3 thủ công, bắt drift config↔YAML (RED-before/GREEN-after):
+  - ✅ `[AUTO]` config non-empty (ĐÃ có guard máy-kiểm — Vòng 12 C-DoD-CFG): `openapitools.json` = runnable-config (`generator-cli.generators` ≥1 target, `inputSpec` trỏ mobile YAML SSoT, `generatorName`/`output` non-empty). Guard `assetcore.tests.guards.test_mobile_oas::TestMobileCodegenConfig` (TC-MOB-OAS-28a..j, STDLIB `json.load` — KHÔNG toolchain) THAY 1-liner python3 thủ công, bắt drift config↔YAML (RED-before/GREEN-after):
     ```bash
     # Guard máy-kiểm (chạy trong suite test_mobile_oas ở trên):
     #   28b version-pin · 28c generators non-empty · 28d MỌI inputSpec == _MOBILE_YAML SSoT (single-path)
@@ -215,7 +215,7 @@ EPIC-V là **cổng đóng cuối** của bộ BE-completion: chứng minh hợp
     ```
   - `[AUTO]` proxy trước go-live: 6/6 flow có operationId trong yaml + endpoint verify @source (matrix §3.7):
     ```bash
-    bench --site miyano run-tests --module assetcore.tests.test_mobile_capability_map
+    bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_capability_map
     # PASS: Ran 6 tests ... OK (10 endpoint MVP ↔ matrix §1 ↔ CABILITY_MAP binding khớp)
     ```
 - **Owner:** QA · **Tag:** `[HARD-STOP USER]` (cloud + reload) — proxy-test `[AUTO]`
@@ -240,7 +240,7 @@ EPIC-V là **cổng đóng cuối** của bộ BE-completion: chứng minh hợp
     ```
   - `[AUTO]` docset parity GREEN sau thêm chương (VERIFIED 2026-06-12):
     ```bash
-    bench --site miyano run-tests --module assetcore.tests.test_mobile_docset
+    bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_docset
     # PASS: Ran 9 tests ... OK (FS↔index parity 15 chương 00–14; 0 broken link; 0 placeholder ngoài code-fence;
     #   guard-suite count-parity intact — runbook = doc, KHÔNG thêm def test ⇒ _GUARD_SUITE_SUM 281 BẤT ĐỘNG)
     ```
@@ -265,7 +265,7 @@ EPIC-V là **cổng đóng cuối** của bộ BE-completion: chứng minh hợp
     ```
   - `[AUTO]` link-health (manifest link resolve được):
     ```bash
-    bench --site miyano run-tests --module assetcore.tests.test_mobile_docset
+    bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_docset
     # PASS: Ran 9 tests ... OK (link-health TC-MOB-DOC-03 rglob bắt completion/V4-*.md: mọi ./ ../ resolve, 0 broken; total ≥ baseline 400)
     ```
 - **Owner:** QA · **Tag:** `[AUTO]` (doc-only)

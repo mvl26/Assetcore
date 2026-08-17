@@ -112,7 +112,7 @@ const SELF_DRAWN_TAB_RE = /<button\b[^>]*?:class\s*=\s*"[^"]*\b(?:activeTab|tab)
 
 | Nguồn | Nội dung | Đo |
 |---|---|---|
-| Ground truth BE | `assetcore/hooks.py:97` + `assetcore/tests/test_imm16.py:2643` `_MR_VALID_STATES` | 4 state: `Draft` · `Held` · `Minutes Approved` · `Closed` |
+| Ground truth BE | `assetcore/hooks.py:97` + `assetcore/tests/imm16/test_imm16.py:2643` `_MR_VALID_STATES` | 4 state: `Draft` · `Held` · `Minutes Approved` · `Closed` |
 | Nhãn VI đang có | `views/compliance/ManagementReviewListView.vue:42-47` `MR_STATUSES` | `Bản nháp` · `Đã họp` · `Biên bản đã duyệt` · `Đã đóng` — **chỉ dùng cho bộ lọc** |
 | SSoT nhãn badge | `utils/formatters.ts:43` `STATUS_MAP` | có `Draft`/`Closed`; **thiếu** `Held` và `Minutes Approved` |
 | Hệ quả | `ManagementReviewDetailView.vue:258` `<StatusBadge :state="mr.status" />` → `translateStatus()` → `STATUS_MAP[s] ?? s.replaceAll('_',' ')` | badge in **nguyên tiếng Anh** «Held» / «Minutes Approved» — vi phạm LL-FE-53 |

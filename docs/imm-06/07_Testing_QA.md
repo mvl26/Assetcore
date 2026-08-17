@@ -209,11 +209,11 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 
 Mọi service function phải có test trước khi code (TDD — → CLAUDE.md §17). Mỗi BR có ≥ 1 happy + 1 negative test.
 
-**Trạng thái thực tế (2026-05-29):** Test scaffold hiện là **một file duy nhất** `assetcore/tests/test_imm06.py`. Các test class đã viết (✅ Live) liệt kê ở III.2; các file con tách theo layer (`test_imm06_service.py`, `_validators.py`, `_doctype.py`, `_workflow.py`, `_audit.py`, `_api.py`, e2e) **chưa tách** → đánh dấu ⬜ Planned.
+**Trạng thái thực tế (2026-05-29):** Test scaffold hiện là **một file duy nhất** `assetcore/tests/imm06/test_imm06.py`. Các test class đã viết (✅ Live) liệt kê ở III.2; các file con tách theo layer (`test_imm06_service.py`, `_validators.py`, `_doctype.py`, `_workflow.py`, `_audit.py`, `_api.py`, e2e) **chưa tách** → đánh dấu ⬜ Planned.
 
 ## III.2. Unit test — Service Layer
 
-**File hiện tại:** `assetcore/tests/test_imm06.py` (file đơn). Bảng dưới đánh dấu trạng thái thực: ✅ Live = class/method đã tồn tại; ⬜ Planned = chưa viết.
+**File hiện tại:** `assetcore/tests/imm06/test_imm06.py` (file đơn). Bảng dưới đánh dấu trạng thái thực: ✅ Live = class/method đã tồn tại; ⬜ Planned = chưa viết.
 
 | Test class | Function cover | Kỹ thuật | Cases (happy/negative) | Trạng thái |
 |---|---|---|---|---|
@@ -297,7 +297,7 @@ Fixture trong `setUpClass` phải có `tearDownClass` purge.
 **Kỹ thuật:** State Transition Testing — mỗi edge = 1 test pass + 1 test fail.
 
 **INVARIANT `TestSessionTransitionInvariant` (Vòng 7 — gate merge, bắt drift map↔guard):**
-File `assetcore/tests/test_imm06.py`. Đọc hằng SSoT `_SESSION_VALID_TRANSITIONS` (04 §VI.1a). Với bijection CTA→next-state (confirm→Confirmed, start→In Progress, complete→Completed, verify→Verified, close→Closed, cancel→Cancelled), lặp **7 state × 6 CTA** và assert 2 chiều:
+File `assetcore/tests/imm06/test_imm06.py`. Đọc hằng SSoT `_SESSION_VALID_TRANSITIONS` (04 §VI.1a). Với bijection CTA→next-state (confirm→Confirmed, start→In Progress, complete→Completed, verify→Verified, close→Closed, cancel→Cancelled), lặp **7 state × 6 CTA** và assert 2 chiều:
 - **Forward**: `T ∈ _SESSION_VALID_TRANSITIONS[s]` ⇒ gọi service tương ứng khi doc ở `s` **KHÔNG** ném `BAD_STATE` (có thể ném VALIDATION như VR-05/VR-06 — phân biệt bằng `ErrorCode`, không tính là drift).
 - **Reverse**: `T ∉ _SESSION_VALID_TRANSITIONS[s]` ⇒ service tương ứng **PHẢI** ném `BAD_STATE` khi doc ở `s`.
 - Terminal: `_SESSION_VALID_TRANSITIONS[Closed] == []` và `[Cancelled] == []`.
@@ -324,12 +324,12 @@ File `frontend/src/views/training/tests/SessionDetailView.ctaGating.test.ts` (th
 - **Grounding 2-chiều (0 orphan)**: `map_pairs − workflow_pairs == ∅` ∧ `workflow_pairs − map_pairs == ∅`; anti-drift nhãn: mọi `t["action"]` ∈ `_SESSION_WF_ACTION_LABELS` (`Xác nhận/Bắt đầu/Hoàn thành/Verify/Đóng/Hủy`) — label lạ → RED.
 - **TƯƠNG PHẢN competency** (§III.4a-bis, 4 EXCEPTION_EDGES = 3 scheduler-auto + 1 create-new): session 100% CTA người dùng → 0 scheduler-auto + 0 create-new → EXCEPTION_EDGES **rỗng**. Docstring test nêu rõ tương phản này.
 - **RED-before demo (verified @output)**: tạm gỡ `In Progress` khỏi `map[Planned]` → sym-diff = `{('Planned','In Progress')}` ≠ ∅ → RED, message `map ⇄ workflow divergent [('Planned', 'In Progress')] != EXCEPTION_EDGES []` (CTA "Bắt đầu" ẩn dù workflow còn cạnh). Restore → GREEN.
-- **Không regress**: TC6 `test_tc6_map_guard_no_drift` (map ⇄ 6 service-guard) GIỮ xanh; `test_workflow_admin_override` GIỮ xanh (KHÔNG đụng JSON). **DoD**: `bench --site miyano run-tests --module assetcore.tests.test_imm06` → `Ran 94 OK` (93 baseline + 1); `test_workflow_admin_override` → `Ran 10 OK`. 0 gunicorn reload / 0 bench migrate.
+- **Không regress**: TC6 `test_tc6_map_guard_no_drift` (map ⇄ 6 service-guard) GIỮ xanh; `test_workflow_admin_override` GIỮ xanh (KHÔNG đụng JSON). **DoD**: `bench --site miyano run-tests --module assetcore.tests.imm06.test_imm06` → `Ran 94 OK` (93 baseline + 1); `test_workflow_admin_override` → `Ran 10 OK`. 0 gunicorn reload / 0 bench migrate.
 
 ### III.4a. Competency CTA server-driven + RBAC parity (Vòng 15 — AC1..AC6)
 
 **INVARIANT `TestCompetencyTransitionInvariant` (gate merge — parity `TestSessionTransitionInvariant`; AC4).**
-File `assetcore/tests/test_imm06.py`. Đọc hằng SSoT `_COMPETENCY_VALID_TRANSITIONS` (04 §VI.2a; value = nhãn ACTION). Với map ACTION→service (`Sign-off`→`signoff_competency`, `Revoke`→`revoke_competency`, `Recertify`→`recertify_competency`), lặp **6 state × 3 ACTION** và assert 2 chiều:
+File `assetcore/tests/imm06/test_imm06.py`. Đọc hằng SSoT `_COMPETENCY_VALID_TRANSITIONS` (04 §VI.2a; value = nhãn ACTION). Với map ACTION→service (`Sign-off`→`signoff_competency`, `Revoke`→`revoke_competency`, `Recertify`→`recertify_competency`), lặp **6 state × 3 ACTION** và assert 2 chiều:
 - **Forward**: `action ∈ _COMPETENCY_VALID_TRANSITIONS[s]` ⇒ gọi service khi doc ở `s` **KHÔNG** ném `BAD_STATE` (recertify có thể ném `VALIDATION`/`NOT_FOUND` do precondition session/participant — phân biệt bằng `ErrorCode`, không tính drift).
 - **Reverse**: `action ∉ _COMPETENCY_VALID_TRANSITIONS[s]` ⇒ service **PHẢI** ném `BAD_STATE` khi doc ở `s` (jump-skip bị chặn — AC4).
 - Terminal: `_COMPETENCY_VALID_TRANSITIONS['Revoked'] == []`.
@@ -395,9 +395,9 @@ File `frontend/src/views/training/tests/CompetencyDetailView.ctaGate.test.ts` (m
 - grep: `canSuspend`/`canRestore` computed = **0 match** hardcode `workflow_state === '<X>'` (chỉ `allowedTransitions.includes('Suspend'|'Restore') && can_*`).
 - Modal Tạm ngưng: nút `confirm-suspend` `:disabled` khi reason rỗng.
 
-**Acceptance chạy (Vòng 26):** `bench --site miyano run-tests --module assetcore.tests.test_imm06` → đọc **dòng cuối** `Ran N OK` THẬT (KHÔNG false-green — nhiễu fixture "Asset None not found" là môi trường, phân biệt bằng test-name); `test_workflows` admin-override **22/22 KHÔNG đổi** (workflow JSON KHÔNG sửa); FE `npx vitest run competencyCtaGate` xanh + `vue-tsc` prod sạch.
+**Acceptance chạy (Vòng 26):** `bench --site miyano run-tests --module assetcore.tests.imm06.test_imm06` → đọc **dòng cuối** `Ran N OK` THẬT (KHÔNG false-green — nhiễu fixture "Asset None not found" là môi trường, phân biệt bằng test-name); `test_workflows` admin-override **22/22 KHÔNG đổi** (workflow JSON KHÔNG sửa); FE `npx vitest run competencyCtaGate` xanh + `vue-tsc` prod sạch.
 
-**Acceptance chạy (AC6):** `bench --site miyano run-tests --module assetcore.tests.test_imm06` → `Ran N OK`; FE `npx vitest run competencyCtaGate` xanh + `vue-tsc` prod sạch.
+**Acceptance chạy (AC6):** `bench --site miyano run-tests --module assetcore.tests.imm06.test_imm06` → `Ran N OK`; FE `npx vitest run competencyCtaGate` xanh + `vue-tsc` prod sạch.
 
 ## III.5. Integration — Audit chain integrity
 
@@ -488,9 +488,9 @@ UAT data phải **thực tế** (tên bệnh viện VN, mã NCC chuẩn). Backen
 
 ```bash
 # Module test (file đơn hiện tại)
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm06
+bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.imm06.test_imm06
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm06 && coverage report
+coverage run -m unittest assetcore.tests.imm06.test_imm06 && coverage report
 # Full suite (CI)
 bench --site assetcore.local run-tests --app assetcore --coverage
 ```
@@ -964,7 +964,7 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 - [ ] Audit chain test (intact + tampered) — ⬜ Planned, chưa viết `test_imm06_audit.py`
 - [ ] API test ≥ 60% coverage + permission matrix — ⬜ Planned, chưa viết `test_imm06_api.py`
 - [x] Performance target xác định
-- [x] CI command chạy clean (`bench run-tests --module assetcore.tests.test_imm06`)
+- [x] CI command chạy clean (`bench run-tests --module assetcore.tests.imm06.test_imm06`)
 - [ ] SonarQube Quality Gate pass + Lighthouse ≥ target — chưa chạy đo
 
 ## IV. Traceability

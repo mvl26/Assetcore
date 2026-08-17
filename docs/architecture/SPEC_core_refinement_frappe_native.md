@@ -125,7 +125,7 @@ Chỉ chuyển những thứ **trùng lặp rõ**: 1 Query Report (danh mục t�
 ```bash
 # Test BE (DoD chính — module-isolated để tránh nhiễm fixture)
 bench --site miyano run-tests --app assetcore
-bench --site miyano run-tests --module assetcore.tests.test_doctype_connectivity
+bench --site miyano run-tests --module assetcore.tests.guards.test_doctype_connectivity
 
 # Test FE
 cd frontend && npm run test:unit          # vitest
@@ -161,8 +161,8 @@ assetcore/services/shared/state.py                   ← MỚI: transition() b�
 assetcore/patches/0xx_backfill_workflow_state.py     ← MỚI (P2)
 assetcore/patches/0xx_normalize_data_to_link.py      ← MỚI (P3)
 assetcore/patches.txt                                ← SỬA
-assetcore/tests/test_doctype_connectivity.py         ← MỚI: static guard P1/P4
-assetcore/tests/test_state_axis_invariant.py         ← MỚI: static guard P2
+assetcore/tests/guards/test_doctype_connectivity.py         ← MỚI: static guard P1/P4
+assetcore/tests/guards/test_state_axis_invariant.py         ← MỚI: static guard P2
 frontend/src/components/RelatedRecords.vue           ← MỚI (P1 FE)
 frontend/src/api/connections.ts                      ← MỚI
 docs/architecture/ADR-CORE-01_workflow_is_ssot.md    ← MỚI (§5)

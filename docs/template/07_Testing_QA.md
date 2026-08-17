@@ -250,7 +250,7 @@ bench --site <site> run-tests --app assetcore --module assetcore.tests.test_imm<
 # Coverage
 coverage run -m unittest assetcore.tests.test_imm<XX> && coverage report
 # Workflow smoke
-bench --site <site> run-tests --module assetcore.tests.test_workflows
+bench --site <site> run-tests --module assetcore.tests.guards.test_workflows
 ```
 
 | Layer | Target coverage | Đo |

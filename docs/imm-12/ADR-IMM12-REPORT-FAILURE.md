@@ -148,7 +148,7 @@ if not rbac.can(_CAP_REPORT):
 |---|---|---|
 | BE-API | `assetcore/api/imm12.py` | THÊM cap-gate `corrective.create` ở `report_incident` (D1) + truyền `source` xuống svc (D2) |
 | BE-svc | `assetcore/services/imm12.py` | `report_incident(..., source="manual")` + emit `incident_reported` lifecycle event + provenance `notes`/`change_summary` (D2); helper `_source_label` |
-| BE-test | `assetcore/tests/test_imm12.py` | AC1 parity (read-only→403 no-leak / create→200) + AC2 (lifecycle `incident_reported` + provenance + chain-valid) |
+| BE-test | `assetcore/tests/imm12/test_imm12.py` | AC1 parity (read-only→403 no-leak / create→200) + AC2 (lifecycle `incident_reported` + provenance + chain-valid) |
 | FE-view | `frontend/src/views/incident/IncidentCreateView.vue` | đọc `route.query.source`; khoá SmartSelect khi qr-scan; truyền `source` (D3) |
 | FE-api | `frontend/src/api/imm12.ts` | `ReportIncidentPayload` +`source?: 'manual'\|'qr-scan'` (D3) |
 | FE-test | `frontend/src/views/incident/tests/IncidentCreateView.test.ts` (MỚI) | AC3: qr-scan→khoá+source / no-source→editable+manual |
@@ -200,7 +200,7 @@ if not rbac.can(_CAP_REPORT):
 | **QA-1** | D1 | Test parity 3-tier: user `corrective.read` không `.create` → API `report_incident` 403, message KHÔNG chứa `'corrective.create'` raw; user có `.create` → 200 + Incident tạo. Assert 3 binding (route-guard / scan-action spec / API gate) CÙNG cap `corrective.create`. |
 | **QA-2** | D2 | Test sau report thành công: ≥1 `Asset Lifecycle Event` `event_type='incident_reported'`; `source='qr-scan'`→notes chứa "qr-scan", default→"manual"; `verify_audit_chain(asset)['valid']==True`. |
 | **QA-3** | D3 | `IncidentCreateView.test.ts` (MỚI): `?asset=X&source=qr-scan`→SmartSelect disabled + payload `source='qr-scan'`; no-source→SmartSelect editable + `source='manual'`. |
-| **BE-3 (F2)** | **D5** | **Contract-only.** `docs/mobile/openapi/assetcore-mobile.openapi.yaml`: THÊM `ReportIncidentRequest.properties.occurred_datetime` (`type:string`, KHÔNG `format`, description nêu wire-format + fallback + future→422); `required` GIỮ EXACT 4. `tests/test_mobile_oas.py`: +TC-MOB-OAS-13g (prop+type+no-format+∉required+parity `inspect.signature`), `_EXPECTED_TEST_COUNT` 407→408. `tests/test_mobile_docset.py`: `_GUARD_SUITE_EXPECTED[test_mobile_oas]` +1 & `_MOBILE_OAS_TOTAL` 576→577. KHÔNG đụng `api/imm12.py`/`services/imm12.py` (đã LIVE) ⇒ KHÔNG reload; verify bằng `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` + `test_mobile_docset`, KHÔNG curl-live (LL-DEPLOY-07). |
+| **BE-3 (F2)** | **D5** | **Contract-only.** `docs/mobile/openapi/assetcore-mobile.openapi.yaml`: THÊM `ReportIncidentRequest.properties.occurred_datetime` (`type:string`, KHÔNG `format`, description nêu wire-format + fallback + future→422); `required` GIỮ EXACT 4. `tests/test_mobile_oas.py`: +TC-MOB-OAS-13g (prop+type+no-format+∉required+parity `inspect.signature`), `_EXPECTED_TEST_COUNT` 407→408. `tests/test_mobile_docset.py`: `_GUARD_SUITE_EXPECTED[test_mobile_oas]` +1 & `_MOBILE_OAS_TOTAL` 576→577. KHÔNG đụng `api/imm12.py`/`services/imm12.py` (đã LIVE) ⇒ KHÔNG reload; verify bằng `bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas` + `test_mobile_docset`, KHÔNG curl-live (LL-DEPLOY-07). |
 
 ---
 

@@ -2044,7 +2044,7 @@ TC nội dung `summary` (sau khi BE land live): (S1) MỖI item có key `summary
 - **Counter sync** (⚠️ baselines grounded 2026-07-16 sau CR-34: path/opId **90**, c5/parity **79**, `_EXPECTED_TEST_COUNT` **818**, `_GUARD_SUITE_SUM` **961**, `_MOBILE_OAS_TOTAL` **987**, distinct-tag **15** — **BE grep-verify @source TRƯỚC bump, đa-phiên race**): path/opId 90→91 · c5/parity 79→80 · closed-schema **+= 3** (re-derive @source) · `_EXPECTED` += `get_pending_approvals_inbox → getPendingApprovalsInbox` · distinct-tag 15→16 (`approvals`) · guard class MỚI `TestMobilePendingApprovalsInboxContract` (~10 TC: path/opId/tag + 0-param + 3-schema-closed + item-10-prop-SET== + module/doctype-enum + by_module-3-khóa-required + 200-oneOf-[Env,Error]-0-discriminator + 403-slot-single-Forbidden + ∈read-∉list + symmetry + naming-guard-0-dangling + **runtime spec-parity dotted-path resolve + `is_whitelisted` bare-GET**) · `_EXPECTED_TEST_COUNT`/`_GUARD_SUITE_EXPECTED[test_mobile_oas.py]` += N-TC-THẬT · `_GUARD_SUITE_SUM`/`_MOBILE_OAS_TOTAL` += N.
 - ADR-MOBILE-0XX (YAML curate record) do **BE** author Bước-4 (numbering-race — lấy số ADR mobile kế tiếp lúc land).
 
-### Test plan BE (file MỚI `assetcore/tests/test_imm00_approvals_inbox.py`)
+### Test plan BE (file MỚI `assetcore/tests/imm00/test_imm00_approvals_inbox.py`)
 
 TC tối thiểu CR-32: (1) envelope + `data` 3 khóa + item ĐÚNG 10 khóa; (2) **spoof**: gọi handler kèm `user=<người khác>` → kwargs bị nuốt, kết quả == không kèm (session-scoped); (3) imm04: user là `pending_approver` thấy phiếu / user khác KHÔNG; (4) imm00: có `commissioning.submit` thấy transfer Pending Approval, thiếu → 0 item `module=='imm00'`; (5) imm15: có `inventory.submit` thấy allocation Requested, thiếu → 0 item `module=='imm15'`; (6) 0-cap user → `success:true` + `items:[]` + by_module all-0; (7) sort `pending_since asc` + tie-break `name asc`; (8) BR-00-INBOX-02 invariant; (9) `route` đúng map 3 nguồn (kể cả imm15 fallback `/inventory` khi thiếu ref); (10) guest → `PermissionError`/dispatcher-403.
 
@@ -2188,7 +2188,7 @@ Invariants đầy đủ (INV-ASSIGN-1..8): [`ADR-IMM00-TRUNCATION-SSOT.md` §7.3
 
 **[BE]** `assetcore/api/user.py::list_assignable_users` — xem code-shape ở [`04_Backend_Design.md` §V.6](./04_Backend_Design.md).
 ⚠️ **Cite refresh bắt buộc**: OAS cite `api/user.py:1036 / :1037 / :1047`. Nếu BE thêm import top-level (vd `truncation_meta`) thì **mọi dòng dịch xuống** ⇒ guard `cr80_e` ĐỎ **đúng thiết kế** — BE cập cite theo dòng THẬT trong CÙNG vòng (mẫu AC-CR-79). Muốn tránh, dùng **lazy import trong thân hàm**.
-⚠️ **Test BE PHẢI sửa theo shape mới**: `assetcore/tests/test_imm00_base_role.py::TestListAssignableUsers._names` (`:301`) hiện đọc `res["data"]` như **mảng** ⇒ đổi thành `res["data"]["items"]`; TC-01..07 giữ nguyên ngữ nghĩa. *(Module này KHÔNG có trong danh sách acceptance ban đầu — bổ sung bắt buộc, nếu bỏ sót thì suite ĐỎ.)*
+⚠️ **Test BE PHẢI sửa theo shape mới**: `assetcore/tests/imm00/test_imm00_base_role.py::TestListAssignableUsers._names` (`:301`) hiện đọc `res["data"]` như **mảng** ⇒ đổi thành `res["data"]["items"]`; TC-01..07 giữ nguyên ngữ nghĩa. *(Module này KHÔNG có trong danh sách acceptance ban đầu — bổ sung bắt buộc, nếu bỏ sót thì suite ĐỎ.)*
 
 **[FE]** `frontend/src/api/user.ts` + `frontend/src/components/commissioning/ApproverSelect.vue` — xem [`06_Frontend_Design.md` §VIII.3](./06_Frontend_Design.md). `props`/`v-model` của `ApproverSelect` **KHÔNG đổi** ⇒ 51 file đang dùng không phải sửa.
 
@@ -2708,7 +2708,7 @@ Kiểu Frappe → TS (grounded `*.json`): `is_late`/`sla_breached` = **Check** �
 
 1. `git diff --stat -- 'assetcore/api/*.py' 'assetcore/services/**/*.py'` **không tăng path** so với đầu vòng; thêm file **chỉ** trong `assetcore/tests/`.
 2. `0` OAS delta (`docs/mobile/openapi/*.yaml` không đổi) · 3 counter `_EXPECTED_TEST_COUNT` 1024 / `_GUARD_SUITE_SUM` 1167 / `_MOBILE_OAS_TOTAL` 1193 **delta 0** (module test mới không thuộc registry `test_mobile_docset._GUARD_SUITE_EXPECTED` ⇒ delta 0 tự nhiên — **đọc lại từ đĩa** trước khi chấm).
-3. Guard BE mới `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_asset_operational_history_contract` **XANH** (timeout tool ≥600000ms) — nội dung: parity `fields` @source ⇄ bảng §III.26.3 + shape-key `history`/`items` + `clamp_page_size` bound + `INV-OPH-16`.
+3. Guard BE mới `bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_asset_operational_history_contract` **XANH** (timeout tool ≥600000ms) — nội dung: parity `fields` @source ⇄ bảng §III.26.3 + shape-key `history`/`items` + `clamp_page_size` bound + `INV-OPH-16`.
 4. **KHÔNG curl** để chấm (LL-DEPLOY-07/08); vòng này **0 blocker reload mới** (không đụng `.py` prod) — nợ `bench restart` của các vòng trước **không** tính cho vòng này.
 
 ### III.26.6 `AC-CR-115` — hợp đồng **cắt** của 3 endpoint: `total`/`truncated` nói gì, FE được phép suy ra gì (**0 delta BE**)
@@ -2740,7 +2740,7 @@ Call-site: `services/imm08.py:1769` · `services/imm09.py:2628` · `services/imm
 2. `total` do `count_fn()` sinh ở **nhánh mã khác** với truy vấn rows. Một lần sửa filter ở một nhánh mà quên nhánh kia là đủ để `total` và `len(rows)` rời nhau **mà không test nào đỏ** — trừ các invariant ở (c).
 3. ⇒ **Hợp đồng dành cho FE**: `hidden = max(0, total − len(rows))`; render dải **⟺ `hidden > 0`**. FE là *tolerant reader*: **bỏ qua** `truncated` khi hai nguồn lệch (`BR-00-OPH-20/21/22`).
 
-#### c) Invariant BE **MỚI** (≥3) — thêm vào `assetcore/tests/test_asset_operational_history_contract.py`, **0 dòng prod đổi**
+#### c) Invariant BE **MỚI** (≥3) — thêm vào `assetcore/tests/integration/test_asset_operational_history_contract.py`, **0 dòng prod đổi**
 
 | ID | Nội dung (áp cho **cả 3** endpoint) | Fixture |
 |---|---|---|
@@ -2753,7 +2753,7 @@ Call-site: `services/imm08.py:1769` · `services/imm09.py:2628` · `services/imm
 
 #### d) Không phát sinh nhu cầu reload
 
-Vòng này **0 dòng `.py` prod** ⇒ **0** nhu cầu `bench restart` mới; blocker BLOCKED-RELOAD của các vòng trước **không bị chạm** và **không** tính vào DoD vòng này. Chấm bằng `bench --site miyano run-tests --module assetcore.tests.test_asset_operational_history_contract` (timeout tool **≥600000ms**) — **KHÔNG** `curl` (LL-DEPLOY-07/08).
+Vòng này **0 dòng `.py` prod** ⇒ **0** nhu cầu `bench restart` mới; blocker BLOCKED-RELOAD của các vòng trước **không bị chạm** và **không** tính vào DoD vòng này. Chấm bằng `bench --site miyano run-tests --module assetcore.tests.integration.test_asset_operational_history_contract` (timeout tool **≥600000ms**) — **KHÔNG** `curl` (LL-DEPLOY-07/08).
 
 ### III.26.7 `AC-CR-119` — hợp đồng **QUYỀN** của 3 endpoint: cap nào SOUND, 403 đến như thế nào (BE: **+1 cap, +1 bảng, +1 gate tường minh**)
 
@@ -2821,7 +2821,7 @@ rbac.can(cap_b) is False  ⇒  endpoint_b trả ĐÚNG:
 1. `assetcore/services/shared/rbac.py` có **đúng 1** cặp khoá-giá-trị mới `"pm.read_history": ("PM Task Log", "read")`; `pm.read` **KHÔNG đổi**; `len(CAPABILITY_MAP) == 105`.
 2. `OP_HISTORY_BRANCH_GATE` tồn tại ở `connection_meta.py` với **đúng 3** khoá `pm`/`cm`/`incident` và giá trị đúng bảng (a); `INV-OPH-32` XANH.
 3. `services/imm08.py::get_asset_history` có `assert_doctype_read_permission(_DT_PM_TASK_LOG)` **trước** `PMTaskLogRepo.list`; **0** đổi `fields`/`filters`/`order_by`/`page_size`/khoá response ⇒ `test_asset_operational_history_contract` (parity `fields` @source) **giữ XANH không sửa**.
-4. Guard BE **mới** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_asset_op_history_acl` **XANH** (timeout tool **≥600000ms**) — nội dung: `INV-OPH-31..36` (soundness 2 chiều bằng hành vi · parity bảng ↔ `CAPABILITY_MAP` · không-leak · `Commissioning Manager` chứng minh `pm.read` unsound · 0 DocPerm select-only).
+4. Guard BE **mới** `bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_asset_op_history_acl` **XANH** (timeout tool **≥600000ms**) — nội dung: `INV-OPH-31..36` (soundness 2 chiều bằng hành vi · parity bảng ↔ `CAPABILITY_MAP` · không-leak · `Commissioning Manager` chứng minh `pm.read` unsound · 0 DocPerm select-only).
 5. `0` OAS delta; 3 counter `_EXPECTED_TEST_COUNT` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL` **delta 0** (module test mới không thuộc registry `test_mobile_docset._GUARD_SUITE_EXPECTED` ⇒ delta 0 tự nhiên — **đọc lại từ đĩa** trước khi chấm).
 6. **KHÔNG curl** để chấm (LL-DEPLOY-07/08) — vòng này thêm **1** nhu cầu reload vào blocker BLOCKED-RELOAD; mọi kết luận live trước reload là **vô nghĩa**.
 

@@ -151,4 +151,4 @@ Nguy cơ nếu KHÔNG chốt: dev/FE/QA có thể (a) hiểu nhầm `asset_code`
 - FE: `frontend/src/views/asset/AssetCreateView.vue`, `AssetEditView.vue`, `frontend/src/api/imm00.ts`, `frontend/src/types/imm00.ts`
 - Mẫu UX tham chiếu: `assetcore/assetcore/doctype/ac_asset_category/ac_asset_category.json:47` (description mã danh mục)
 - Core Doc: `docs/imm-00/04_Backend_Design.md`, `05_API_Specification.md`, `06_Frontend_Design.md`, `07_Testing_QA.md`
-- Test gap (đóng ở Vòng 2–10): `assetcore/tests/test_imm00.py`
+- Test gap (đóng ở Vòng 2–10): `assetcore/tests/imm00/test_imm00.py`

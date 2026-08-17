@@ -1635,7 +1635,7 @@ def _date_str_or_none(value) -> str | None:
 | `build_asset_scan_info` GIỮ cấu-trúc dict-build (degrade field-độc-lập) | 1 field-ngày drift → CHỈ field đó về `None`/`False`, 13 field còn lại GIỮ; KHÔNG `try/except` quanh cả dict (sẽ nuốt nhầm field khác) |
 | Comment giải-thích degrade-an-toàn (drift/legacy) tại source | red-flag "catch nuốt im lặng" → comment lý do nghiệp vụ bắt buộc |
 
-**DoD BE (Vòng 50):** `bench --site miyano run-tests --module assetcore.tests.test_imm00` GREEN (fresh-import, KHÔNG reload — service `.py`, test import trực tiếp; KHÁC `api/imm00.py` reload-gated) gồm BE-WAR-EDGE-1..6 RED-first: (1) `_is_warranty_expired('not-a-date'/'2020-13-45')`→`False` no-raise; (2) `_is_pm_overdue('garbage',None)`+`_is_calibration_overdue('2020-99-99',None)`→`False` no-raise; (3) `_date_str_or_none('not-a-date')`→`None` no-raise; (4) **integration** `build_asset_scan_info` asset 1-field-ngày-drift→no-raise+payload 16-key+field-lỗi degrade+13 field GIỮ+tài-chính∩keys=∅ (inject drift qua `frappe.db.sql UPDATE` raw / monkeypatch `get_value`); (5) no-regress date-obj/ISO/None/'' + `TestWarrantyExpiredHelper` BE-WAR-1..5 + `TestWarrantyInScanInfo` BE-WAR-6..8 byte-for-byte; (6) no-mask grep KHÔNG catch-all + comment tồn tại. `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`; KHÔNG migration/reload. Test xem 07 §III.6.q-SAFEDATE.
+**DoD BE (Vòng 50):** `bench --site miyano run-tests --module assetcore.tests.imm00.test_imm00` GREEN (fresh-import, KHÔNG reload — service `.py`, test import trực tiếp; KHÁC `api/imm00.py` reload-gated) gồm BE-WAR-EDGE-1..6 RED-first: (1) `_is_warranty_expired('not-a-date'/'2020-13-45')`→`False` no-raise; (2) `_is_pm_overdue('garbage',None)`+`_is_calibration_overdue('2020-99-99',None)`→`False` no-raise; (3) `_date_str_or_none('not-a-date')`→`None` no-raise; (4) **integration** `build_asset_scan_info` asset 1-field-ngày-drift→no-raise+payload 16-key+field-lỗi degrade+13 field GIỮ+tài-chính∩keys=∅ (inject drift qua `frappe.db.sql UPDATE` raw / monkeypatch `get_value`); (5) no-regress date-obj/ISO/None/'' + `TestWarrantyExpiredHelper` BE-WAR-1..5 + `TestWarrantyInScanInfo` BE-WAR-6..8 byte-for-byte; (6) no-mask grep KHÔNG catch-all + comment tồn tại. `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`; KHÔNG migration/reload. Test xem 07 §III.6.q-SAFEDATE.
 
 ##### II.1.8f — D2: `available_actions` = capability ∩ lifecycle + reason VI non-empty (`_build_available_actions`) — ADR §D1/D2/D9 / BR-00-41 / FR-00-92 — **REASON-NON-EMPTY (factory vòng 7, Self-Correction D2)**
 
@@ -3766,14 +3766,14 @@ OAS mirror cite `api/user.py:1035 _ANY_USER_CONTEXT` · `:1037 _ASSIGNABLE_CONTE
 
 ### V.6.4 Test BE phải cập nhật (nếu bỏ sót ⇒ suite ĐỎ)
 
-- `assetcore/tests/test_imm00_base_role.py::TestListAssignableUsers._names` (`:301`): `res["data"]` **là mảng** → đổi `res["data"]["items"]`.
+- `assetcore/tests/imm00/test_imm00_base_role.py::TestListAssignableUsers._names` (`:301`): `res["data"]` **là mảng** → đổi `res["data"]["items"]`.
 - Bổ sung TC theo [`07_Testing_QA.md` §XVII](./07_Testing_QA.md): TC-00-ASSIGN-01..12 (truncation, clamp, kiểu int, parity display⟺enforcement 2 chiều, 400 in-envelope).
 
 ## V.7. AC-CR-87 — `get_connections` thành CÂY DỮ LIỆU LIÊN QUAN THẬT (code shape cho [BE] Bước-4)
 
 > Spec đầy đủ: [`05_API_Specification.md` §III.24](./05_API_Specification.md) · ADR + invariants: [`ADR-IMM00-CONNECTIONS-TREE.md`](./ADR-IMM00-CONNECTIONS-TREE.md) · yêu cầu: [`02 §IV.39`](./02_Analysis_Design.md).
 > **0 DocType change ⇒ 0 migrate.** Sửa `api/*.py` ⇒ live-HTTP cần **USER reload gunicorn** (`--preload`, HARD-STOP) — chấm bằng `run-tests`, KHÔNG curl (LL-DEPLOY-07/08).
-> Phạm vi file (đóng kín — A11): `assetcore/api/connections.py` · `assetcore/services/connections.py` **(MỚI)** · `assetcore/services/shared/connection_meta.py` **(MỚI)** · `assetcore/tests/test_connections_tree.py` **(MỚI)** · `frontend/src/api/connections.ts` (**chỉ thêm kiểu optional**) · file guard count. **KHÔNG** chạm `RelatedRecords.vue`, 5 màn Detail, `test_connections.py`, `test_doctype_connectivity.py`.
+> Phạm vi file (đóng kín — A11): `assetcore/api/connections.py` · `assetcore/services/connections.py` **(MỚI)** · `assetcore/services/shared/connection_meta.py` **(MỚI)** · `assetcore/tests/connections/test_connections_tree.py` **(MỚI)** · `frontend/src/api/connections.ts` (**chỉ thêm kiểu optional**) · file guard count. **KHÔNG** chạm `RelatedRecords.vue`, 5 màn Detail, `test_connections.py`, `test_doctype_connectivity.py`.
 
 ### V.7.1 Kiến trúc 3 lớp (CLAUDE.md §15 — không viết logic trong controller)
 
@@ -3793,8 +3793,8 @@ Ngoại lệ **chỉ có hiệu lực khi ĐỦ 2 điều kiện dưới đây c
 
 | # | Điều kiện | Guard (tên đúng — trích nguyên, đừng đổi) |
 |---|---|---|
-| (a) | `services/connections.py` có **0** lời gọi `frappe.get_list` · `frappe.get_all` · `frappe.db.get_all` · `frappe.db.get_list` · `frappe.db.count` · `frappe.db.sql` | `assetcore/tests/test_connections_tree.py::test_t27_service_layer_has_zero_row_reading_orm` |
-| (b) | `api/connections.py` có `frappe.get_list` **đúng 1 lần** và lời gọi đó nằm **trong thân `_row_scoped_rows`** | `assetcore/tests/test_connections_tree.py::test_t28_api_layer_has_exactly_one_get_list_inside_the_port` |
+| (a) | `services/connections.py` có **0** lời gọi `frappe.get_list` · `frappe.get_all` · `frappe.db.get_all` · `frappe.db.get_list` · `frappe.db.count` · `frappe.db.sql` | `assetcore/tests/connections/test_connections_tree.py::test_t27_service_layer_has_zero_row_reading_orm` |
+| (b) | `api/connections.py` có `frappe.get_list` **đúng 1 lần** và lời gọi đó nằm **trong thân `_row_scoped_rows`** | `assetcore/tests/connections/test_connections_tree.py::test_t28_api_layer_has_exactly_one_get_list_inside_the_port` |
 
 **Được phép ở service (allowlist của (a), đừng "dọn" tiếp):** `frappe.get_doc` (bản ghi **cha**, quyền đọc đã kiểm ở `api/`) · `frappe.has_permission` · `frappe.get_meta` (đọc **schema**) · `frappe.db.get_value` (**một** field vô hướng của **chính** bản ghi cha) · `frappe.log_error` · `frappe._` · `frappe.utils.getdate`. Ranh giới của luật là **cấm đọc THEO TẬP**, không phải cấm mọi lần chạm `frappe` — siết rộng hơn sẽ đẩy 4 lời gọi vô hại xuống `api/` và làm service mỏng thành lớp trung chuyển (đúng thứ CLAUDE.md §15 muốn tránh).
 
@@ -3858,13 +3858,13 @@ def _iter_dashboard_modules() -> Iterator[tuple[str, ModuleType]]:
     """
 ```
 
-- `_ALLOWED_SOURCE_DOCTYPES` = tập DocType có module dashboard (**12** hub — *lưu ý: acceptance ghi "13 file", con số THẬT trên đĩa là **12**; hit thứ 13 của `find` là `assetcore/tests/test_dashboard.py`, không phải module dashboard*).
+- `_ALLOWED_SOURCE_DOCTYPES` = tập DocType có module dashboard (**12** hub — *lưu ý: acceptance ghi "13 file", con số THẬT trên đĩa là **12**; hit thứ 13 của `find` là `assetcore/tests/dashboard/test_dashboard.py`, không phải module dashboard*).
 - `_ALLOWED_DEEP_LINK_KEYS[dt]` = union `fieldname` / `non_standard_fieldnames[dt]` trỏ tới `dt` trên **mọi** hub, ∪ `{"name"}`.
 - Tổng doctype đích xuất hiện trong `transactions`: **41** (đếm thật 2026-07-27) ⇒ `LABEL_VI` phải có đủ 41 khoá.
 
 ### V.7.5 Test BE
 
-- **File MỚI** `assetcore/tests/test_connections_tree.py` — INV-CONN-1..14 (map sang test case ở [`07 §XVIII`](./07_Testing_QA.md)).
+- **File MỚI** `assetcore/tests/connections/test_connections_tree.py` — INV-CONN-1..14 (map sang test case ở [`07 §XVIII`](./07_Testing_QA.md)).
 - `test_connections.py` (11 TC) và `test_doctype_connectivity.py`: **KHÔNG sửa một dòng nào** — đó chính là oracle "không phá FE hiện tại".
 - Guard count (`_EXPECTED_TEST_COUNT` @`tests/test_mobile_oas.py:212` · `_GUARD_SUITE_SUM` @`tests/test_mobile_docset.py:956` · bảng per-file @`:788`): cập theo **DELTA** — đọc lại số **trên đĩa** ngay trước khi sửa (số trong STATE/spec luôn có thể stale; giá trị đọc 2026-07-27: `1024` / `1167` / `_MOBILE_OAS_TOTAL 1193`). Endpoint này **không** có mirror OAS ⇒ nếu `test_connections_tree.py` không thuộc guard-suite thì **KHÔNG** đụng 3 hằng này; chỉ sửa khi suite thật lệch.
 

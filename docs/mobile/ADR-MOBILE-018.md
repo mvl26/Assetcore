@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | **ADR-MOBILE-009** (C3-split cross-domain — `*Response` RIÊNG khi field-set THẬT khác) · **§D-OAS-MARKNOTIFREAD** (FLOW-6 read-receipt single — precedent trực-tiếp) · ADR-MOBILE-001 (d — OpenAPI = hợp đồng máy-đọc) · Core Doc IMM-00 `05_API_Specification.md §III.21` + `ADR-IMM00-OPENAPI.md §D-OAS-MARKALLREAD` |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/layout.py:120-134`, `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_mobile_docset.py`). Contract: [`04-api-contract.md`](./04-api-contract.md). Core Doc IMM-00: [`../imm-00/05_API_Specification.md`](../imm-00/05_API_Specification.md) §III.21 + [`../imm-00/ADR-IMM00-OPENAPI.md`](../imm-00/ADR-IMM00-OPENAPI.md) §D-OAS-MARKALLREAD.
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/layout.py:120-134`, `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/guards/test_mobile_docset.py`). Contract: [`04-api-contract.md`](./04-api-contract.md). Core Doc IMM-00: [`../imm-00/05_API_Specification.md`](../imm-00/05_API_Specification.md) §III.21 + [`../imm-00/ADR-IMM00-OPENAPI.md`](../imm-00/ADR-IMM00-OPENAPI.md) §D-OAS-MARKALLREAD.
 
 ---
 

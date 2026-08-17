@@ -828,7 +828,7 @@ Precondition (GIỮ NGUYÊN): state phải ∈ _session_source_states(Completed)
 **Quyết định (reconcile 2-chiều, EXCEPTION_EDGES rỗng).** Thêm invariant `test_session_allowed_transitions_matches_workflow` (parity R26 `test_competency_allowed_transitions_matches_workflow`): so tập cạnh distinct `(state, next_state)` giữa map và workflow JSON.
 
 ```python
-# assetcore/tests/test_imm06.py — hằng test-level TƯỜNG MINH (imm06.py CHỈ +comment, 0 runtime logic)
+# assetcore/tests/imm06/test_imm06.py — hằng test-level TƯỜNG MINH (imm06.py CHỈ +comment, 0 runtime logic)
 _SESSION_EXCEPTION_EDGES: frozenset = frozenset()   # 0 ngoại lệ — TƯƠNG PHẢN competency (4 cạnh)
 
 workflow_pairs = {(t["state"], t["next_state"]) for t in wf["transitions"]}   # role-expanded → set gom

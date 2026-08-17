@@ -119,15 +119,15 @@ CONTRACT-ONLY. Áp CHÍNH XÁC (grep-verify baseline @source TRƯỚC bump — �
 1. **yaml** `docs/mobile/openapi/assetcore-mobile.openapi.yaml`:
    - +1 path `/api/method/assetcore.api.imm00.verify_chain` (GET, opId `getAssetVerifyChain`, tag `[asset]`, **1 param** `asset` required string, 200 oneOf `[AssetVerifyChainEnvelope, Error]`, slot `{200,401,403}`) — chèn CẠNH `getAssetDowntimeMetrics` path (@`yaml:8353`) / cụm asset-detail flow-2 (sau §8.41 comment block).
    - +2 schema `AssetVerifyChain`/`AssetVerifyChainEnvelope` — chèn CẠNH `AssetDowntimeMetrics`/`AssetKpi` schema (@`yaml:5678-5765` vùng). `broken_at`/`index` = `{type, nullable:true}` scalar-nullable đơn-giản (KHÔNG `allOf` — KHÁC `current_open` nullable-ref). `required:[valid, count]` (KHÔNG gồm broken_at/index).
-2. **test** `assetcore/tests/test_mobile_oas.py`:
+2. **test** `assetcore/tests/guards/test_mobile_oas.py`:
    - +class `TestMobileAssetVerifyChainCurate` a..h (8 TC — xem Invariant contract). Hằng path/schema-ref mới (`_ASSET_VERIFY_CHAIN_PATH`, `_ASSET_VERIFY_CHAIN_ENVELOPE_SCHEMA`/`_REF`, `_ASSET_VERIFY_CHAIN_SCHEMA_REF`) mirror `_ASSET_DOWNTIME_METRICS_*`. **TC-g** đọc TRỰC-TIẾP `assetcore/utils/lifecycle.py` (AST/parse `verify_audit_chain` 2 return-dict) — KHÔNG hardcode key-set (grounding thật). **TC-c** `inspect.signature(imm00.verify_chain)`. **TC-h** SCOPED-HANDLER đọc CẢ `imm00.verify_chain` + `lifecycle.verify_audit_chain`.
    - `_EXPECTED_TEST_COUNT` **640→648**; + membership: thêm path vào `_MVP_BUSINESS_PATHS` + `_MVP_READ_ENVELOPE` + c5 map `getAssetVerifyChain → AssetVerifyChainEnvelope` (**56→57**).
    - **⚠️ path-count assertion 67→68:** ~40+ literal `67` (`len(paths)`/`len(ids)`/`len(set(ids))`/`len(ops)`) rải toàn file (mỗi lần path-add bump) PHẢI bump **67→68**. Full test-run bắt sót.
-3. **docset** `assetcore/tests/test_mobile_docset.py`:
+3. **docset** `assetcore/tests/guards/test_mobile_docset.py`:
    - `_GUARD_SUITE_EXPECTED["test_mobile_oas.py"]` **640→648** · `_GUARD_SUITE_SUM` **783→791** · `_MOBILE_OAS_TOTAL` **809→817**.
    - `test_tc_mob_doc_09`: +`asset_verify_chain_curate_delta = 8` (cạnh `asset_downtime_metrics_curate_delta`) + `- asset_verify_chain_curate_delta` vào chuỗi trừ `pre_fc3_six` (giữ `==191`).
 4. **README** `docs/mobile/README.md`: +1 index-row `ADR-MOBILE-040.md` (grep-verify index-row 39→40 THẬT, KHÔNG đếm inline-ref).
-5. **DoD:** `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` → **Ran 648 OK** (đọc dòng cuối THẬT) · `…test_mobile_docset` → **Ran 9 OK**; RED-before (strip path) → FAIL → restore → GREEN. **0 `.py` runtime / 0 gunicorn reload / 0 bench migrate.**
+5. **DoD:** `bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas` → **Ran 648 OK** (đọc dòng cuối THẬT) · `…test_mobile_docset` → **Ran 9 OK**; RED-before (strip path) → FAIL → restore → GREEN. **0 `.py` runtime / 0 gunicorn reload / 0 bench migrate.**
 
 ## Handoff CORE-DEV (native repo — ngoài `assetcore`)
 

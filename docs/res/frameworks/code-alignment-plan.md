@@ -134,7 +134,7 @@ Trích từ `.claude/skills/assetcore-fe-module` + naming convention đã thốn
 
 #### 4.0.6 Acceptance criteria
 - [ ] Mọi system-set field trong 9 master doctype có `read_only:1 + no_copy:1`.
-- [ ] `bench --site <site> run-tests --module assetcore.tests.test_imm00` pass 100%.
+- [ ] `bench --site <site> run-tests --module assetcore.tests.imm00.test_imm00` pass 100%.
 - [ ] `verify_audit_chain()` pass sau 100 fixture-driven actions.
 - [ ] FE `useDashboardStore`, `useMasterDataStore` truy cập qua tên file mới, typecheck clean.
 
@@ -536,7 +536,7 @@ Trích từ `.claude/skills/assetcore-fe-module` + naming convention đã thốn
 
 0. **Sprint 0a — Baseline fixes (immediate, < 1 ngày)**
    - **BE-16-04** (FIRST): fix baseline test fail trước khi đụng việc khác — đọc `docs/imm-16/04_Backend_Design.md` §state machine → fix workflow JSON hoặc test expectations.
-   - Verify: `bench --site miyano run-tests --module assetcore.tests.test_workflows` clean (8/8 pass).
+   - Verify: `bench --site miyano run-tests --module assetcore.tests.guards.test_workflows` clean (8/8 pass).
 1. **Sprint 0 — Quick wins / blocking + Data Contract Audit (3-5 ngày)**
    - FE-04-01: rename `stores/commissioning.ts` → `imm04.ts`
    - FE-05-01: rename `stores/imm05Store.ts` → `imm05.ts`

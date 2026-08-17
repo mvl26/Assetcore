@@ -159,11 +159,11 @@ Mỗi US/BR/Activity phải có ≥ 1 test ở Phần III và xuất hiện tron
 
 Mọi service function phải có test trước khi code (TDD — → CLAUDE.md §17). Mỗi gate (G01/G03/G05/G06) và validation rule có ≥ 1 happy + 1 negative test.
 
-> **Trạng thái thực tế (2026-05-29)**: test hiện consolidate trong **một file** `assetcore/tests/test_imm04.py` (391 LOC). Các file con (`test_imm04_service.py`, `_validators.py`, `_workflow.py`, `_audit.py`, `_api.py`, `test_asset_commissioning_doctype.py`, e2e `test_imm04_golden.py`) là **kế hoạch chia file** — đánh dấu ⬜ Planned ở dưới.
+> **Trạng thái thực tế (2026-05-29)**: test hiện consolidate trong **một file** `assetcore/tests/imm04/test_imm04.py` (391 LOC). Các file con (`test_imm04_service.py`, `_validators.py`, `_workflow.py`, `_audit.py`, `_api.py`, `test_asset_commissioning_doctype.py`, e2e `test_imm04_golden.py`) là **kế hoạch chia file** — đánh dấu ⬜ Planned ở dưới.
 
 ## III.2. Unit test — Service Layer
 
-File hiện tại: `assetcore/tests/test_imm04.py`. Mỗi test class trace về ≥ 1 dòng I.1.
+File hiện tại: `assetcore/tests/imm04/test_imm04.py`. Mỗi test class trace về ≥ 1 dòng I.1.
 
 | Test class | Function cover | Kỹ thuật | Cases | Trạng thái |
 |---|---|---|---|---|
@@ -243,7 +243,7 @@ File: `tests/test_imm04.py` → class **`TestImm04WorkflowSurfaceGuard`** (⬜ P
 | **TC-04-WF-SURFACE-05** | INV-04-WF-1/3 (coupling) | Couple file ⇄ live: `file_name = json["name"]`; `assertEqual(file_name, "IMM-04 Workflow")`; `frappe.get_doc("Workflow", file_name)` KHÔNG raise. Đổi `name` trong `imm_04_workflow.json` → `file_name` mới ∉ DB live → raise → FAIL (0 migrate). | rename `name` trong file JSON |
 
 **RED-before / GREEN-after (chứng minh giá trị — BẮT BUỘC verify, KHÔNG false-green):**
-1. **GREEN baseline:** `bench --site miyano run-tests --module assetcore.tests.test_imm04` → `Ran 62 OK` (57 cũ + 5 mới), 0 fail / 0 error.
+1. **GREEN baseline:** `bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04` → `Ran 62 OK` (57 cũ + 5 mới), 0 fail / 0 error.
 2. **RED vector A (hằng lookup):** tạm đổi `services/imm04.py:727` `"IMM-04 Workflow"` → `"IMM-04 Workflow-X"` → chạy lại → **TC-04-WF-SURFACE-03** FAIL (`emit == []`) → revert.
 3. **RED vector B (rename file):** tạm đổi `name` trong `imm_04_workflow.json` → chạy lại → **TC-04-WF-SURFACE-05** FAIL (`file_name ∉ DB live`) → revert.
 4. **Đối chứng lỗ toàn cục:** với vector A hoặc B, `test_workflow_admin_override` vẫn **GREEN** (glob JSON, không kiểm hằng-lookup) → chứng minh guard module-local là cần thiết.
@@ -265,7 +265,7 @@ File: `tests/test_imm04.py` → class **`TestImm04BaselineVerdict`** (⬜ Planne
 
 **RED-before / GREEN-after (BẮT BUỘC — chứng minh test bắt bug thật):**
 1. **RED:** chạy 6 TC trên code hiện tại (`services/imm04.py:1493-1512`) → TC-04-BASELINE-01/03/06 **FAIL** (bản cũ auto-Pass + không có `tests_recorded`), TC-04-BASELINE-02 **FAIL** (drop câm, `len==0`). Chứng minh test có giá trị.
-2. **GREEN:** sau khi BE land `04 §5.3` → `bench --site miyano run-tests --module assetcore.tests.test_imm04` → `Ran N OK` (0 fail / 0 error), module-isolated.
+2. **GREEN:** sau khi BE land `04 §5.3` → `bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04` → `Ran N OK` (0 fail / 0 error), module-isolated.
 3. **Guard OAS:** `grep -c '^@frappe.whitelist' api/imm04.py` bất biến (endpoint đã tồn tại) ⇒ `test_oas_baseline` (owner IMM-10 Blocker#3) KHÔNG bị đụng.
 
 **Boundary (Never):** KHÔNG set `workflow_state` trực tiếp để bỏ qua transition (test giả); KHÔNG pre-seed `baseline_tests` ở `create_commissioning` cho TC-01..04 (phải tái tạo phiếu rỗng); KHÔNG assert `tests_recorded == len(results)` (đó chính là bug cần chặn).
@@ -286,7 +286,7 @@ File: `tests/test_imm04.py` → class **`TestImm04BoardApproverTransition`** (�
 
 **RED-before / GREEN-after (BẮT BUỘC):**
 1. **RED:** chạy TC-04-BA-01/02 trên code hiện tại (`transition_state` 2-arg, `services/imm04.py:1156`) → TC-04-BA-01 **FAIL/ERROR** (deadlock: gate G06 raise lúc save → 417), TC-04-BA-02 **FAIL** (chưa có `message_code=IMM04-GATE-G06-APPROVER`, hiện là 417). Chứng minh test bắt bug thật.
-2. **GREEN:** sau khi BE land `04 §5.4` (service `transition_state` +param · `api/imm04.py:92` passthrough · MSG entry `IMM04_GATE_G06_APPROVER`) → `bench --site miyano run-tests --module assetcore.tests.test_imm04` → `Ran N OK` (0 fail / 0 error), module-isolated. ⚠️ `services/imm04.py` + `api/imm04.py` dưới gunicorn `--preload` ⇒ live-HTTP CHỜ USER reload; DoD = run-tests XANH, **KHÔNG** curl.
+2. **GREEN:** sau khi BE land `04 §5.4` (service `transition_state` +param · `api/imm04.py:92` passthrough · MSG entry `IMM04_GATE_G06_APPROVER`) → `bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04` → `Ran N OK` (0 fail / 0 error), module-isolated. ⚠️ `services/imm04.py` + `api/imm04.py` dưới gunicorn `--preload` ⇒ live-HTTP CHỜ USER reload; DoD = run-tests XANH, **KHÔNG** curl.
 3. **Guard OAS:** `grep -c '^@frappe.whitelist' api/imm04.py` bất biến (endpoint `transition_state` đã tồn tại — **0 whitelist mới**); mobile OAS KHÔNG có op `transition_state` ⇒ `test_mobile_oas` + op-count baseline KHÔNG đụng.
 
 **Boundary (Never):** KHÔNG set `workflow_state` trực tiếp bỏ qua transition; KHÔNG dùng `frappe.throw`/`nthrow_in_hook` cho case thiếu approver ở path `transition_state` (đó là bug 417 cần chặn); KHÔNG cấp cùng user cho owner và board_approver trong TC happy-path (4-eyes sẽ FORBIDDEN); KHÔNG thêm `@frappe.whitelist` / op OAS mới.
@@ -319,9 +319,9 @@ File **MỚI**: `tests/test_imm04_baseline_fail_path.py` → class **`TestImm04B
 1. **RED (trên code hiện tại):** TC-01/02 **FAIL** (`ServiceError` VALIDATION, 0 dòng persist) · TC-03 **FAIL** (`INVALID_PARAMS`) · TC-05 **ERROR/417** · TC-06/07/08 **FAIL** (chưa có `IMM04-GATE-G03-BASELINE`; hiện 417 hoặc lọt cổng) · TC-10 **FAIL** (code chưa tồn tại). TC-04/09 phụ thuộc TC trước. Chứng minh test bắt bug thật.
 2. **GREEN (sau khi BE land `04 §5.5`):** cả **3 module** phải `Ran N OK`, module-isolated:
    ```bash
-   bench --site miyano run-tests --module assetcore.tests.test_imm04_baseline_fail_path
-   bench --site miyano run-tests --module assetcore.tests.test_imm04_baseline_silent_completion
-   bench --site miyano run-tests --module assetcore.tests.test_imm04
+   bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04_baseline_fail_path
+   bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04_baseline_silent_completion
+   bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04
    ```
    ⚠️ **KHÔNG dùng curl** để nghiệm thu: `services/imm04.py` + `api/imm04.py` chạy dưới gunicorn `--preload` ⇒ HTTP live stale tới khi USER reload (LL-DEPLOY-07 — 417 phantom). **DoD = run-tests XANH.**
 3. **KHÔNG `bench migrate`:** delta chỉ chạm `.py` + `messages.ts` (generated) + `docs/`; **0** thay đổi `asset_commissioning.json` / `commissioning_checklist.json` / `imm_04_workflow.json` — verify bằng `git status --porcelain | grep -E '\.json$'` = rỗng cho 3 file đó.
@@ -370,13 +370,13 @@ File: `tests/test_imm04.py` → class **`TestGateStatusEnforcementParity`** (m�
 2. **Mutation-verified sau khi xanh:** hoàn nguyên nhánh **no-mandatory-docs** ⇒ TC-01 **ĐỎ**; hoàn nguyên nhánh **waiver** ⇒ TC-02 **ĐỎ**; gỡ `assert_can_read_doc` ⇒ TC-15/TC-19 **ĐỎ**; rot 1 cite OAS ⇒ TC cite-parity `test_mobile_oas` **ĐỎ**; hoàn nguyên tất cả ⇒ **XANH**. Ghi bằng chứng vào báo cáo vòng.
 3. **Suite phải XANH THẬT (module-isolated):**
    ```bash
-   bench --site miyano run-tests --module assetcore.tests.test_imm04
-   bench --site miyano run-tests --module assetcore.tests.test_imm04_baseline_fail_path
-   bench --site miyano run-tests --module assetcore.tests.test_rowscope_scope_guard
-   bench --site miyano run-tests --module assetcore.tests.test_rowscope_docperm_gate
-   bench --site miyano run-tests --module assetcore.tests.test_rowscope_invariant
-   bench --site miyano run-tests --module assetcore.tests.test_mobile_oas
-   bench --site miyano run-tests --module assetcore.tests.test_mobile_docset
+   bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04
+   bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04_baseline_fail_path
+   bench --site miyano run-tests --module assetcore.tests.guards.test_rowscope_scope_guard
+   bench --site miyano run-tests --module assetcore.tests.integration.test_rowscope_docperm_gate
+   bench --site miyano run-tests --module assetcore.tests.integration.test_rowscope_invariant
+   bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas
+   bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_docset
    ```
    FE: `npx vitest run src/components/commissioning/tests/ApprovalPanel.gate.test.ts` + `npx vue-tsc --noEmit` (0 lỗi).
    ⚠️ **KHÔNG curl** (gunicorn `--preload` ⇒ stale worker, LL-DEPLOY-07). **DoD = run-tests XANH.**
@@ -469,11 +469,11 @@ Baseline `test_imm04` = **97 OK** → sau land **110 OK** (+13: TC-04-G04-01..13
 **Suite phải XANH THẬT (module-isolated, `timeout` ≥ 600000ms):**
 
 ```bash
-bench --site miyano run-tests --module assetcore.tests.test_imm04              # 97 → 110 OK (+13)
-bench --site miyano run-tests --module assetcore.tests.test_imm04_baseline_fail_path
-bench --site miyano run-tests --module assetcore.tests.test_imm04_baseline_silent_completion
-bench --site miyano run-tests --module assetcore.tests.test_mobile_oas         # 1015 OK
-bench --site miyano run-tests --module assetcore.tests.test_mobile_docset      # 9 OK
+bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04              # 97 → 110 OK (+13)
+bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04_baseline_fail_path
+bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04_baseline_silent_completion
+bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas         # 1015 OK
+bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_docset      # 9 OK
 ```
 
 FE: `npm run test` + `npx vue-tsc --noEmit`. **TUYỆT ĐỐI 0 `bench migrate`** (không sửa DocType JSON — mọi field đã tồn tại). **KHÔNG curl** (gunicorn `--preload` ⇒ stale worker, LL-DEPLOY-07): DoD = `run-tests` xanh.
@@ -561,9 +561,9 @@ UAT data dùng tên bệnh viện VN, mã NCC chuẩn. Backend test fixture mớ
 
 ```bash
 # Module test
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm04
+bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.imm04.test_imm04
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm04 && coverage report
+coverage run -m unittest assetcore.tests.imm04.test_imm04 && coverage report
 # Full suite (CI)
 bench --site assetcore.local run-tests --app assetcore --coverage
 ```
@@ -953,12 +953,12 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 
 | Module / file | Baseline (đĩa) | Sau vòng này (kỳ vọng) | Git |
 |---|---|---|---|
-| `assetcore.tests.test_vendor_scope_intersect` | **18** `def test_` | ≥ 18 (0 TC mới) | untracked |
-| `assetcore.tests.test_rowscope_scope_guard` | **11** | ≥ 11 (0 TC mới) | untracked |
-| `assetcore.tests.test_rowscope_invariant` | **28** | **30** (+`TC-IMM04-OVD-01/02`) | untracked |
-| `assetcore.tests.test_rowscope_docperm_gate` | **22** | ≥ 22 (0 TC mới) | untracked |
-| `assetcore.tests.test_imm04` | **110** | ≥ 110 (0 TC mới) | tracked |
-| `assetcore.tests.test_imm08` · `test_imm09` · `test_imm11` | **196** · **278** · **136** | ≥ nguyên trạng | tracked |
+| `assetcore.tests.integration.test_vendor_scope_intersect` | **18** `def test_` | ≥ 18 (0 TC mới) | untracked |
+| `assetcore.tests.guards.test_rowscope_scope_guard` | **11** | ≥ 11 (0 TC mới) | untracked |
+| `assetcore.tests.integration.test_rowscope_invariant` | **28** | **30** (+`TC-IMM04-OVD-01/02`) | untracked |
+| `assetcore.tests.integration.test_rowscope_docperm_gate` | **22** | ≥ 22 (0 TC mới) | untracked |
+| `assetcore.tests.imm04.test_imm04` | **110** | ≥ 110 (0 TC mới) | tracked |
+| `assetcore.tests.imm08.test_imm08` · `test_imm09` · `test_imm11` | **196** · **278** · **136** | ≥ nguyên trạng | tracked |
 | `CommissioningListView.scopedEmpty.test.ts` | **8** `it()` (8/8 PASS 14:59) | **≥ 10** (+`TC-FE-COMM-SE-07/08`) | untracked |
 | Tổng file test FE | **287** `*.test.ts` | ≥ 287 | — |
 
@@ -968,16 +968,16 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 
 ```bash
 # A1 — 5 suite cốt lõi (GATE: 0 failures ∧ 0 errors ∧ N ≥ baseline cho CẢ 5)
-bench --site miyano run-tests --module assetcore.tests.test_vendor_scope_intersect
-bench --site miyano run-tests --module assetcore.tests.test_rowscope_scope_guard
-bench --site miyano run-tests --module assetcore.tests.test_rowscope_invariant
-bench --site miyano run-tests --module assetcore.tests.test_rowscope_docperm_gate
-bench --site miyano run-tests --module assetcore.tests.test_imm04
+bench --site miyano run-tests --module assetcore.tests.integration.test_vendor_scope_intersect
+bench --site miyano run-tests --module assetcore.tests.guards.test_rowscope_scope_guard
+bench --site miyano run-tests --module assetcore.tests.integration.test_rowscope_invariant
+bench --site miyano run-tests --module assetcore.tests.integration.test_rowscope_docperm_gate
+bench --site miyano run-tests --module assetcore.tests.imm04.test_imm04
 # A2 — 3 suite CALL-SITE của apply_vendor_scope (GÁN→GIAO chạm 5 call site:
 #   api/imm00.py:413 · api/imm08.py:39 · api/imm09.py:36 · api/imm11.py:30 + :83)
-bench --site miyano run-tests --module assetcore.tests.test_imm08
-bench --site miyano run-tests --module assetcore.tests.test_imm09
-bench --site miyano run-tests --module assetcore.tests.test_imm11
+bench --site miyano run-tests --module assetcore.tests.imm08.test_imm08
+bench --site miyano run-tests --module assetcore.tests.imm09.test_imm09
+bench --site miyano run-tests --module assetcore.tests.imm11.test_imm11
 ```
 
 - **Bằng chứng bắt buộc:** dán **nguyên văn** dòng `Ran N tests in …s` + `OK` của **từng** module. Không có dòng đó ⇒ coi như **chưa chạy** (`ADR-IMM00-LIST-SCOPE-06`).
@@ -987,7 +987,7 @@ bench --site miyano run-tests --module assetcore.tests.test_imm11
 
 ### IX.2 BE — 2 TC MỚI (A3): nhánh `overdue=1` **list-form** dưới persona row-scoped
 
-**Nơi đặt:** **class MỚI** `TestCommissioningOverdueRowScope` trong `assetcore/tests/test_rowscope_invariant.py` (read-fresh rồi **append** — file đang dirty ở phiên khác). **CẤM** sửa/dùng lại fixture của `TestCommissioningOneEngineScope` (`:776`) vì fixture đó **không** set `reception_date` và 3 TC của nó khẳng định tập dòng chính xác ⇒ thêm phiếu vào đó = làm ĐỎ TC đang xanh.
+**Nơi đặt:** **class MỚI** `TestCommissioningOverdueRowScope` trong `assetcore/tests/integration/test_rowscope_invariant.py` (read-fresh rồi **append** — file đang dirty ở phiên khác). **CẤM** sửa/dùng lại fixture của `TestCommissioningOneEngineScope` (`:776`) vì fixture đó **không** set `reception_date` và 3 TC của nó khẳng định tập dòng chính xác ⇒ thêm phiếu vào đó = làm ĐỎ TC đang xanh.
 
 **Fixture bắt buộc (uuid-suffix, `tearDownClass` dọn sạch; `_OVERDUE_ANCHOR="reception_date"` `services/imm04.py:64` · `OVERDUE_DAYS=30` `:63`):**
 
@@ -1061,7 +1061,7 @@ alias `Calibration Record`/`Calibration Schedule` (`AC-CR-109`) · vendor-IDOR I
 - [x] Audit chain test (intact ✅ Live, tampered ⬜ Planned)
 - [x] API test plan ≥ 60% target + permission matrix
 - [x] Performance target xác định
-- [x] CI command chạy clean (`bench run-tests --module assetcore.tests.test_imm04`)
+- [x] CI command chạy clean (`bench run-tests --module assetcore.tests.imm04.test_imm04`)
 - [ ] **SonarQube Quality Gate pass** + **Lighthouse score ≥ target** — chưa chạy report thực tế
 
 ## IV. Traceability

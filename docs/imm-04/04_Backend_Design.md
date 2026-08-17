@@ -199,7 +199,7 @@ def _get_workflow_transitions(doc_name: str) -> list[dict]:
 | **INV-04-WF-4** (không false-permissive) | User **role-nghèo** (không role nào ∈ `allowed` của cạnh Draft-out) → `_get_workflow_transitions` trả **subset chặt** (⊆ tập của Super Admin, thường rỗng). CTA không rò rỉ vượt quyền. | filter `t.allowed in user_roles` |
 
 **Boundaries.**
-- **Always:** guard là **test-only** (module `assetcore.tests.test_imm04`), 0 chạm runtime `.py` → 0 reload / 0 migrate. Đọc hằng qua `import assetcore.services.imm04` + parse-file JSON (oracle độc lập), assert THẬT trên workflow **live** (DB) + emit service **live**.
+- **Always:** guard là **test-only** (module `assetcore.tests.imm04.test_imm04`), 0 chạm runtime `.py` → 0 reload / 0 migrate. Đọc hằng qua `import assetcore.services.imm04` + parse-file JSON (oracle độc lập), assert THẬT trên workflow **live** (DB) + emit service **live**.
 - **Never:** KHÔNG "sửa" hành vi `return []` trong core ở CR này (giữ nguyên `services/imm04.py:723-736`). KHÔNG nới lộ quyền / hardcode để test xanh giả. KHÔNG dựa vào `test_workflow_admin_override` để phủ lỗ này.
 - **[ROADMAP] observability (tách khỏi core — HARD-STOP USER):** thay `return []` câm bằng `frappe.log_error(...)` trước khi return để lỗi **quan-sát-được** là **thay đổi runtime** → cần reload worker → **KHÔNG auto-apply** trong CR test-only này. Ghi backlog, chờ USER quyết.
 
