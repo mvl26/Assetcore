@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import frappe
 
-from assetcore.tests._asset_cleanup import purge_asset
+from assetcore.tests._helpers._asset_cleanup import purge_asset
 
 _ASSET_PREFIXES = ("_Test", "Gate Test", "Gate Cron", "Gate5", "_DBG")
 _ASSET_SUBSTR = ("pytest", "Test Asset IMM", "Test Asset Xmod", "SLA Test")
