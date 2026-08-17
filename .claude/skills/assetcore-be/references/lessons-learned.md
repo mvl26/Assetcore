@@ -1254,7 +1254,7 @@ Cross-ref: LL-BE-49 verify field type/enum trước derive; doctype-catalog.md (
 - (b) Nâng trần Currency > ~1 nghìn tỷ: ĐẶT thuộc tính **`length`** của field trong DocType JSON. `Currency`/`Float`/`Percent` ∈ `CONFIGURABLE_DECIMAL_TYPES` (`frappe/database/schema.py`) ⇒ Frappe sinh cột `decimal(length, precision)` NATIVE (vd `"length": 28` → `decimal(28,9)` ≈ 10¹⁹). Đây là cơ chế CHÍNH THỐNG, BỀN với schema-sync (meta-derived type CHÍNH là `decimal(length,9)` ⇒ migrate sau KHÔNG revert) — KHÔNG raw-ALTER, KHÔNG `after_migrate` hook, KHÔNG monkeypatch `db.type_map`. `precision` chỉ đổi số chữ số thập phân, KHÔNG nâng trần phần nguyên.
 - (c) Đổi `length` chỉ vào DB sau `bench migrate` (ALTER widening — an toàn, không mất dữ liệu); chưa migrate = JSON đi trước DB (bình thường, không phải bug). DONE-gate: test xác minh `from frappe.database.schema import get_definition; get_definition('Currency', precision=9, length=N) == f'decimal({N},9)'`.
 
-Cross-ref: LL-BE-58 (verify field-type THẬT trước khi derive); `docs/imm-05/04_Backend_Design.md §2.4.1`; tests `frontend/.. n/a` → BE `assetcore/tests/test_depreciation_large_value.py` (schema-guard money≠Int + `get_definition` mapping); session 2026-06-29 money-overflow (premise sai "int→long long").
+Cross-ref: LL-BE-58 (verify field-type THẬT trước khi derive); `docs/imm-05/04_Backend_Design.md §2.4.1`; tests `frontend/.. n/a` → BE `assetcore/tests/depreciation/test_depreciation_large_value.py` (schema-guard money≠Int + `get_definition` mapping); session 2026-06-29 money-overflow (premise sai "int→long long").
 
 ### LL-BE-64: OAS/stats "baseline guard" ĐỎ ≠ bug — phân loại regen vs file-must-not-change (2026-06-29)
 

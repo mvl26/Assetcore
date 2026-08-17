@@ -188,7 +188,7 @@ Tránh heredoc với `Co-Authored-By` — không bao giờ thêm dòng đó.
 
 ```bash
 # Commit 1 — bug fix nhỏ
-git add assetcore/api/imm03.py assetcore/tests/test_imm03.py
+git add assetcore/api/imm03.py assetcore/tests/imm03/test_imm03.py
 git commit \
   -m "fix(imm03): align VR-03 check with renamed workflow state" \
   -m "- imm03.py: dùng workflow_state thay vì status string

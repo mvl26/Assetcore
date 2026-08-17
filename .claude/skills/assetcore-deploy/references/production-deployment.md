@@ -44,7 +44,7 @@ cd ~/frappe-bench/apps/assetcore/frontend && npm install && npm run build
 ## Pre-deployment checklist (KHÔNG skip bất kỳ item nào)
 - [ ] Code trên release branch (vd: `release/wave-2`), tagged `v3.x.y`
 - [ ] Tests green: `bench --site <staging> run-tests --app assetcore`
-- [ ] Workflow smoke test green: `--module assetcore.tests.test_workflows`
+- [ ] Workflow smoke test green: `--module assetcore.tests.guards.test_workflows`
 - [ ] FE typecheck: `cd frontend && npm run typecheck && npm run lint`
 - [ ] FE build: `npm run build` exit 0
 - [ ] Không có whitelist endpoint mới thiếu permission gate
@@ -108,7 +108,7 @@ cd ~/frappe-bench && bench --site <site> set-maintenance-mode off
 
 ## Smoke validation sau deploy
 ```bash
-bench --site <site> run-tests --app assetcore --module assetcore.tests.test_workflows
+bench --site <site> run-tests --app assetcore --module assetcore.tests.guards.test_workflows
 bench --site <site> scheduler status        # phải "enabled" thì cron mới fire
 ```
 

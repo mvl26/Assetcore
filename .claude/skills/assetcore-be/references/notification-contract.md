@@ -217,4 +217,4 @@ async function onSubmit() {
 - Registry: `assetcore/utils/messages.py` · Adapter: `assetcore/utils/notify.py` · Handler: `assetcore/utils/api_handler.py`
 - FE store: `frontend/src/stores/imm11.ts` · view: `frontend/src/views/calibration/CalibrationDetailView.vue`
 - FE pipeline: `composables/useNotify.ts`, `useApi.ts` · registry: `i18n/messages.ts`
-- Test contract: `assetcore/tests/test_imm11.py::TestImm11NotificationContract`, `test_notification_framework.py`
+- Test contract: `assetcore/tests/imm11/test_imm11.py::TestImm11NotificationContract`, `test_notification_framework.py`

@@ -1029,7 +1029,7 @@ Cross-ref: component-patterns.md (SmartSelect allow-create/@create wire vào end
 5. Tải lên xong phải **XEM LẠI ĐƯỢC**: bảng/danh sách phải có cột/link mở tệp — upload mà không có lối xem = dead-end ([[LL-FE-47]] dead-control).
 6. Kiểm tra chéo BE: nếu field đích khai `Data`/`Small Text` thay vì `Attach` ⇒ đó cũng là bug (sửa doctype JSON), không phải cớ để giữ ô text. (`IMM CAPA Record.imm_effectiveness_evidence` là ca này — `Data` + description "link hoặc mô tả".)
 
-**Gate:** SKILL §GATE-9 (3 lệnh grep, output PHẢI = 0). Guard tự động: `assetcore/tests/test_attachment_upload.py::TestNoTypedFilePathInputs` — quét mọi `.vue` tìm placeholder `/files/` + `<input>` text bind vào fieldname vốn là Attach trong doctype JSON.
+**Gate:** SKILL §GATE-9 (3 lệnh grep, output PHẢI = 0). Guard tự động: `assetcore/tests/integration/test_attachment_upload.py::TestNoTypedFilePathInputs` — quét mọi `.vue` tìm placeholder `/files/` + `<input>` text bind vào fieldname vốn là Attach trong doctype JSON.
 
 Cross-ref: BE anti-pattern #19; `assetcore/api/files.py`; `assetcore/utils/attachments.py` (hook `doc_events["*"]`); [[LL-FE-47]] (control không dead); memory `ui_copy_language_policy` (nhãn VI); session 2026-07-22.
 
@@ -1114,7 +1114,7 @@ Cross-ref: [[LL-BE-69]] (phía phát), [[LL-AUDIT-22]] (claim ≠ đĩa), LL-FE-
 **Rule (kiểm được):**
 1. Nhãn enum sống ở `constants/labels.ts` (hoặc `utils/formatters.ts` nếu dùng toàn app), export `XXX_LABEL` + hàm `xxxLabel(v)` fallback trả nguyên `v`. View **chỉ import** — 0 map cục bộ. Kiểm: `grep -rn "Record<string, string> = {" src/views/` phải rỗng.
 2. **Field khác nhau ≠ dùng chung map**: `AC Supplier.supplier_group` kết thúc bằng `Service Provider`, `vendor_type` bằng `Service`. Gộp 1 map = khoá rác + 2 nhãn trùng trong một cột ⇒ đổi ngược không xác định. Đọc `options` của TỪNG field trước khi gộp.
-3. **Lớp nhập/xuất Excel cũng là lớp hiển thị** ⇒ nhãn phải khớp màn hình. SSoT BE = `utils/import_helpers.py::ENUM_DISPLAY_BY_DOCTYPE`; guard `assetcore/tests/test_import_enum_labels.py` đọc THẲNG map trong `.ts` và đỏ khi lệch chữ (4 tầng: phủ-kín · không-khoá-rác · parity FE · dropdown trong file .xlsx thật).
+3. **Lớp nhập/xuất Excel cũng là lớp hiển thị** ⇒ nhãn phải khớp màn hình. SSoT BE = `utils/import_helpers.py::ENUM_DISPLAY_BY_DOCTYPE`; guard `assetcore/tests/guards/test_import_enum_labels.py` đọc THẲNG map trong `.ts` và đỏ khi lệch chữ (4 tầng: phủ-kín · không-khoá-rác · parity FE · dropdown trong file .xlsx thật).
 4. Value/enum vẫn GIỮ NGUYÊN ([[LL-FE-52]]/[[LL-FE-53]]) — chỉ nhãn đổi.
 
 **Bẫy kèm theo (guard bắt được, đáng nhớ):** dropdown trong file mẫu từng chào `P1 Critical` / `P1 High` trong khi DocType `IMM SLA Policy.priority` chỉ có `P1..P4` ⇒ người dùng chọn đúng theo hướng dẫn mà hệ thống vẫn từ chối. Danh sách lựa chọn của file mẫu PHẢI sinh/kiểm từ `options` thật của DocType, không chép tay từ tài liệu.
