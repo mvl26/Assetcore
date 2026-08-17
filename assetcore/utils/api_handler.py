@@ -25,7 +25,8 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.utils.errors import ServiceError
+from assetcore.utils.response import ErrorCode
 from assetcore.utils.messages import lookup_message
 from assetcore.utils.response import _err, _ok
 
