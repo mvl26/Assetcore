@@ -2,8 +2,11 @@
 name: assetcore-doc
 description: >
   Xây dựng, chuẩn hóa và đồng bộ tài liệu phát triển module AssetCore (docs/imm-XX/).
-  Bao gồm domain knowledge WHO HTM, GMDN, NĐ98, cross-module integration patterns,
-  và 9 file chuẩn per-module (README + 02–09). Dùng khi user nói "viết tài liệu", "chuẩn hóa docs",
+  Bao gồm **Core Doc** của module (scope, business rules, DocType schema, API endpoints,
+  UI/UX flow, acceptance) — bản đặc tả mà BE/FE code theo — cộng domain knowledge WHO HTM,
+  GMDN, NĐ98, cross-module integration patterns, và 9 file chuẩn per-module (README + 02–09).
+  Dùng khi user nói "viết Core Doc", "chốt spec module", "scope và business rules",
+  "đặc tả trước khi code", "viết tài liệu", "chuẩn hóa docs",
   "IMM-XX docs thiếu", "BA document", "HTM lifecycle", "GMDN", "NĐ98", "integration giữa module",
   "docs/imm-", "rà soát docs", "fill missing module docs", "cross-module dependency",
   "WHO HTM", "vòng đời thiết bị", "phân loại thiết bị y tế", "tuân thủ NĐ98",
@@ -220,14 +223,14 @@ Cho IMM-07 / 10 / 13 / 14 / 17 (Đợt 3):
 | Cập nhật | <YYYY-MM-DD> |
 
 ## Tài liệu
-- [02 Analysis & Design](./02_Analysis_Design.md)
-- [03 Diagrams](./03_Diagrams.md)
-- [04 Backend Design](./04_Backend_Design.md)
-- [05 API Specification](./05_API_Specification.md)
-- [06 Frontend Design](./06_Frontend_Design.md)
-- [07 Testing & QA](./07_Testing_QA.md)
-- [08 Deployment](./08_Deployment.md)
-- [09 Release](./09_Release.md)
+- `02_Analysis_Design.md`
+- `03_Diagrams.md`
+- `04_Backend_Design.md`
+- `05_API_Specification.md`
+- `06_Frontend_Design.md`
+- `07_Testing_QA.md`
+- `08_Deployment.md`
+- `09_Release.md`
 
 ## Tham chiếu chéo
 - Architecture: `../architecture/Ho_so_kien_truc_IMMIS.md`
@@ -419,6 +422,10 @@ KHÔNG xoá ADR cũ — quyết định đổi thì viết ADR mới `Supersede`
 
 ## Verification
 
+> **Mốc DoD của dự án** (áp cho MỌI thay đổi, bổ sung chứ không thay thế checklist dưới đây):
+> [`../_shared/definition-of-done.md`](../_shared/definition-of-done.md)
+
+
 Trước khi khai báo doc "xong" — phải đối chiếu thật, không "có vẻ đủ":
 
 **Docs module nội bộ (Phần 1):**
@@ -444,8 +451,6 @@ Trước khi khai báo doc "xong" — phải đối chiếu thật, không "có 
 
 ---
 
-## 🔗 Session context — bàn giao phiên (assetcore-session)
+## 🔗 Session context
 
-- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE + file phiên mới nhất (curated; cần truy gốc chi tiết → đọc mục 🪞 Mirror của file phiên) — "đang dở ở đâu"; dữ liệu trong `.claude/contexts/` — gitignored; file phiên ở `sessions/<ngày>/`). Main session: hook tự nạp mỗi prompt + tự **mirror TOÀN BỘ lượt** (prompt+phản hồi+tool) vào file phiên qua hook `Stop`; subagent phải TỰ chạy lệnh này.
-- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY: `STATE.md`(ghi đè) + bồi **semantic** vào file phiên (`session-log.sh current` → path; **KHÔNG còn LOG.md**). Hook `Stop` đã mirror nguyên văn → bạn CHỈ cần tóm Làm/Quyết-định/Để-lại. KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
-- **Ranh giới:** state-tạm-sẽ-hết → `.claude/contexts/` (STATE.md + sessions/<ngày>/); fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.
+Đọc trước / checkpoint sau + ranh giới `contexts/` vs `memory/`: [`../_shared/session-protocol.md`](../_shared/session-protocol.md)

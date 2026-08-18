@@ -2,7 +2,7 @@
 
 > Phần 2 — Security Review: threat model + layered security checklist. `SKILL.md` giữ INLINE: security report format + audit verdict. Đây là chi tiết để chạy security review.
 >
-> Bổ sung: whitelist permission gate (S-9..S-11) ở [`module-audit-pillars.md`](module-audit-pillars.md) Phần 5; regression class A–L + LL-AUDIT-* ở [`lessons-learned.md`](lessons-learned.md).
+> Bổ sung: whitelist permission gate (S-9..S-11) ở [`module-audit-pillars.md`](module-audit-pillars.md) Phần 5; regression class A–L + LL-AUDIT-* ở [`rules.md`](rules.md).
 
 ## Threat model
 

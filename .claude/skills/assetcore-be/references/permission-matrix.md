@@ -7,7 +7,7 @@
 > - `assetcore/setup/role_profile_catalog.py` — 8 Role Profile → roles
 > - `assetcore/services/shared/rbac.py` — capability resolve qua `frappe.has_permission`
 > - `docs/res/rbac/role-redesign-module-based.md` — thiết kế gốc
-> Quy tắc phân quyền end-to-end (4 tầng): xem `assetcore-audit/references/lessons-learned.md` **LL-AUDIT-11**.
+> Quy tắc phân quyền end-to-end (4 tầng): xem `assetcore-audit/references/rules.md` **LL-AUDIT-11**.
 > Phần dưới giữ lại cho ngữ cảnh lịch sử Wave 1/2 — **không dùng tên role trong đó cho code mới**.
 
 Role names live in `assetcore/services/shared/constants.py:Roles`, re-exported via `assetcore.services.shared`. **Never hardcode role strings.**

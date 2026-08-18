@@ -1,6 +1,15 @@
 ---
 name: assetcore-fe
-description: Build or extend an AssetCore frontend feature using Vue 3 + TypeScript + Pinia + Vue Router + TailwindCSS + TanStack Query. Use this whenever the user asks to add a view, list/detail page, form, store, composable, API client, dashboard widget, or any frontend feature for any IMM-XX module — including phrases like "tạo view IMM-09", "thêm trang", "wire FE với BE", "form WO", "Pinia store", "list table với filter", "modal chi tiết". Strongly prefer this skill any time the user is touching the `frontend/` directory or talks about Vue components, even if they don't name the framework.
+description: >
+  Xây và SỬA giao diện AssetCore — Vue 3 + TypeScript + Pinia + Vue Router + TailwindCSS
+  + TanStack Query, gọi API Frappe.
+  Dùng khi user nói "tạo view IMM-09", "thêm màn hình", "thêm trang", "màn danh sách",
+  "màn chi tiết", "bảng danh sách", "thêm bộ lọc", "phân trang", "sắp xếp cột",
+  "form nhập liệu", "hộp thoại", "modal chi tiết", "Pinia store", "composable",
+  "API client FE", "thẻ dashboard", "nút workflow trên màn chi tiết", "wire FE với BE",
+  "sửa giao diện", "nút không hiện", "hiển thị sai nhãn", "trang trắng", "bấm không ăn",
+  "chữ tiếng Anh lọt ra UI", "component Vue". Ưu tiên skill này cho MỌI thay đổi trong
+  thư mục `frontend/`, kể cả khi user không gọi tên framework.
 ---
 
 # AssetCore Frontend Module Builder
@@ -109,46 +118,22 @@ frontend/src/
 ## 🧭 Vị trí & tên file test FE — BẮT BUỘC
 
 > SSoT cưỡng chế: `frontend/src/guards/testFileConvention.guard.test.ts` (K1–K9).
-> Spec đầy đủ: `docs/architecture/SPEC_chuan_hoa_cau_truc_frontend.md`.
 
 Mỗi file test chỉ được ở **một trong ba nhà**:
 
 | # | Loại test | Nhà | Tên file |
 |---|---|---|---|
-| 1 | Test của **MỘT** file nguồn | **`<thư-mục-nguồn>/tests/`** | `<Nguồn>.test.ts` — nếu là test duy nhất<br>`<Nguồn>.<khiaCanh>.test.ts` — nếu tách nhiều khía cạnh |
-| 2 | **Guard / parity / ngân sách** (đọc đĩa, cưỡng chế quy ước, đối chiếu doc↔mã) | **`src/guards/`** | `<chuDe>.guard.test.ts` |
-| 3 | **Tích hợp / khởi động / route** (không thuộc file nguồn nào) | **`src/integration/`** | `<luong>.integration.test.ts` |
+| 1 | Test của **MỘT** file nguồn | **`<thư-mục-nguồn>/tests/`** | `<Nguồn>.test.ts` · `<Nguồn>.<khiaCanh>.test.ts` |
+| 2 | **Guard / parity / ngân sách** (đọc đĩa) | **`src/guards/`** | `<chuDe>.guard.test.ts` |
+| 3 | **Tích hợp / khởi động / route** | **`src/integration/`** | `<luong>.integration.test.ts` |
 
-**Nhà #1 = thư mục con `tests/` NGAY CẠNH nguồn**, KHÔNG đặt ngang hàng file nguồn:
+`<Nguồn>` khớp **CHÍNH XÁC** tên file nguồn ở **thư mục cha** của `tests/` (`PascalCase` cho
+`.vue`, `camelCase` cho `.ts`). Nhà #1 là thư mục con `tests/` **ngay cạnh** nguồn, không đặt
+ngang hàng nguồn.
 
-```
-views/cm/
-├── CMCreateView.vue
-├── CMWorkOrderDetailView.vue
-└── tests/
-    ├── CMCreateView.test.ts
-    ├── CMCreateView.qrPrefill.test.ts
-    └── CMWorkOrderDetailView.allowedTransitions.test.ts
-```
-
-`<Nguồn>` khớp **CHÍNH XÁC** tên file nguồn ở **thư mục cha** của `tests/` (`PascalCase` cho `.vue`, `camelCase` cho `.ts`). `<khiaCanh>` là `camelCase`, **đã lược tiền tố trùng tên nguồn**.
-`src/guards/` và `src/integration/` **KHÔNG** thêm tầng `tests/` — bản thân chúng đã là nhà test riêng, không có file nguồn nào lẫn vào.
-
-| ❌ Sai | ✅ Đúng | Vì sao |
-|---|---|---|
-| `components/common/smartSelectResilience.test.ts` | `components/common/tests/SmartSelect.resilience.test.ts` | nguồn là `SmartSelect.vue`; tên phải nói ra + phải nằm trong `tests/` |
-| `views/asset/assetScanInfoSerial.test.ts` | `views/asset/tests/AssetScanInfoView.serial.test.ts` | |
-| `views/cm/CMCreateView.test.ts` | `views/cm/tests/CMCreateView.test.ts` | tên đúng nhưng **sai chỗ** — không đặt ngang hàng nguồn |
-| `views/detailShellAdoption.test.ts` | `guards/detailShellAdoption.guard.test.ts` | quét `SRC/views` ⇒ là guard |
-| `api/connectionsLegacyKeysRetired.acr92.test.ts` | `guards/connectionsLegacyKeys.guard.test.ts` | đọc đĩa ⇒ guard; **bỏ mã ticket khỏi tên** |
-| `App.auth.test.ts` | `integration/appAuth.integration.test.ts` | mount cả app + router ⇒ test khởi động |
-
-**CẤM (guard sẽ ĐỎ):**
-- Đặt file test **ngang hàng** file nguồn (K1a) · thư mục `__tests__/` (dùng `tests/`) · thư mục `tests/` **mồ côi** (cha không có file nguồn nào) · đuôi `.spec.ts` · mã ticket trong **tên file** (`acr92`, `AC-CR-…` → đưa vào `describe()`/`it()`).
-- Dấu chấm giữa tên file **nguồn** `.ts` (`messages.types.ts` ❌ → `messageTypes.ts` ✅).
-- Test **ngoài** `guards/` mà **quét thư mục** (`readdirSync`, `import.meta.glob`) hoặc **đọc file ở thư mục KHÁC** — đó là guard, phải chuyển vào `guards/`. Test trong `tests/` chỉ được đọc file nguồn ở **thư mục cha** (`resolve(__dirname, '..', 'X.vue')`).
-- Guard trong `guards/` mà tính đường dẫn theo **độ sâu** (`resolve(HERE, '../..')`, `resolve(__dirname, '..')`, `process.cwd()`) — phải lấy anchor từ **`@/test/paths`**.
-- Guard **quét thư mục** mà không **chốt dân số tối thiểu** — dùng `listFiles(DIR, { ext, min: N })` hoặc đánh dấu `// [K8] dân số:` ngay tại chỗ khoá. Thiếu chốt ⇒ thư mục bị dời thì guard đếm 0 và **PASS giả**.
+> **6 ca sai thật + danh sách CẤM đầy đủ** (`__tests__/`, `.spec.ts`, `tests/` mồ côi, mã ticket
+> trong tên, test quét thư mục ngoài `guards/`, guard không chốt dân số, đường dẫn theo độ sâu):
+> skill **`assetcore-structure`** §4.1 là SSoT.
 
 **Trước khi báo xong:** `cd frontend && npx vitest run src/guards/testFileConvention.guard.test.ts`
 
@@ -344,81 +329,22 @@ The exact file-path build order for a new IMM module on FE (verify BE endpoint n
 
 ## 🛑 PRE-DONE GREP GATE (chạy TRƯỚC khi nói DONE)
 
-5 phiên test 2026-05-15..26 leak lại cùng pattern dù LL-FE-3/6/13 đã có. Bắt buộc chạy các grep gate dưới đây (GATE-1..5,7 + manual GATE-6a/6b) trên view/component bạn vừa sửa. **Output ≠ 0 → fix, không skip.**
+5 phiên test 2026-05-15..26 leak lại **cùng** pattern dù LL-FE-3/6/13 đã có. Gate dưới đây là
+bắt buộc, không phải khuyến nghị — chạy trên **view/component vừa sửa** rồi dán output.
 
-```bash
-cd /home/miyano/frappe-bench/apps/assetcore
+| Gate | Bắt cái gì | Ngưỡng |
+|---|---|---|
+| **GATE-1** | Enum tiếng Anh lọt ra template — mọi `{{ x.<enum> }}` phải qua hàm label (`constants/labels.ts`), KHÔNG chỉ `status` | review từng match |
+| **GATE-2** | Rò mã/email thô — `row.technician/vendor/asset/...` phải dùng `x_name \|\| x` | review từng match |
+| **GATE-3** | Chuỗi trạng thái tiếng Anh hardcode trong mã (không phải template) | review từng match |
+| **GATE-4** | Gọi thẳng `frappe.client.*` (LL-FE-40) — phải qua endpoint AssetCore có kiểm quyền | **PHẢI = 0** |
+| **GATE-5** | `Promise.all` prefetch ref phụ (LL-FE-45) — 1×403 làm trắng cả trang; đổi `allSettled` | review từng match |
+| **GATE-7** | `<option>` trần tiếng Anh trong `<select>` bound enum (LL-FE-49) — Việt-hoá text PHẢI kèm `value="<EN gốc>"` | review + đối chiếu `options` của DocType |
+| **GATE-9** | Còn ô cho gõ đường dẫn tệp thay vì tải lên | **PHẢI = 0** |
+| **GATE-10** | Khoá payload BE mới tiêu thụ mà `grep` trong `assetcore/` ra 0 hit | **PHẢI = 0** hoặc khai `contract_unverified` |
+| **Manual 6a–6d** | prefill sau quét QR · form 0-state · control không chết · ảnh render đúng khổ | chạy tay trên trình duyệt |
 
-# GATE-1: English enum leak. Mọi {{ x.<enum> }} phải đi qua label fn (constants/labels.ts).
-# KHÔNG CHỈ status — mọi field enum render thô đều leak. GATE-1 cũ (chỉ status|frequency|
-# severity + prefix row|item|doc|d) BỎ SÓT 17 leak (session 2026-06-29): transfer_type,
-# pm_type, wo_type, overall_result, calibration_type, medical_device_class, reference_type,
-# avl_status, nc_type, lifecycle_status, priority, audit_type, event_type, measurement_type.
-# Prefix object BẤT KỲ (wo./m./form./nc./selectedEvent./a./...), KHÔNG chỉ row/doc.
-grep -rnE "\{\{\s*[A-Za-z_][A-Za-z0-9_.]*\.(status|workflow_state|frequency|severity|transfer_type|pm_type|wo_type|overall_result|calibration_type|medical_device_class|reference_type|imm_avl_status|avl_status|nc_type|lifecycle_status|priority|audit_type|event_type|measurement_type|category|scope|pass_fail)\s*\}\}" \
-  frontend/src/views/<your-domain>/ \
-  | grep -vE "Label\(|labelFor|formatStatus|translateStatus|tLabel"
-
-# GATE-2: Raw code/email leak. row.technician/owner/vendor/model/asset/warehouse
-# phải có `_name` / `_full_name` companion từ BE và FE phải dùng `x_name || x`.
-grep -rnE "row\.(asset|model|vendor|warehouse|department|technician|assigned_to|owner)\b" \
-  frontend/src/views/<your-domain>/ | grep -vE "_name|_full_name|_label"
-
-# GATE-3: Hardcoded English status strings trong code (không phải template)
-grep -rnE "['\"](Locked|Evaluated|Contract Signed|Scheduled|Weekly|Minor|Open|In Progress)['\"]" \
-  frontend/src/views/<your-domain>/ | grep -v "STATUS_LABEL\|// "
-
-# GATE-4: Raw frappe.client.* call leak (→ LL-FE-40). Output PHẢI = 0.
-# Mọi lookup phải qua endpoint AssetCore whitelisted permission-aware — KHÔNG frappe.client.get_value/get_list/get.
-grep -rnE "frappe\.client\.(get_value|get_list|get)" frontend/src/{views,composables,stores}
-
-# GATE-5: Promise.all ref-prefetch (→ LL-FE-45). Review MỖI match.
-# prefetch ref/lookup PHỤ phải đổi Promise.allSettled (giữ Promise.all chỉ khi mọi nhánh bắt buộc thành công).
-# Mục tiêu: 1×403 KHÔNG blank cả trang.
-grep -rn 'Promise.all(' frontend/src/{stores,composables}
-
-# GATE-7: Bare <option> tiếng Anh (value==text) trong <select> bound enum (→ LL-FE-49).
-# Việt-hoá text BARE option PHẢI thêm value="<EN gốc>" (khớp EXACT DocType Select `options`)
-# TRƯỚC, nếu không form submit tiếng Việt → 422 / filter vỡ. Review mỗi match:
-grep -rnE "<option>[^<]*[A-Za-zÀ-ỹ]{3}" frontend/src/views/<your-domain>/
-# + đối chiếu tập <option value="X"> FE vs DocType field Select `options` BE — DRIFT = bug
-#   (vd FE audit_type [Internal/External/Surveillance] ≠ BE [Internal/Self-assessment]).
-
-# GATE-7: User-picker phải là ApproverSelect, KHÔNG `SmartSelect doctype="User"`
-# (→ user-source-base-role rule: chọn người = user AssetCore, KHÔNG toàn bộ Frappe
-# user). Output PHẢI = 0. Mỗi match → đổi sang
-# <ApproverSelect context="user|repair|pm|calibration|incident|commissioning">.
-grep -rnE 'doctype="User"' frontend/src/views/
-
-# GATE-9: Field đính kèm bị render bằng ô GÕ ĐƯỜNG DẪN (→ LL-FE-54). Output PHẢI = 0.
-# "Điền file" = TẢI LÊN + lưu vào hệ thống, KHÔNG phải gõ/dán '/files/...' hay URL.
-grep -rn "placeholder=\"[^\"]*/files/" frontend/src            # ô gõ path (trừ FileUploadField.vue)
-grep -rniE '<input[^>]*v-model[^>]*(attachment|_doc|_proof|evidence|certificate_file|file_url)' frontend/src
-grep -rn "upload_file" frontend/src/api                          # /api/method/upload_file TRẦN
-# Mỗi match → thay bằng <FileUploadField v-model="..." doctype="..." fieldname="..."
-#   [parent-doctype="..." khi doctype là bảng con] :docname="..." />
-```
-
-**GATE-1/GATE-2 scope (BẮT BUỘC mở rộng — KHÔNG chỉ ListView):** chạy GATE-1 (EN-enum) + GATE-2 (raw-code) thêm trên **DetailView + dashboard card** (`{{ ...status }}` trong `KpiCard`/donut), không chỉ ListView. Bug Wave2 IMM-12-A (dashboard cards 'Open'/'In Progress') + IMM-11-B (Cal detail 'Scheduled' dù list đã 'Đã lên lịch') lọt vì detail+card quên áp map dù list đúng. Bồi thêm key thiếu vào audit-list LL-FE-30: `Under Maintenance`→'Đang bảo trì', `Scheduled`→'Đã lên lịch', `Locked`, `Evaluated`, `Contract Signed`, `Weekly`, `Minor`.
-
-Kèm 4 manual check không tự động được:
-- DetailView có **TRANSITIONS_BY_STATE đầy đủ initial state** (Draft/Open/Planned)? Count entries trong map phải = số state non-terminal trong workflow JSON.
-- ListView có **ít nhất 1 action button** (Tạo / Import / Navigate)? Empty state actionable?
-- **GATE-6a — qr-scan prefill parity** (→ LL-FE-43): mỗi create-view có qr-scan prefill (`?asset=<id>&source=qr-scan`) chạy parity test 4 view (PM/Incident/CM/Cal) → locked SmartSelect text == asset code (KHÔNG rỗng).
-- **GATE-6b — form 0-state** (→ LL-FE-44): mỗi form có required-dropdown dựa list endpoint chạy test-case `total:0` → có banner + ≥1 lối thoát actionable, KHÔNG chỉ disabled.
-- **GATE-6c — control mới (dropdown/toggle/radio)** (→ LL-FE-47): test **param phát đi (body/query/store) == UI-selection** (chọn option B → spy nhận B), chống dead-control — KHÔNG để giá trị hardcode ở call-site, KHÔNG chỉ assert "render đủ N option".
-- **GATE-6d — output in/khổ cố định** (→ LL-FE-48): verify bằng RENDER ẢNH thật (pdftoppm/screenshot → đọc bằng mắt), KHÔNG chỉ DOM-assert text-trong-DOM (`overflow:hidden` cắt chữ âm thầm mà DOM-test vẫn PASS).
-- **GATE-10 — khoá payload BE phải GREP THẤY TRÊN ĐĨA trước khi bind** (→ LL-FE-55). [BE] chạy SONG SONG trong factory ⇒ khoá trong spec có thể chưa tồn tại. Với MỖI khoá/endpoint mới đọc từ BE: `grep -rn "<khoá>" assetcore/` — **0 hit ⇒ code fail-safe + khai `contract_unverified` + KHÔNG tuyên bố acceptance đạt**. Vitest KHÔNG bao giờ bắt được lỗi này (payload test dựng tay luôn có khoá) ⇒ thêm 1 TC dựng payload **THIẾU** khoá đó, assert UI vẫn dùng được. Gate kiểm-được:
-  ```bash
-  # mỗi khoá mới tiêu thụ trong api/*.ts phải có ít nhất 1 hit ở BE
-  grep -rn "create_prefill\|<khoá-mới>" ../assetcore/ | head   # 0 dòng = hợp đồng CHẾT, dừng lại
-  ```
-- **GATE-8 — workflow *Detail view render nút theo BE `allowed_transitions` (server-driven CTA), KHÔNG hardcode `status === 'X'`** (→ LL-FE-51). BE emit `allowed_transitions = _VALID_TRANSITIONS.get(status, [])` cho 4 *Detail (Incident imm12 R3 · PM imm08 R21 · CM/Repair imm09 R22 · Calibration imm11). FE gate `canXxx = capability && allowedTransitions.includes('<NextState>')` (mirror `IncidentDetailView`) — KHÔNG `form.value.status === 'X'` (hardcode = trộn luồng + lộ nút sai pha). Với 4 view này nguồn là SERVER, mạnh hơn map client "TRANSITIONS_BY_STATE" ở trên. Gate kiểm-được (AT phải >0 cho CẢ 4):
-  ```bash
-  for v in IncidentDetailView PMWorkOrderDetailView CMWorkOrderDetailView CalibrationDetailView; do
-    f=$(find frontend/src/views -name "$v.vue"); echo "AT=$(grep -cE 'allowed_transitions|allowedTransitions' "$f")  $v"; done
-  ```
-  RED 2026-06-29: `CalibrationDetailView` hardcode `status === 'Scheduled'` → lộ "Gửi duyệt"(disabled+tooltip) + bảng nhập tham số đo ngay ở Scheduled, trộn In-House↔External; đã fix bằng `allowedTransitions` (AT=7) + tách `canEnterResults` (chỉ pha có result-transition). Gate còn lòi **PMWorkOrderDetailView (AT=0) + CMWorkOrderDetailView (AT=0, 12 status-literal) VẪN hardcode** dù BE đã emit → backlog migrate.
+> **Lệnh grep đầy đủ (dán chạy được):** [`references/pre-done-gates.md`](references/pre-done-gates.md)
 
 ## ✍️ UI copy — chính sách viết tắt (keep/translate) — [[LL-FE-53]]
 
@@ -511,6 +437,13 @@ View cha có `<style scoped> .modal-body input {…} </style>`. Đổi 1 raw `<i
 
 ## Verification
 
+> **Mốc DoD của dự án** (áp cho MỌI thay đổi, bổ sung chứ không thay thế checklist dưới đây):
+> [`../_shared/definition-of-done.md`](../_shared/definition-of-done.md)
+
+> **Hợp đồng BE↔FE** (envelope · 3 bẫy status-line · grep symbol phía kia khi chạy song song):
+> [`../_shared/contracts.md`](../_shared/contracts.md)
+
+
 Trước khi khai báo FE "xong" — phải có BẰNG CHỨNG (không "có vẻ đúng"). Checklist đầy đủ List/Detail page ở [references/fe-build-sequence.md](references/fe-build-sequence.md):
 - [ ] `cd frontend && npm run typecheck && npm run lint` xanh (`vue-tsc --noEmit`) — paste output.
 - [ ] PRE-DONE GREP GATE-1..5 chạy trên view/component vừa sửa, mọi output đã xử lý (GATE-4 = 0).
@@ -525,7 +458,7 @@ Trước khi khai báo FE "xong" — phải có BẰNG CHỨNG (không "có vẻ
 - [ ] success/error đều qua `useNotify` (notification pipeline) — không `toast.error("literal")` nghiệp vụ.
 - [ ] **WCAG 2.1 AA**: Tab qua được mọi action; icon button có `aria-label`; focus ring nhìn thấy; status có label chữ (không chỉ màu); empty/loading/error tri-branch (xem Engineering principles).
 - [ ] UI verify bằng RENDER THẬT trong browser (happy path + ≥1 BE error path), không chỉ vitest/structural (LL-FE-46); màn GATED bằng phiên sai-role → cấp-tạm capability rồi REVERT (playwright-patterns LL-QA-16/17, LL-BE-63).
-- [ ] Đã đọc `references/lessons-learned.md` (LL-FE-*) trước khi viết — không tái phạm.
+- [ ] Đã đọc `references/rules.md` (chỉ mục LL-FE, 56 bài) trước khi viết — không tái phạm.
 
 ## Where to look for live examples
 
@@ -564,11 +497,12 @@ Project-wide rules especially relevant to this skill:
 ## Lessons Learned — bug patterns FE production (BẮT BUỘC ĐỌC)
 
 > ⚠️ Các quy tắc **LL-FE-*** (always-apply, KHÔNG optional) đã chuyển sang
-> [`references/lessons-learned.md`](references/lessons-learned.md) — TRANSITIONS_BY_STATE đầy đủ,
+> [`references/rules.md`](references/rules.md) — TRANSITIONS_BY_STATE đầy đủ,
 > workflow action labels khớp BE (tiếng Việt có dấu), StatusBadge sync, list/detail buttons,
 > hiển thị display name (không leak code/email), child table không dùng `row.name`, KPI consistency…
 >
-> **BẮT BUỘC: `Read references/lessons-learned.md` TRƯỚC KHI viết/sửa view · store · API client.**
+> **BẮT BUỘC: `Read references/rules.md` TRƯỚC KHI viết/sửa view · store · API client.** Đó là CHỈ MỤC (1 dòng/bài).
+> Chỉ mở `references/archive/` khi triệu chứng đang gặp khớp một dòng trong chỉ mục — đọc trọn archive là lãng phí, không phải cẩn thận.
 > Bỏ qua = tái phạm bug đã biết.
 
 ---

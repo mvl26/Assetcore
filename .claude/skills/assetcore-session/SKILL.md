@@ -236,6 +236,10 @@ Quy tắc 1 câu: **Sẽ-hết-khi-việc-xong → `.claude/contexts/`. Đúng-m
 
 ## Verification
 
+> **Mốc DoD của dự án** (áp cho MỌI thay đổi, bổ sung chứ không thay thế checklist dưới đây):
+> [`../_shared/definition-of-done.md`](../_shared/definition-of-done.md)
+
+
 Tiêu chí thoát — mỗi ô phải kiểm-được (không "có vẻ ổn"):
 - [ ] **ĐỌC trước khi hành động**: đã đọc `STATE.md` + file phiên gần nhất TRƯỚC khi xử lý/sửa bất kỳ yêu cầu nào (hook `SessionStart`/`UserPromptSubmit` tự nạp; agent con / phiên cũ → chạy `./.claude/scripts/session-log.sh show`). R2 — không ngoại lệ.
 - [ ] **Checkpoint sau MỖI việc đáng kể** (đụng file / quyết định / đổi trạng thái nghiệp vụ) — KHÔNG đợi cuối phiên.

@@ -1,12 +1,19 @@
 ---
 name: assetcore-be
 description: >
-  Phát triển backend AssetCore trên Frappe v15 — bao gồm 3-tier architecture (API → Service → Repository),
-  DocType schema, Workflow state machine, controller hooks, validators, SLA, lifecycle events, KPI, và audit trail.
-  Dùng khi user nói "viết BE", "thêm endpoint", "service IMM-xx", "controller", "validator nghiệp vụ",
-  "tạo DocType mới", "thêm field", "thiết kế bảng", "child table", "tạo workflow", "thêm state",
+  Viết và SỬA backend AssetCore trên Frappe v15 — 3-tier (API → Service → Repository),
+  DocType schema, workflow state machine, controller hook, validator, SLA, lifecycle event,
+  KPI, audit trail.
+  Dùng khi user nói "viết BE", "viết service", "sửa service", "thêm endpoint",
+  "service IMM-xx", "controller", "validator nghiệp vụ", "hàm tính toán nghiệp vụ",
+  "tính khấu hao", "tính SLA", "tính KPI", "logic nghiệp vụ sai", "tính toán sai",
+  "tạo DocType mới",
+  "thêm field", "thiết kế bảng", "child table", "tạo workflow", "thêm state",
   "approval flow", "transition cho IMM-XX", "docstatus", "workflow_state", "naming series",
   "audit trail", "lifecycle event", "build sequence cho module mới".
+  CŨNG dùng khi SỬA LỖI phía server: "sửa lỗi backend", "fix bug service/API", "endpoint trả sai",
+  "danh sách rỗng dù có dữ liệu", "đếm ra số nhưng không ra bản ghi", "phân quyền server chặn nhầm",
+  "lỗi 417/500 khi gọi API". Chẩn đoán rồi sửa tận gốc, không workaround.
   Kích hoạt BẤT CỨ KHI NÀO user muốn thêm/sửa backend, data model, hoặc state machine.
 ---
 
@@ -94,7 +101,8 @@ Quy trình từng bước (spine — chi tiết ở mục dưới; giữ nguyên
 
 ## Tier 1 — API layer
 
-> 🔔 **Notification contract BẮT BUỘC** — đọc [`references/notification-contract.md`](references/notification-contract.md) TRƯỚC khi viết api/service/view. Mọi message qua `MSG.*` + envelope chuẩn (`message_code`+`severity`). KHÔNG raw `frappe.throw(_())` / `ServiceError(..., "literal")`.
+> 🔔 **Hợp đồng thông báo BẮT BUỘC** — đọc [`../_shared/contracts.md`](../_shared/contracts.md) TRƯỚC khi viết api/service/view (envelope · 3 bẫy status-line · không rò rỉ nội bộ).
+> Cần chi tiết pipeline (registry, hook, store, view, ví dụ sống): [`references/notification-contract.md`](references/notification-contract.md) — mở khi thực sự viết tới lớp đó. Mọi message qua `MSG.*` + envelope chuẩn (`message_code`+`severity`). KHÔNG raw `frappe.throw(_())` / `ServiceError(..., "literal")`.
 
 ### Pattern A (CANONICAL) — shared `handle` + `parse_json`
 Service raise qua `nthrow(MSG.*)`; api chỉ wrap:
@@ -346,21 +354,11 @@ Mỗi file test chỉ được ở **một trong bốn nhà**:
 
 Helper dùng chung → `assetcore/tests/_helpers/` (`paths.py`, `_asset_cleanup.py`, `oas_baseline.py`).
 
-**CẤM (guard sẽ ĐỎ):**
-- Để file test ở **gốc `assetcore/tests/`** · thư mục con thiếu `__init__.py` (R2 — `--module` sẽ gãy) · mã ticket trong **tên file** (đưa vào docstring/`test_*` method).
-- **Đổi tên file trong `patches/`** — Frappe nhận diện patch bằng **chuỗi dotted path** (`patch_handler.py:228`); đổi tên patch ĐÃ CHẠY ⇒ Frappe coi là patch mới ⇒ **chạy lại trên production** (R3).
-- Test **ghi DB** (`frappe.get_doc/new_doc/insert/db.set/delete_doc`) mà lớp cơ sở không phải **`FrappeTestCase`** — không rollback ⇒ rác rơi vào site thật.
-- Test **quét thư mục** (`os.walk`/`glob`/`listdir`) mà không ở `tests/guards/`; hoặc guard quét mà **không chốt dân số** (`list_files(DIR, ext, min_count=N)` / `assertGreater(len(files), N)`).
-- Guard tính đường dẫn theo **độ sâu** (`Path(__file__).resolve().parents[N]`, `os.path.dirname(os.path.dirname(...))`, `process.cwd()`) — phải lấy anchor từ **`assetcore.tests._helpers.paths`**.
-
-**Ranh giới `utils/` ⇄ `services/shared/` (§5.4 — MỘT CHIỀU):**
-
-| Nhà | Chứa gì | Được import |
-|---|---|---|
-| `assetcore/utils/` | hạ tầng kỹ thuật, không biết nghiệp vụ (response envelope, pagination, attachment, email, idempotency, FCM, `ServiceError`) | thư viện ngoài + `frappe`. **CẤM** import `services/**` ở mức module |
-| `assetcore/services/shared/` | nhân nghiệp vụ dùng chung (scope/RBAC, state machine, filters, connection meta) | được import `utils/` |
-
-Lazy-import **bên trong hàm** là lối thoát hợp lệ (không tạo vòng lúc nạp module) — vd `utils/fcm.py` gọi `services.mobile_device_token` chỉ khi gặp dead-token.
+> **Danh sách CẤM đầy đủ** (gốc `tests/`, thiếu `__init__.py`, mã ticket trong tên, đổi tên
+> `patches/`, ghi DB không `FrappeTestCase`, quét thư mục ngoài `guards/`, guard không chốt
+> dân số, tính đường dẫn theo độ sâu) và **ranh giới `utils/` ⇄ `services/shared/`**:
+> skill **`assetcore-structure`** §3–§4 là SSoT — đừng chép lại ở đây.
+> Vì sao mỗi luật tồn tại (hỏng ÂM THẦM): [`../_shared/frappe-invariants.md`](../_shared/frappe-invariants.md).
 
 **Trước khi báo xong:**
 ```bash
@@ -449,7 +447,7 @@ bench --site <site> run-tests --module assetcore.tests.guards.test_test_layout_c
 ## Lessons Learned — bug patterns production (BẮT BUỘC ĐỌC)
 
 > ⚠️ quy tắc **LL-BE-1..63** (always-apply, KHÔNG optional) đã chuyển sang
-> [`references/lessons-learned.md`](references/lessons-learned.md) — whitelist GET param,
+> [`references/rules.md`](references/rules.md) — whitelist GET param,
 > enrich Link field, DocType schema sync, workflow action labels, gate validators,
 > audit trail localize, fixture-leak, null-guard dangling FK, slug-in-display,
 > state reachability, event-driven resolve động (KHÔNG hard-code state/role),
@@ -460,7 +458,8 @@ bench --site <site> run-tests --module assetcore.tests.guards.test_test_layout_c
 > - Feature in **PDF khổ cố định** (tem/nhãn/vé) → `pdfkit`-direct (KHÔNG `get_pdf`) + test assert MediaBox = đúng khổ mm & pypdf page-count (LL-BE-55); bọc binary-call no-500 (LL-BE-56).
 > - Logic theo **enum rủi ro** → cite `field+doctype` nguồn, KHÔNG lẫn `risk_classification` (Low/Med/High/Critical) ↔ `risk_class` (NĐ98 A/B/C/D / Class I/II/III) (LL-BE-58).
 >
-> **BẮT BUỘC: `Read references/lessons-learned.md` TRƯỚC KHI viết/sửa service · API · DocType · workflow.**
+> **BẮT BUỘC: `Read references/rules.md` TRƯỚC KHI viết/sửa service · API · DocType · workflow.** Đó là CHỈ MỤC (1 dòng/bài).
+> Chỉ mở `references/archive/` khi triệu chứng đang gặp khớp một dòng trong chỉ mục — đọc trọn archive là lãng phí, không phải cẩn thận.
 > Bỏ qua = tái phạm bug đã biết.
 
 ---
@@ -498,6 +497,13 @@ bench --site <site> run-tests --module assetcore.tests.guards.test_test_layout_c
 
 ## Verification
 
+> **Mốc DoD của dự án** (áp cho MỌI thay đổi, bổ sung chứ không thay thế checklist dưới đây):
+> [`../_shared/definition-of-done.md`](../_shared/definition-of-done.md)
+
+> **Bẫy Frappe hỏng ÂM THẦM** (autoname · patch · permlevel · rollback · worker stale):
+> [`../_shared/frappe-invariants.md`](../_shared/frappe-invariants.md)
+
+
 Trước khi khai báo BE "xong" — phải có BẰNG CHỨNG (không "có vẻ đúng"):
 - [ ] `bench --site miyano run-tests --module assetcore.tests.test_immXX` xanh (paste output).
 - [ ] `test_workflows` xanh; `EXPECTED_WORKFLOWS` state/transition count đếm từ JSON, không đoán.
@@ -508,12 +514,10 @@ Trước khi khai báo BE "xong" — phải có BẰNG CHỨNG (không "có vẻ
 - [ ] Slice nhỏ: từng entrypoint test xanh + commit riêng; param/feature mới safe-default; quyết định Frappe v15 đã cite (context7) hoặc flag UNVERIFIED.
 - [ ] Workflow fixtures: cập nhật CẢ 3 list (Workflow + State + Action Master) trong cùng commit.
 - [ ] Scheduler/event fn đã wire `hooks.py` (`scheduler_events`/`doc_events`) — verify `bench execute frappe.get_hooks`.
-- [ ] Đã đọc `references/lessons-learned.md` (LL-BE-1..63) trước khi viết — không tái phạm.
+- [ ] Đã đọc `references/rules.md` (chỉ mục LL-BE, 68 bài) trước khi viết — không tái phạm.
 
 ---
 
-## 🔗 Session context — bàn giao phiên (assetcore-session)
+## 🔗 Session context
 
-- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE + file phiên mới nhất (curated; cần truy gốc chi tiết → đọc mục 🪞 Mirror của file phiên) — "đang dở ở đâu"; dữ liệu trong `.claude/contexts/` — gitignored; file phiên ở `sessions/<ngày>/`). Main session: hook tự nạp mỗi prompt + tự **mirror TOÀN BỘ lượt** (prompt+phản hồi+tool) vào file phiên qua hook `Stop`; subagent phải TỰ chạy lệnh này.
-- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY: `STATE.md`(ghi đè) + bồi **semantic** vào file phiên (`session-log.sh current` → path; **KHÔNG còn LOG.md**). Hook `Stop` đã mirror nguyên văn → bạn CHỈ cần tóm Làm/Quyết-định/Để-lại. KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
-- **Ranh giới:** state-tạm-sẽ-hết → `.claude/contexts/` (STATE.md + sessions/<ngày>/); fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.
+Đọc trước / checkpoint sau + ranh giới `contexts/` vs `memory/`: [`../_shared/session-protocol.md`](../_shared/session-protocol.md)

@@ -1,15 +1,17 @@
 ---
 name: assetcore-audit
 description: >
-  Audit, tái cấu trúc và sửa lỗi AssetCore — kiểm tra production-readiness toàn module
-  (BE 3-tier, FE views, workflow, fixtures, tests, docs, permissions, audit trail),
-  đồng thời review security (RBAC, DocPerm, whitelist hygiene, SQL injection, CSRF,
-  vendor isolation, compliance NĐ98/WHO HTM).
-  Dùng khi user nói "audit module", "module IMM-XX sẵn sàng chưa", "thiếu gì",
-  "module gap analysis", "release checklist", "kiểm tra module", "tái cấu trúc",
-  "refactor", "code bị lỗi", "fix bug IMM-XX", "phân quyền sai", "permission", "role",
-  "audit trail", "security review", "vendor không được thấy data", "SQL injection",
-  "CSRF", "rò rỉ data", "compliance". Ưu tiên skill này trước mọi deployment module mới.
+  CHẤM ĐIỂM production-readiness và soát bảo mật một module AssetCore — chỉ KIỂM, không SỬA.
+  Đầu ra là verdict PASS/FAIL kèm danh sách gap có chủ; việc sửa giao lại cho assetcore-be
+  (backend) hoặc assetcore-fe (giao diện). Phủ 8 pillar (3-tier, views, workflow, fixtures,
+  tests, docs, phân quyền, audit trail) + threat model (RBAC, DocPerm, whitelist hygiene,
+  SQL injection, CSRF, cô lập vendor, tuân thủ NĐ98/WHO HTM) + data hygiene.
+  Dùng khi user hỏi "audit module", "module IMM-XX sẵn sàng chưa", "còn thiếu gì",
+  "gap analysis", "release checklist", "rà soát trước bàn giao", "soát bảo mật",
+  "security review", "vendor có thấy dữ liệu bệnh viện khác không", "rò rỉ dữ liệu",
+  "SQL injection", "CSRF", "kiểm tra phân quyền và audit trail", "compliance NĐ98".
+  KHÔNG dùng khi user muốn SỬA một lỗi cụ thể đã biết — đó là assetcore-be / assetcore-fe.
+  Chạy skill này trước mọi lần bàn giao module.
 ---
 # AssetCore Audit — Module Readiness & Security
 
@@ -199,9 +201,10 @@ Verdict: SECURE / NEEDS FIX
 > ⚠️ Các regression class **A–L**, **LL-AUDIT-1..21** (backend/FE/UI checks, anti-false-positive,
 > DocType cross-ref, derived field, dangling FK, slug-in-display, hydration, ROLES stub,
 > permission-denied UI, label sync, raw-code leak…) đã chuyển sang
-> [`references/lessons-learned.md`](references/lessons-learned.md).
+> [`references/rules.md`](references/rules.md).
 >
-> **BẮT BUỘC: `Read references/lessons-learned.md` TRƯỚC KHI chốt verdict audit/security.**
+> **BẮT BUỘC: `Read references/rules.md` TRƯỚC KHI chốt verdict audit/security.** Đó là CHỈ MỤC (1 dòng/bài).
+> Chỉ mở `references/archive/` khi triệu chứng đang gặp khớp một dòng trong chỉ mục — đọc trọn archive là lãng phí, không phải cẩn thận.
 > Bỏ qua = bỏ sót bug đã biết hoặc log false-positive.
 
 ---
@@ -213,7 +216,7 @@ Verdict: SECURE / NEEDS FIX
 | "Module trông ổn rồi, bỏ qua Phần 0 sweep cho nhanh" | 5 phiên test để cùng pattern leak vào prod. Sweep GATE-1..4 chạy ĐẦU mọi audit; <100% clean = verdict không được Pass. |
 | "Pillar nhỏ fail thôi, vẫn cho Pass overall" | Single fail = audit overall FAIL. Hook chain (Pillar 9) Critical = release block per CLAUDE.md §10/§12. |
 | "Tự sửa luôn cho gọn" | Skill này CHỈ verify. Implement = giao `assetcore-be/fe/test/deploy`. Sửa tại chỗ = bỏ qua TDD + audit trail (CLAUDE.md §17). |
-| "Grep ra match là bug, log Critical luôn" | Có false-positive (vd `_name` companion, admin/role-picker page). Đọc `references/lessons-learned.md` anti-FP TRƯỚC khi chốt — log FP = mất uy tín audit. |
+| "Grep ra match là bug, log Critical luôn" | Có false-positive (vd `_name` companion, admin/role-picker page). Đọc `references/rules.md` anti-FP TRƯỚC khi chốt — log FP = mất uy tín audit. |
 | "Tab Lịch sử trống chắc tại ít data" | Thường là hook chain thiếu `triggered_record` / DetailView thiếu AuditTrailTab (RC-05). Chạy Pillar 6 FE-9/FE-10 + Pillar 9 Check 9.4 trước khi kết luận. |
 | "Endpoint có @whitelist là an toàn" | FE ẩn nút nhưng BE thiếu `rbac.require()` = privilege escalation (AUTH-02). Mọi mutating whitelist phải có server-side gate (S-9). |
 | "Data hygiene để lúc deploy lo" | Test record / orphan FK / empty required field leak vào prod-bound site = corruption. DH-1..4 phải = 0 TRƯỚC release tag. |
@@ -227,7 +230,7 @@ Verdict: SECURE / NEEDS FIX
 - Bỏ qua Phần 0 sweep; hoặc GATE-1..4 còn finding mà vẫn chốt Pass.
 - Verdict Pass khi có ≥ 1 Pillar fail (single fail = overall FAIL).
 - Audit "tự sửa" thay vì giao skill thực thi — skill này chỉ verify.
-- Chốt verdict mà chưa `Read references/lessons-learned.md` (bỏ sót regression class / log false-positive).
+- Chốt verdict mà chưa `Read references/rules.md` (bỏ sót regression class / log false-positive).
 - List page không có Create button (🟠); non-terminal state thiếu action button → user kẹt (🔴).
 - Link field hiển thị system code (`SUP-2026-XXXXX`, `ACC-ASS-…`, `email@domain`) thay vì `*_name`.
 - Mutating `@frappe.whitelist` thiếu `rbac.require`/`has_any_role`/`frappe.only_for` (privilege escalation).
@@ -241,10 +244,17 @@ Verdict: SECURE / NEEDS FIX
 
 ## Verification
 
+> **Mốc DoD của dự án** (áp cho MỌI thay đổi, bổ sung chứ không thay thế checklist dưới đây):
+> [`../_shared/definition-of-done.md`](../_shared/definition-of-done.md)
+
+> **Bẫy Frappe hỏng ÂM THẦM** (autoname · patch · permlevel · rollback · worker stale):
+> [`../_shared/frappe-invariants.md`](../_shared/frappe-invariants.md)
+
+
 Trước khi chốt verdict — phải có BẰNG CHỨNG (output thực, không "có vẻ ổn"):
 
 - [ ] Phần 0 sweep GATE-1..4 đã chạy + liệt kê output trong report; cả 4 = 0 mới được Pass.
-- [ ] Đã `Read references/lessons-learned.md` (regression class A–L, LL-AUDIT-1..21) — không bỏ sót, không log false-positive.
+- [ ] Đã `Read references/rules.md` (chỉ mục LL-AUDIT, 22 bài) — không bỏ sót, không log false-positive.
 - [ ] 8 pillar (+ Phần 4–9 mở rộng) đã chạy từng check trong `references/module-audit-pillars.md`; mỗi pillar có verdict PASS/FAIL + gap cụ thể.
 - [ ] UC-1..UC-5 verify trên FE thực (Create button, detail+workflow buttons, asset tabs, `*_name`, naming series).
 - [ ] Security: mọi mutating service/whitelist có gate (Layer 1 + S-9); injection/vendor-isolation/audit-integrity clean (`references/security-audit.md`).
@@ -317,8 +327,6 @@ Mọi review code đi qua 5 trục (map severity §1):
 
 ---
 
-## 🔗 Session context — bàn giao phiên (assetcore-session)
+## 🔗 Session context
 
-- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE + file phiên mới nhất (curated; cần truy gốc chi tiết → đọc mục 🪞 Mirror của file phiên) — "đang dở ở đâu"; dữ liệu trong `.claude/contexts/` — gitignored; file phiên ở `sessions/<ngày>/`). Main session: hook tự nạp mỗi prompt + tự **mirror TOÀN BỘ lượt** (prompt+phản hồi+tool) vào file phiên qua hook `Stop`; subagent phải TỰ chạy lệnh này.
-- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY: `STATE.md`(ghi đè) + bồi **semantic** vào file phiên (`session-log.sh current` → path; **KHÔNG còn LOG.md**). Hook `Stop` đã mirror nguyên văn → bạn CHỈ cần tóm Làm/Quyết-định/Để-lại. KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
-- **Ranh giới:** state-tạm-sẽ-hết → `.claude/contexts/` (STATE.md + sessions/<ngày>/); fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.
+Đọc trước / checkpoint sau + ranh giới `contexts/` vs `memory/`: [`../_shared/session-protocol.md`](../_shared/session-protocol.md)

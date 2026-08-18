@@ -139,7 +139,22 @@ toàn cây app, nên **bất kỳ** `test_*.py` ở đâu cũng bị nhặt làm
 | Tích hợp / khởi động / route | `src/integration/` | `<luong>.integration.test.ts` |
 
 `<Nguồn>` khớp **chính xác** tên file nguồn ở **thư mục cha** của `tests/`.
-**CẤM:** đặt test ngang hàng file nguồn · `__tests__/` · `.spec.ts` · `tests/` mồ côi.
+**CẤM:** đặt test ngang hàng file nguồn · `__tests__/` · `.spec.ts` · `tests/` mồ côi ·
+mã ticket trong **tên file** (`acr92`, `AC-CR-…` → đưa vào `describe()`/`it()`).
+
+Sáu ca sai thật đã gặp — đối chiếu trước khi đặt tên:
+
+| ❌ Sai | ✅ Đúng | Vì sao |
+|---|---|---|
+| `components/common/smartSelectResilience.test.ts` | `components/common/tests/SmartSelect.resilience.test.ts` | nguồn là `SmartSelect.vue`; tên phải nói ra nguồn **và** phải nằm trong `tests/` |
+| `views/asset/assetScanInfoSerial.test.ts` | `views/asset/tests/AssetScanInfoView.serial.test.ts` | như trên |
+| `views/cm/CMCreateView.test.ts` | `views/cm/tests/CMCreateView.test.ts` | tên đúng nhưng **sai chỗ** — không đặt ngang hàng nguồn |
+| `views/detailShellAdoption.test.ts` | `guards/detailShellAdoption.guard.test.ts` | quét `SRC/views` ⇒ là guard |
+| `api/connectionsLegacyKeysRetired.acr92.test.ts` | `guards/connectionsLegacyKeys.guard.test.ts` | đọc đĩa ⇒ guard; **bỏ mã ticket khỏi tên** |
+| `App.auth.test.ts` | `integration/appAuth.integration.test.ts` | mount cả app + router ⇒ test khởi động |
+
+`src/guards/` và `src/integration/` **KHÔNG** thêm tầng `tests/` — bản thân chúng đã là nhà
+test riêng, không có file nguồn nào lẫn vào.
 
 ### 4.2 Backend — **bốn nhà**
 
@@ -231,6 +246,10 @@ cần làm là **sửa mã, không phải sửa sổ**.
 
 ## Verification
 
+> **Mốc DoD của dự án** (áp cho MỌI thay đổi, bổ sung chứ không thay thế checklist dưới đây):
+> [`../_shared/definition-of-done.md`](../_shared/definition-of-done.md)
+
+
 Trước khi báo xong việc có tạo/dời file:
 
 - [ ] Mỗi file mới đã tra bảng §2–§5 và nằm đúng nhà, đúng khuôn tên.
@@ -254,5 +273,4 @@ Trước khi báo xong việc có tạo/dời file:
 
 ## 🔗 Session context
 
-- **Trước khi xử lý/sửa BẤT KỲ việc gì:** `.claude/scripts/session-log.sh show`.
-- **Sau MỖI việc đáng kể:** invoke `assetcore-session` checkpoint ngay.
+Đọc trước / checkpoint sau + ranh giới `contexts/` vs `memory/`: [`../_shared/session-protocol.md`](../_shared/session-protocol.md)

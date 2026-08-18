@@ -77,7 +77,7 @@ Common columns layout:
 
 ## Responsive (mobile-first)
 
-> DoD bắt buộc — xem `lessons-learned.md` LL-FE-34 + ADR-IMM00-RESPONSIVE. Breakpoint Tailwind DEFAULT (`sm:640 md:768 lg:1024 xl:1280`), KHÔNG custom px, KHÔNG PWA. Mobile-first: base = mobile, thêm `sm:`/`md:`/`lg:`.
+> DoD bắt buộc — xem `rules.md` LL-FE-34 + ADR-IMM00-RESPONSIVE. Breakpoint Tailwind DEFAULT (`sm:640 md:768 lg:1024 xl:1280`), KHÔNG custom px, KHÔNG PWA. Mobile-first: base = mobile, thêm `sm:`/`md:`/`lg:`.
 
 **P1 — List = table→card** (desktop table `hidden sm:block`; mobile `mobile-card-list sm:hidden`):
 

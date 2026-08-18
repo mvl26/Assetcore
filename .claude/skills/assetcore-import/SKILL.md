@@ -3,13 +3,15 @@ name: assetcore-import
 description: >
   Phát triển tính năng import dữ liệu hàng loạt cho AssetCore — bao gồm
   BE validation layer (pre-validation + post-processing), API endpoints import,
-  và FE Import Wizard (Vue 3, 4-bước). Dùng khi user nói "import dữ liệu",
-  "bulk import", "upload excel", "import tài sản", "import NCC", "import model",
-  "import user", "import phụ tùng", "import kho", "wizard import",
-  "template import", "validation import", "pre-validate", "post-process import",
-  "ImportWizardView", "useImport", "import_validators", "import_postprocess",
-  "api/import_data", "tính năng import", "nhập dữ liệu hàng loạt".
-  LUÔN dùng skill này khi task liên quan đến bất kỳ phần nào của import pipeline.
+  và FE Import Wizard (Vue 3, 4-bước). Dùng khi user nói "import", "nhập hàng loạt",
+  "nhập từ file excel", "upload excel", "bulk import", "wizard import",
+  "template import", "file mẫu để nhập", "xuất ra rồi nhập lại", "validation import",
+  "pre-validate", "post-process import", "ImportWizardView", "useImport",
+  "import_validators", "import_postprocess", "api/import_data", "bỏ qua dòng lỗi",
+  "báo lỗi đúng hàng cột".
+  Điều kiện kích hoạt là **luồng nhập hàng loạt qua file**, không phải loại dữ liệu được
+  nhập — tạo màn danh sách/chi tiết cho cùng thực thể đó là assetcore-fe, viết service
+  cho nó là assetcore-be.
 ---
 
 # AssetCore Import Feature — Development Guide
@@ -184,6 +186,13 @@ Tổng hợp từ "Phần 3 — Anti-patterns". Chi tiết đầy đủ giữ tr
 
 ## Verification
 
+> **Mốc DoD của dự án** (áp cho MỌI thay đổi, bổ sung chứ không thay thế checklist dưới đây):
+> [`../_shared/definition-of-done.md`](../_shared/definition-of-done.md)
+
+> **Hợp đồng BE↔FE** (envelope · 3 bẫy status-line · grep symbol phía kia khi chạy song song):
+> [`../_shared/contracts.md`](../_shared/contracts.md)
+
+
 Tổng hợp từ "Phần 7 — Checklist trước khi xong". Trước khi khai báo import "xong":
 
 **BE**
@@ -234,8 +243,6 @@ Tổng hợp từ "Phần 7 — Checklist trước khi xong". Trước khi khai 
 
 ---
 
-## 🔗 Session context — bàn giao phiên (assetcore-session)
+## 🔗 Session context
 
-- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE + file phiên mới nhất (curated; cần truy gốc chi tiết → đọc mục 🪞 Mirror của file phiên) — "đang dở ở đâu"; dữ liệu trong `.claude/contexts/` — gitignored; file phiên ở `sessions/<ngày>/`). Main session: hook tự nạp mỗi prompt + tự **mirror TOÀN BỘ lượt** (prompt+phản hồi+tool) vào file phiên qua hook `Stop`; subagent phải TỰ chạy lệnh này.
-- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY: `STATE.md`(ghi đè) + bồi **semantic** vào file phiên (`session-log.sh current` → path; **KHÔNG còn LOG.md**). Hook `Stop` đã mirror nguyên văn → bạn CHỈ cần tóm Làm/Quyết-định/Để-lại. KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
-- **Ranh giới:** state-tạm-sẽ-hết → `.claude/contexts/` (STATE.md + sessions/<ngày>/); fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.
+Đọc trước / checkpoint sau + ranh giới `contexts/` vs `memory/`: [`../_shared/session-protocol.md`](../_shared/session-protocol.md)
