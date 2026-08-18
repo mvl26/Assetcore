@@ -9,7 +9,8 @@ Claude có **2 lớp memory** cho dự án này — luôn tham chiếu, KHÔNG t
 | **Durable memory** (`memory/MEMORY.md` + file fact) | Fact bền vững: preference, lesson, nguyên tắc, scope. Auto-load mỗi phiên. | Tra khi cần kiến thức "đúng-mãi". |
 | **Session context** (`.claude/contexts/STATE.md` chung + `sessions/<file>` MỖI PHIÊN 1 FILE, skill `assetcore-session`) | State tạm: đang-dở-ở-đâu (STATE) + nội dung từng phiên (yêu cầu/việc/quyết định) trong file phiên riêng. TRONG repo nhưng GITIGNORED (local-only, không commit). Chống compact: `SessionStart` matcher gồm `compact` + `UserPromptSubmit→on-prompt` ghi prompt thô vào file phiên. | **ĐỌC trước khi xử lý/sửa BẤT KỲ việc gì; GHI checkpoint sau MỖI việc đáng kể.** |
 
-- Đọc session context: `.claude/scripts/session-log.sh show` (main session: hook tự nạp mỗi prompt + sau compact; subagent phải tự chạy).
+- Đọc session context: `.claude/scripts/session-log.sh show` (main session: hook tự nạp mỗi prompt + sau compact; subagent chạy ĐỘC LẬP phải tự chạy — subagent **trong factory thì KHÔNG**, orchestrator đã truyền sẵn). Cần toàn văn: `show --full`.
+- **Chưa rõ dùng skill nào → skill `assetcore-router`** (bản đồ định tuyến + 6 hành vi vận hành). Luật chung: nạp thứ sắp dùng, không nạp "cho chắc"; reference mở theo triệu chứng, không đọc trọn.
 - Ranh giới: sẽ-hết-khi-việc-xong → `.claude/contexts/`; đúng-mãi-về-sau → `memory/`.
 - Ghi/đọc per-request để **nhất quán khi sửa + tránh lỗi đã biết** (CLAUDE.md §17, §20).
 
@@ -179,4 +180,9 @@ QC → PR → WI → BM → HS → KPI
 - Chỉ giữ thông tin lâu dài
 - Update khi có pattern mới
 - Không chứa: API key / log / runtime data
+- **Sửa bất kỳ file nào trong `.claude/` (skill · agent · command · workflow) → chạy 3 lệnh:**
+  `node .claude/scripts/validate-claude-config.js --check` (cấu trúc, tham chiếu chết, ép-đọc-trọn) ·
+  `node .claude/scripts/run-evals.js --check` (định tuyến: mô tả không được chồng nhau) ·
+  `node .claude/scripts/test-factory-engine.js` (nếu đụng engine). Cả 3 nằm trong
+  `assetcore/tests/guards/test_claude_config_budget.py`. Spec: `docs/architecture/SPEC_chuan_hoa_claude_config.md`.
 - **Dọn rác sau khi "làm xong"** (factory run / Playwright eval / scratch debug): chạy `bash .claude/scripts/tidy-eval-artifacts.sh` → ảnh eval về `.playwright/eval/` (gitignored), xoá scratch (`_scan_junk*`, `*.py.tmp.*`, MCP `page-*.yml`/`*.log`). KHÔNG để ảnh/junk ở repo root (R-11 commit risk). Asset thật (swagger favicon, FE/docs img) ≠ rác.
