@@ -1,0 +1,11 @@
+{ "skill_name": "assetcore-test",
+  "trigger": {
+    "positive": [
+      { "prompt": "viết test cho service imm08 rồi chạy bench run-tests", "top_k": 2 },
+      { "prompt": "kiểm thử giao diện bằng playwright xem màn hình đã xong chưa", "top_k": 2 },
+      { "prompt": "test đang fail, TDD cho tính năng mới", "top_k": 2 }
+    ],
+    "negative": [
+      { "prompt": "tạo DocType mới và workflow cho module", "owner": "assetcore-be" },
+      { "prompt": "module này đã production-ready chưa, thiếu gì", "owner": "assetcore-audit" }
+    ] } }

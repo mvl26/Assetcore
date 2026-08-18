@@ -1,0 +1,9 @@
+{ "skill_name": "assetcore-observe",
+  "trigger": {
+    "positive": [
+      { "prompt": "thêm structured log và metric cho endpoint whitelist", "top_k": 2 },
+      { "prompt": "Email Queue đầy và scheduler chết, không có cảnh báo gì", "top_k": 2 }
+    ],
+    "negative": [
+      { "prompt": "API chậm quá, tối ưu hiệu năng đi", "owner": "assetcore-perf" }
+    ] } }

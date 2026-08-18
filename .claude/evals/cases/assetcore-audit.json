@@ -1,0 +1,11 @@
+{ "skill_name": "assetcore-audit",
+  "trigger": {
+    "positive": [
+      { "prompt": "module IMM-09 sẵn sàng release chưa, còn thiếu gì", "top_k": 2 },
+      { "prompt": "kiểm tra vendor có thấy được dữ liệu của bệnh viện khác không", "top_k": 2 },
+      { "prompt": "soát lại phân quyền và audit trail toàn module trước khi bàn giao", "top_k": 2 }
+    ],
+    "negative": [
+      { "prompt": "sửa lỗi danh sách tài sản rỗng cho kỹ thuật viên", "owner": "assetcore-be" },
+      { "prompt": "nút duyệt không hiện trên màn chi tiết bảo trì", "owner": "assetcore-fe" }
+    ] } }

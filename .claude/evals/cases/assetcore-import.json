@@ -1,0 +1,9 @@
+{ "skill_name": "assetcore-import",
+  "trigger": {
+    "positive": [
+      { "prompt": "import tài sản hàng loạt từ file excel", "top_k": 2 },
+      { "prompt": "làm wizard nhập dữ liệu và template import nhà cung cấp", "top_k": 2 }
+    ],
+    "negative": [
+      { "prompt": "tạo view danh sách tài sản có bộ lọc", "owner": "assetcore-fe" }
+    ] } }

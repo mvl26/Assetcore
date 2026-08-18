@@ -1,0 +1,9 @@
+{ "skill_name": "assetcore-perf",
+  "trigger": {
+    "positive": [
+      { "prompt": "trang danh sách 1430 tài sản load chậm quá", "top_k": 2 },
+      { "prompt": "query bị N+1 và thiếu index, API p95 cao", "top_k": 2 }
+    ],
+    "negative": [
+      { "prompt": "không biết production đang chạy gì, cần thêm log", "owner": "assetcore-observe" }
+    ] } }

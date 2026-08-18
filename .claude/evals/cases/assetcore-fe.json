@@ -1,0 +1,11 @@
+{ "skill_name": "assetcore-fe",
+  "trigger": {
+    "positive": [
+      { "prompt": "tạo view chi tiết IMM-09 với các nút workflow", "top_k": 2 },
+      { "prompt": "thêm bộ lọc và phân trang cho bảng danh sách tài sản", "top_k": 3 },
+      { "prompt": "viết Pinia store và API client cho màn phiếu sửa chữa", "top_k": 2 }
+    ],
+    "negative": [
+      { "prompt": "thêm endpoint trả về KPI cho dashboard", "owner": "assetcore-be" },
+      { "prompt": "chạy kiểm thử giao diện bằng playwright", "owner": "assetcore-test" }
+    ] } }
