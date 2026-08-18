@@ -57,6 +57,8 @@ const ITEM = {
   be_tasks: ['emit create_prefill', 'gate create_incident'],
   fe_tasks: ['tiêu thụ create_prefill'],
   test_cases: ['TC1'],
+  needs_ux_review: true,
+  goal_met: false,
 }
 
 const failures = []
@@ -173,6 +175,54 @@ function check(name, cond, detail) {
     !(gap.items_done || []).length && JSON.stringify(gap.items_unfinished || []).includes('create_prefill'),
     `items_done=${JSON.stringify(gap.items_done)} unfinished=${JSON.stringify(gap.items_unfinished)}`
   )
+
+
+  // ── INV-9..13: định tuyến vai + dừng-khi-đạt-mục-tiêu + không paraphrase ──────
+  const seenLabels = []
+  const allPrompts = []
+  const mkAgent = (item) => async (prompt, opts = {}) => {
+    const label = opts.label || ''
+    seenLabels.push(label)
+    allPrompts.push(prompt)
+    if (label === 'carry-over') return { carryover: '(STATE trống)' }
+    if (label === 'intake-goal') return { goal_ready: false, goal: '', acceptance: [], open_questions: ['q'] }
+    if (label.endsWith('·PM')) return item
+    if (label.endsWith('·BE') || label.endsWith('·FE'))
+      return { did_work: true, files_changed: ['x.ts'], summary: 'ok', open_issues: [], landed_symbols: ['s → x.ts:1'], contract_unverified: [] }
+    if (label.includes('QA'))
+      return { tests_ran: true, tests_green: true, command: 'c', totals: 'Ran 1 OK', failures: [], summary: 'xanh', disk_verified: ['acceptance → x.ts:1'], pre_existing_failures: [] }
+    if (label.endsWith('·USER')) return { ux_findings: [], backlog_next: [], verdict: 'ship' }
+    if (label === 'verify-claims') return { landed: ['s → x.ts:1'], unlanded: [] }
+    return {}
+  }
+
+  // Chỉ có việc FE, không cần review UX → engine phải BỎ QUA cả [BE] lẫn [USER]
+  seenLabels.length = 0; allPrompts.length = 0
+  const feOnly = { ...ITEM, be_tasks: [], fe_tasks: ['sửa nhãn VI'], needs_core_doc: false, needs_ux_review: false, goal_met: false }
+  const feRun = await runEngine({ agent: mkAgent(feOnly), parallelImpl: parallelNullOnThrow, argsValue: { rounds: 1 } })
+  check('INV-9 task chỉ-FE ⇒ KHÔNG spawn agent [BE]',
+    !seenLabels.some((l) => l.endsWith('·BE')), `labels=${JSON.stringify(seenLabels)}`)
+  check('INV-10 needs_ux_review=false ⇒ KHÔNG spawn agent [USER]',
+    !seenLabels.some((l) => l.endsWith('·USER')), `labels=${JSON.stringify(seenLabels)}`)
+  check('INV-11 mọi prompt trong vòng đều cấm agent tự đọc STATE',
+    allPrompts.filter((p) => /^\[(BA|BE|FE|QA|USER|PM)\]/.test(p)).every((p) => p.includes('KHÔNG chạy `session-log.sh show`')),
+    'thiếu chỉ thị NO_STATE_READ ở ít nhất 1 prompt vai')
+
+  // goal_met=true ngay vòng 1 ⇒ dừng sớm, không chạy nốt 4 vòng còn lại
+  seenLabels.length = 0
+  const doneItem = { ...ITEM, goal_met: true }
+  const early = await runEngine({ agent: mkAgent(doneItem), parallelImpl: parallelNullOnThrow, argsValue: { rounds: 5 } })
+  check('INV-12 goal_met=true ⇒ dừng sớm, không chạy hết số vòng',
+    early.result.rounds_run === 1 && !seenLabels.some((l) => l.endsWith('·QA')),
+    `rounds_run=${early.result.rounds_run} labels=${JSON.stringify(seenLabels)}`)
+
+  // Prompt PM vòng 2 KHÔNG được nhồi JSON của vòng trước (anti-pattern paraphrase)
+  seenLabels.length = 0; allPrompts.length = 0
+  await runEngine({ agent: mkAgent({ ...ITEM, needs_ux_review: false }), parallelImpl: parallelNullOnThrow, argsValue: { rounds: 2 } })
+  const pmPrompts = allPrompts.filter((p) => p.startsWith('[PM]'))
+  check('INV-13 prompt PM không nhồi JSON vòng trước (truyền con trỏ, không paraphrase)',
+    pmPrompts.length >= 2 && !pmPrompts.some((p) => p.includes('"did_work"') || p.includes('"files_changed"')),
+    `pmPrompts=${pmPrompts.length}`)
 
   for (const c of checks) console.log(`${c.ok ? '  ok  ' : ' FAIL '} ${c.name}${c.ok ? '' : ' :: ' + c.detail}`)
   console.log(`\n${checks.length - failures.length}/${checks.length} bất biến xanh`)
