@@ -168,34 +168,72 @@ _mirror_turns() {
 cmd_init()    { ensure_skeleton; echo "session store ready: $SESS_DIR (sessions/<ngày>/ per-phiên, keyed by session_id)"; }
 cmd_current() { ensure_skeleton; _resolve_file "$(_read_payload)"; }
 
+# Cây định tuyến của assetcore-router — tri thức ỔN ĐỊNH, đáng nạp mỗi phiên.
+# (Trái ngược với file phiên: biến động, dài, chỉ cần khi thật sự truy gốc.)
+_router_tree() {
+  local r="$REPO_DIR/.claude/skills/assetcore-router/SKILL.md"
+  [[ -f "$r" ]] || return 0
+  echo "---------------- ĐỊNH TUYẾN SKILL (assetcore-router) ----------------"
+  awk '/^## Cây định tuyến/{p=1} /^\*\*Chọn nhầm hay gặp/{exit} p' "$r"
+  echo "> Đầy đủ (bảng tra + 6 hành vi vận hành): invoke skill \`assetcore-router\`."
+  echo ""
+}
+
+# show      = payload MẶC ĐỊNH cho SessionStart: định tuyến + STATE + CON TRỎ tới file phiên.
+# show --full = thêm phần curated của file phiên (chỉ khi thật sự cần truy gốc).
+#
+# File phiên KHÔNG được đổ vào mỗi SessionStart: nó là thứ nặng nhất và hiếm khi
+# cần trọn vẹn. Trỏ đường dẫn để đọc có chủ đích rẻ hơn nhiều lần.
 cmd_show() {
   ensure_skeleton
-  local payload f; payload="$(_read_payload)"
+  local payload f full=0; payload="$(_read_payload)"
+  [[ "${1:-}" == "--full" ]] && full=1
   echo "================ SESSION CONTEXT (assetcore-session) ================"
   echo ">> BẮT BUỘC đọc trước khi xử lý tiếp bất kỳ yêu cầu nào. Context CHỈ local — không commit."
   echo "===================================================================="
   echo ""
-  cat "$STATE_FILE"
+  _router_tree
+  if [[ $full -eq 1 ]]; then
+    cat "$STATE_FILE"
+  else
+    # Mặc định chỉ nạp phần "làm gì BÂY GIỜ". 🟡 backlog và 🧠 decisions dài và chỉ
+    # cần khi lập kế hoạch — trỏ đường dẫn rẻ hơn đổ nội dung mỗi lần compact.
+    awk '
+      /^#{2,3} (🟡|🧠)/ {p=0; skipped=1}
+      /^#{2,3} (🔴|▶️|📝)/ {p=1}
+      /^---$/ && NR<12 {print; next}
+      NR<12 {print; next}
+      p {print}
+      END { if (skipped) print "\n> 🟡 Open threads (backlog) và 🧠 Decisions chờ promote: đọc `.claude/contexts/STATE.md`\n> hoặc `session-log.sh show --full` khi lập kế hoạch vòng kế." }
+    ' "$STATE_FILE"
+  fi
   f="$(_resolve_file "$payload")"
   if [[ -n "$f" ]]; then
     echo ""
-    echo "------------- Phiên gần nhất: $(basename "$f") (đọc để tiếp đúng yêu cầu) -------------"
-    # Inject only the CURATED part (🎯 + raw + semantic) — stop at the mirror
-    # anchor so a huge full-turn mirror does not flood every session start.
-    awk -v re="$MIRROR_ANCHOR_RE" '
-      $0 ~ re {print "\n> (Mirror TOÀN BỘ lượt nằm ở cuối file — đọc trực tiếp file khi cần truy gốc đầy đủ.)"; exit}
-      {print}
-    ' "$f"
+    if [[ $full -eq 1 ]]; then
+      echo "------------- Phiên gần nhất: $(basename "$f") -------------"
+      awk -v re="$MIRROR_ANCHOR_RE" '
+        $0 ~ re {print "\n> (Mirror TOÀN BỘ lượt nằm ở cuối file — đọc trực tiếp file khi cần truy gốc đầy đủ.)"; exit}
+        {print}
+      ' "$f"
+    else
+      echo "------------- Phiên gần nhất -------------"
+      echo "  $f"
+      echo "  ($(wc -l < "$f") dòng) — \`Read\` file này khi cần nối tiếp chi tiết,"
+      echo "  hoặc \`session-log.sh show --full\` để nạp phần curated."
+    fi
   fi
 }
 
 cmd_brief() {
   ensure_skeleton
   echo "[session-context] BẮT BUỘC: đọc context trước khi sửa/quyết định; ghi lại sau mỗi việc đáng kể. (đầy đủ: session-log.sh show)"
+  # Mỗi prompt chỉ nhắc 🔴 BLOCKERS — thứ mà quên là làm lại từ đầu.
+  # 🟡/▶️ để dành cho `show` (đầu phiên), tránh trả tiền mỗi lượt cho thông tin ít đổi.
   awk '
-    /^## (🔴|🟡|▶️)/ {p=1}
-    /^## (🧠|📝)/ {p=0}
-    p {print}
+    /^#{2,3} 🔴/ {p=1; n=0}
+    /^#{2,3} (🟡|▶️|🧠|📝|✅)/ {p=0}
+    p && n < 30 {print; n++}
   ' "$STATE_FILE"
 }
 
@@ -223,7 +261,7 @@ cmd_breadcrumb() {
 
 case "${1:-}" in
   init)       cmd_init ;;
-  show)       cmd_show ;;
+  show)       shift; cmd_show "$@" ;;
   brief)      cmd_brief ;;
   on-prompt)  cmd_on_prompt ;;
   mirror)     cmd_mirror ;;
