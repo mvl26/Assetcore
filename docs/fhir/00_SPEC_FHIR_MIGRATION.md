@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Mã hồ sơ** | `AC-FHIR-001` (namespace MỚI — đã grep xác nhận chưa ai dùng) |
-| **Trạng thái** | 🟡 **DRAFT — CHỜ DUYỆT.** Không được viết dòng mã nào trước khi user duyệt (cổng Phase 1 → Phase 2). |
+| **Trạng thái** | 🟢 **ĐÃ DUYỆT — ĐỢT 0 ĐANG THI HÀNH** (user mở cổng 2026-08-18). Nền đã land; xem §19. |
 | **Ngày lập** | 2026-08-05 |
 | **Nhánh** | `feature/hieuc/core-refinement` |
 | **Phiên bản chuẩn** | HL7 FHIR **R4 — 4.0.1** (normative) |
@@ -494,3 +494,49 @@ TDD bắt buộc (CLAUDE.md §17): test đỏ trước, mã sau.
 |---|---|
 | 2026-08-05 | Lập spec. Đã đo hiện trạng từ đĩa; đã xác minh cơ chế định tuyến (`hooks.py:470`), envelope (`utils/response.py:92`), 15 mã lỗi, 8 DocType có tên không hợp lệ làm FHIR `id`. Chờ user duyệt. |
 | 2026-08-05 (bổ sung) | **Động lực làm rõ: liên thông MỞ với bất kỳ hệ nào, không có đối tác cụ thể.** Hệ quả đã áp vào spec: đóng Q1, mở Q1′ (vai client?) · thêm giả định #9/#10 · thêm **§5.2 bảy luật liên thông mở** · nâng R1 từ "rủi ro cao" lên "chắc chắn" kèm đề nghị giữ native cho nhóm C · Q6 chuyển từ câu hỏi thông tin sang câu hỏi quyết định · Đợt 1 gánh thêm trọn bộ tham số tìm kiếm chuẩn, Đợt 2 thêm Bulk `$export` · thêm TC-12/13/14 · TC-9 đổi từ "đối tác ký biên bản" sang "**client lạ nối được**". |
+
+---
+
+## §19. NHẬT KÝ THI HÀNH
+
+### Đợt 0 — nền (2026-08-18) · phần KHÔNG cần cổng duyệt
+
+| Thành phần | File | Ghi chú |
+|---|---|---|
+| Gói FHIR | `assetcore/fhir/__init__.py` | ranh giới: cấm `import utils.response` |
+| Từ điển mã | `fhir/terminology/code_systems.py` | `SYS_UDI_ISSUER = None` — **chưa chốt Q3**, mapper không được bịa |
+| Hợp đồng phản hồi | `fhir/response.py` | resource trần · `OperationOutcome` · **status ở status line** · `Bundle searchset` |
+| Bảng dispatch | `fhir/dispatch.py` | SSoT; `register()` chặn type trùng + tương tác ngoài R4 |
+| Bản khai năng lực | `fhir/conformance/capability.py` | **SINH** từ dispatch, không viết tay |
+| Phân trang | `fhir/search/paging.py` | `order_by()` **luôn** kèm tiebreaker `name` |
+| Điều phối | `fhir/router.py` + `www/fhir_router.py` + `hooks.py` | khuôn giống `/assetcore/<path>` đã chạy tốt |
+
+**Guard (đặt ở `tests/guards/` — xem sai khác #1):**
+`test_fhir_no_envelope.py` (4 TC) · `test_fhir_capability_parity.py` (5 TC).
+**4 phép thử âm tính đều ĐỎ đúng luật:** mapper import `utils/response` · mã dựng khoá `success` · `CapabilityStatement` khai type không có trong dispatch · khai tương tác ngoài valueset R4.
+
+**Bằng chứng:** `bench run-tests --app assetcore` = `Ran 4787` — **0 lỗi mới** (7 lỗi còn lại đều có từ trước đợt này).
+
+#### Sai khác có chủ ý so với §10
+
+1. **Guard đặt ở `tests/guards/`, không phải `tests/fhir/`.** §10 viết trước đợt chuẩn hoá cấu trúc; quy ước hiện hành (skill `assetcore-structure`) đặt **mọi** test đọc đĩa/parity vào `tests/guards/`. `tests/fhir/` vẫn dành cho **golden-file test của mapper** ở Đợt 1.
+2. **Chưa tạo `AC FHIR Identity`, chưa thêm phụ thuộc, chưa cắm SMART auth** — cả ba nằm trong §14 "HỎI TRƯỚC" và cần `bench migrate` (HARD-STOP). Đợt 0 vì thế land phần nền không cần cổng; phần còn lại chờ user.
+
+#### 🔴 Đính chính số đo nợ 3-tier
+
+Sổ nợ công bố **607** ngày 2026-08-14 đo bằng **regex trên văn bản** nên đếm cả chú thích —
+`api/imm11.py:6` có đúng dòng `# KHÔNG gọi frappe.db.* hay frappe.get_doc trực tiếp`
+(một lời nhắc TUÂN THỦ) và bị tính thành vi phạm.
+
+**Nợ thật đo lại bằng AST: 510.** `imm11.py` và `imm14.py` **vốn đã sạch**.
+Đây là **cùng class-of-bug** với guard FHIR no-envelope phát hiện cùng ngày:
+*guard soi văn bản không phân biệt được "mã vi phạm" với "câu văn nói về vi phạm".*
+Cả hai guard nay đếm bằng AST.
+
+Đã trả 3 nợ thật rẻ nhất trong cùng đợt (đúng yêu cầu "phần nào không thuộc api thì đẩy sang services"):
+
+| Nợ | Chuyển thành | Còn lại |
+|---|---|---|
+| `api/imm10.py:81` `frappe.db.exists` | `services/imm10.asset_exists()` | |
+| `api/imm15.py:281,284` 2× `frappe.db.get_value` cùng 1 hàng | `services/imm15.get_spare_part_display()` — gộp còn **1** truy vấn | |
+| | | **510 → 507**, file vi phạm **17 → 15** |
