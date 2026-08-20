@@ -265,6 +265,7 @@ def check_part_availability(spare_part: str = "", warehouse: str = "",
                             items: str = "",
                             include_alternatives: int = 0) -> dict:
     """§3.11 GET check_part_availability — supports single & bulk."""
+    from assetcore.services.imm15 import get_spare_part_display
     from assetcore.services.inventory import get_available_qty
     try:
         if items:
@@ -278,16 +279,16 @@ def check_part_availability(spare_part: str = "", warehouse: str = "",
                 sufficient = avail >= qty
                 if not sufficient:
                     all_ok = False
-                part_class = frappe.db.get_value("AC Spare Part", sp, "imm_part_class")
+                display = get_spare_part_display(sp)
                 results.append({
                     "spare_part": sp,
-                    "part_name": frappe.db.get_value("AC Spare Part", sp, "part_name") or sp,
+                    "part_name": display["part_name"],
                     "qty_on_hand": avail,
                     "reserved_qty": 0,
                     "available_qty": avail,
                     "qty_needed": qty,
                     "sufficient": sufficient,
-                    "imm_part_class": part_class,
+                    "imm_part_class": display["imm_part_class"],
                     "imm_alternative_parts": [],
                 })
             return _ok({"warehouse": warehouse, "results": results,

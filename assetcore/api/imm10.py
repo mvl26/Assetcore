@@ -78,7 +78,7 @@ def check_asset_recall(token: str = "", asset: str = ""):
         resolved = _svc_resolve_qr_token(token)
         if resolved:
             asset_name = resolved.get("name")
-    elif asset and frappe.db.exists(_DT_ASSET, asset):
+    elif asset and svc.asset_exists(asset):
         asset_name = asset
     # 3. 404 leak-safe — KHÔNG phân biệt "token sai" vs "asset không tồn tại".
     if not asset_name:
