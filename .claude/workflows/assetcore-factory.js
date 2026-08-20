@@ -208,6 +208,29 @@ if (RAW_GOAL && goalOk) {
   }
 }
 const HAS_PLAN = !!(planned && planned.task_count > 0)
+
+// ── Cổng duyệt DUY NHẤT — mô hình `/build` vs `/build auto` ──────────────────
+// Workflow chạy headless, không hỏi giữa chừng được. Nên "cổng duyệt" hiện thực
+// bằng cách DỪNG SAU KHI lập kế hoạch và trả kế hoạch về cho USER; USER duyệt thì
+// chạy lại với `auto: true`. TASKS.md nằm trên đĩa nên không mất gì khi dừng.
+const AUTO = A.auto === true || A.auto === 'true' || A.auto === 'auto'
+if (HAS_PLAN && !AUTO) {
+  log(`⏸ CỔNG DUYỆT — đã lập ${planned.task_count} task. Dừng để USER xem trước khi chạy.`)
+  return {
+    stopped_for_approval: true,
+    goal_file: GOAL_MD,
+    tasks_file: TASKS_MD,
+    task_count: planned.task_count,
+    task_ids: planned.task_ids || [],
+    plan_summary: planned.summary || '',
+    rounds_requested: ROUNDS,
+    mode: MODE,
+    next_step:
+      `USER đọc ${GOAL_MD} và ${TASKS_MD}. Duyệt rồi chạy lại CÙNG args + \`auto: true\` ` +
+      `để thi hành (kế hoạch đã nằm trên đĩa, không phải lập lại). Muốn bỏ cổng duyệt ngay từ đầu: \`/factory auto "<yêu cầu>"\`.`,
+    commit_status: 'KHÔNG commit — chưa chạy vòng nào.',
+  }
+}
 const PLAN_PTR = HAS_PLAN
   ? `\nKẾ HOẠCH RUN nằm trên ĐĨA: \`${TASKS_MD}\` (mục tiêu: \`${GOAL_MD}\`). ĐỌC file đó để lấy task pending kế tiếp — ` +
     `đừng dựa vào tóm tắt trong prompt, đĩa mới là sự thật.`
@@ -257,7 +280,13 @@ for (let r = 1; r <= ROUNDS; r++) {
   if (!item) { log(`R${r}: PM không trả được đề mục → bỏ vòng`); history.push({ round: r, skipped: 'no_item' }); continue }
 
   // ĐIỀU KIỆN DỪNG #1 — ĐẠT MỤC TIÊU. Hết việc thì dừng, không chạy cho đủ số vòng.
-  if (item.goal_met) {
+  // CHỈ có nghĩa khi có GOAL/TASKS thật để đối chiếu. Chạy `/factory` trần (không
+  // goal) thì `goal_met` là trường bắt buộc mà PM không có căn cứ để điền — tin nó
+  // sẽ dừng câm ngay vòng 1 và báo "đạt mục tiêu" trong khi chưa có mục tiêu nào.
+  if (item.goal_met && !HAS_PLAN) {
+    log(`R${r}: PM trả goal_met=true nhưng run này KHÔNG có GOAL/TASKS để đối chiếu → BỎ QUA, chạy tiếp`)
+  }
+  if (item.goal_met && HAS_PLAN) {
     log(`✅ ĐẠT MỤC TIÊU ở vòng ${r}/${ROUNDS} — mọi task done + acceptance GOAL verify xanh. Dừng sớm, không chạy ${ROUNDS - r + 1} vòng còn lại.`)
     history.push({ round: r, stopped: 'goal_met' })
     break

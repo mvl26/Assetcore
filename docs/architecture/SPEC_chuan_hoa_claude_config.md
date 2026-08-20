@@ -541,3 +541,28 @@ Run 25 vòng hỗn hợp: **~8M → ~2,3M token** preamble.
 - Chạy thật `/factory` 2 vòng để nghiệm thu định tuyến vai trên môi trường thật (**chờ USER cho phép** — đây là hành động có tác dụng phụ).
 - `assetcore-test` và `assetcore-deploy` còn giữ lessons-learned **inline trong SKILL.md** (không phải file riêng) — chưa tách chỉ mục. §7 P2 ghi "5 skill" là sai: trên đĩa chỉ có 3 file `references/lessons-learned.md`.
 - Tầng 3 (eval hành vi — chạy agent thật rồi chấm `expectations[]`) chưa dựng.
+
+### 11.6 Hậu kiểm (2026-08-18) — 2 lỗi tìm được sau khi commit
+
+Chạy lại toàn bộ guard trên cây đã commit (`2749d7f..21b8b65`) + thử nghiệm hai nhánh chưa từng
+được test của engine. Kết quả: **nhánh INTAKE→PLAN chạy đúng**, nhưng lộ 2 lỗi thật.
+
+| # | Lỗi | Triệu chứng | Sửa |
+|---|---|---|---|
+| **D1** | **Cổng duyệt chỉ có trên giấy** | `commands/factory.md` mô tả `/factory` (duyệt) vs `/factory auto` (chạy thẳng), nhưng engine **không có tham số `auto`** và bước launch không truyền — hai chế độ hành xử **y hệt nhau** | Engine: `AUTO` + dừng sau PLAN trả `stopped_for_approval` kèm đường dẫn `GOAL.md`/`TASKS.md`; USER duyệt rồi chạy lại cùng args + `auto: true`. Lệnh mô tả lại đúng cơ chế *dừng-rồi-chạy-lại* (workflow chạy nền, không hỏi giữa chừng được) |
+| **D2** | **Dừng câm ở vòng 1** | Chạy `/factory` **không nêu yêu cầu** ⇒ không có GOAL/TASKS, nhưng `goal_met` vẫn là trường **bắt buộc** trong `ITEM_SCHEMA` và PM không được dặn gì về nó. PM trả `true` ⇒ engine dừng ngay vòng 1 và báo "đạt mục tiêu" trong khi **chưa hề có mục tiêu**. Đúng lớp lỗi "xanh giả" mà bộ rule này chống | `goal_met` chỉ được tôn trọng khi `HAS_PLAN`; ngược lại log rồi bỏ qua |
+
+**Bất biến engine 13 → 17.** `INV-12` cũ bị **viết lại**: nó đang khẳng định chính hành vi D2
+(dừng sớm khi không có mục tiêu) — một bất biến mã hoá đúng con bug. Bản mới kiểm dừng-sớm
+**trong ngữ cảnh có GOAL/TASKS**; trường hợp không có mục tiêu do `INV-17` canh riêng.
+
+| Bất biến mới | Canh gì |
+|---|---|
+| INV-14 | có kế hoạch + không `auto` ⇒ **dừng ở cổng duyệt**, chưa spawn vai nào |
+| INV-15 | `auto` ⇒ INTAKE→PLAN chạy và PM nhận **con trỏ** `TASKS.md` |
+| INV-16 | yêu cầu mơ hồ (`goal_ready:false`) ⇒ không lập TASKS, không dựng cổng duyệt giả |
+| INV-17 | không có GOAL/TASKS ⇒ `goal_met=true` bị **bỏ qua** |
+
+Bài học chung: **hai nhánh chính của tính năng mới chưa từng được chạy** trước hậu kiểm này —
+harness luôn trả `goal_ready:false` nên PLAN không bao giờ chạy. Guard xanh không đồng nghĩa
+đường đi chính đã được đi qua; phải hỏi *"nhánh nào chưa có test nào chạm tới"*.

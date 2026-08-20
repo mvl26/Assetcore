@@ -20,13 +20,21 @@ Ví dụ: `/factory "danh sách tài sản rỗng với kỹ thuật viên dù �
 
 ## Modes
 
-| Mode                       | Khác nhau ở đâu                                                                                          |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `/factory` (mặc định) | Sau khi chốt GOAL + TASKS,**trình cho USER duyệt rồi mới chạy**. Đây là cổng gác duy nhất. |
-| `/factory auto`          | Bỏ cổng duyệt, chạy thẳng. Dùng khi yêu cầu đã rõ và USER chấp nhận rủi ro đi sai hướng.   |
+| Mode | Engine làm gì |
+|---|---|
+| `/factory` (mặc định) | Chạy INTAKE + PLAN rồi **DỪNG**, trả `GOAL.md` + `TASKS.md` cho bạn xem. Chưa spawn vai nào, chưa sửa file nào. |
+| `/factory auto` | Bỏ cổng duyệt, chạy thẳng từ INTAKE tới hết. |
 
 Cổng duyệt là chỗ rẻ nhất để bắt "hiểu sai yêu cầu". Bỏ nó tiết kiệm một lượt hỏi, nhưng
 một run đi sai hướng tốn gấp nhiều lần.
+
+**Cách duyệt** (workflow chạy nền, không hỏi giữa chừng được — nên cổng duyệt là *dừng rồi
+chạy lại*, không phải *hỏi rồi chờ*):
+
+1. `/factory "<yêu cầu>" <n>` → engine trả `stopped_for_approval: true` kèm đường dẫn.
+2. Bạn đọc `.claude/contexts/factory/current/GOAL.md` + `TASKS.md`.
+3. Duyệt ⇒ chạy lại **cùng args + `auto: true`**. Kế hoạch đã nằm trên đĩa nên không lập lại.
+   Muốn sửa kế hoạch: sửa thẳng `TASKS.md` rồi mới chạy lại.
 
 ## Việc cần làm khi lệnh này chạy
 
@@ -41,8 +49,11 @@ một run đi sai hướng tốn gấp nhiều lần.
    ```
 
    Có file mới của run khác ⇒ **DỪNG**, báo USER, không phóng.
-3. **Launch engine** từ main session:
-   > `Workflow({ name: 'assetcore-factory', args: { goal: '<yêu cầu>', rounds: <n>, mode: '<improve|audit>' } })`
+3. **Launch engine** từ main session — **`auto` phải được truyền xuống**, nếu không cổng duyệt
+   sẽ không có tác dụng:
+   > `Workflow({ name: 'assetcore-factory', args: { goal: '<yêu cầu>', rounds: <n>, mode: '<improve|audit>', auto: <true nếu user gõ "auto"> } })`
+   Kết quả có `stopped_for_approval: true` ⇒ **không phải lỗi**: trình `GOAL.md`/`TASKS.md` cho
+   USER, chờ duyệt, rồi chạy lại cùng args + `auto: true`.
    >
 4. **Verify NGAY sau launch** (đừng đợi hết run): grep `R1·PM` / `VÒNG 1/N` trong
    `subagents/workflows/wf_*/agent-*.jsonl` — xác nhận đúng `rounds`, `mode`, và **đúng yêu cầu
@@ -79,6 +90,8 @@ Engine dừng khi **một** trong ba điều xảy ra:
 
 1. **ĐẠT MỤC TIÊU** — mọi task trong `TASKS.md` ở trạng thái done **và** mọi acceptance trong
    `GOAL.md` verify xanh trên đĩa ⇒ dừng **sớm**, không chạy nốt vòng thừa.
+   Chỉ áp dụng khi run **có** GOAL/TASKS. Chạy `/factory` trần (không nêu yêu cầu) thì tín hiệu
+   `goal_met` bị **bỏ qua** — không có mục tiêu thì không thể "đạt mục tiêu" (INV-17).
 2. **HẾT VÒNG** — `r > rounds`. Task còn lại ghi vào `STATE.md` để run sau đóng tiếp (Closure-first).
 3. **STOP-CONDITION** — dừng và hỏi USER, không tự vượt:
    - Test không thể xanh / build vỡ mà không có cách sửa hiển nhiên.
@@ -118,7 +131,7 @@ Sau khi engine trả kết quả, báo cho USER **đúng ba nhóm** — không g
 2. **Báo cáo của engine là GIẢ THUYẾT** cho tới khi grep lại. Đọc `<failures>`, `dead_agents`,
    `items_unlanded` **TRƯỚC** `items_done`.
 3. **Không phóng chồng run** trên cùng cây/DB — kiểm quiescence bằng mtime, không bằng đếm process.
-4. Engine sửa xong ⇒ chạy `node .claude/scripts/test-factory-engine.js` (13 bất biến, không cần site).
+4. Engine sửa xong ⇒ chạy `node .claude/scripts/test-factory-engine.js` (17 bất biến, không cần site).
 
 ## Verify sau run — BẮT BUỘC
 
