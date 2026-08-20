@@ -25,6 +25,7 @@ allowlist DÀI RA. Muốn thêm một dòng thì việc cần làm là sửa mã
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import unittest
@@ -47,7 +48,42 @@ SPECIAL_HOMES = {"guards", "integration", "_helpers"}
 #: Thư mục hạ tầng của bản thân bộ test — không chứa file test.
 NON_TEST_DIRS = {"_helpers", "__pycache__"}
 
-WRITES_DB = re.compile(r"frappe\.(get_doc|new_doc|db\.set|insert\(|delete_doc)")
+#: Hàm ghi DB gọi thẳng qua ``frappe.<x>()``.
+_WRITE_CALLS = frozenset({"get_doc", "new_doc", "delete_doc"})
+#: Hàm ghi qua ``frappe.db.<x>()``.
+_DB_WRITE_CALLS = frozenset({"set_value", "insert", "delete", "sql"})
+
+
+def writes_db(source: str) -> bool:
+    """Có ghi DB không — dò bằng AST, KHÔNG bằng regex trên văn bản.
+
+    Vì sao AST: bản regex của guard này bắt chính
+    ``guards/test_source_layout_convention.py`` — file đó có docstring TRÍCH
+    ``frappe.get_doc`` để **giải thích** lỗi đếm-văn-bản. Guard soi văn bản không
+    phân biệt được "mã ghi DB" với "câu văn nói về ghi DB".
+
+    Đây là lần thứ BA cùng một class-of-bug trong một đợt (guard FHIR no-envelope ·
+    bộ đếm nợ 3-tier · guard này). Luật rút ra: **mọi guard soi mã Python phải dùng
+    AST**; regex chỉ dùng cho thứ không parse được (tên file, đường dẫn).
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if not isinstance(f, ast.Attribute):
+            continue
+        parent = f.value
+        if isinstance(parent, ast.Name) and parent.id == "frappe" and f.attr in _WRITE_CALLS:
+            return True
+        if (isinstance(parent, ast.Attribute) and parent.attr == "db"
+                and isinstance(parent.value, ast.Name) and parent.value.id == "frappe"
+                and f.attr in _DB_WRITE_CALLS):
+            return True
+    return False
 SCANS_DIR = re.compile(r"os\.walk|glob\.|listdir|list_files")
 POPULATION_LOCKED = re.compile(r"assertGreater|min_count\s*=\s*\d+|assertEqual\(\s*len\(")
 
@@ -227,7 +263,7 @@ class TestTestLayoutConvention(unittest.TestCase):
             if rel in K7_ALLOWLIST:
                 continue
             src = _read(p)
-            if not WRITES_DB.search(src):
+            if not writes_db(src):
                 continue
             if "FrappeTestCase" in src:
                 continue

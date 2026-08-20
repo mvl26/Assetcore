@@ -21,6 +21,7 @@ Muốn thêm một dòng thì việc cần làm là **sửa mã, không phải s
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import unittest
@@ -35,36 +36,71 @@ from assetcore.tests._helpers.paths import (
     rel_repo,
 )
 
-#: Lời gọi DB thẳng — thứ KHÔNG được xuất hiện ở tầng ``api/``.
-DB_CALL = re.compile(r"frappe\.(get_doc|new_doc|get_all|get_list|get_value|db\.|delete_doc|qb\.)")
+#: Tên hàm truy vấn gọi thẳng qua ``frappe.<x>()``.
+_DIRECT_CALLS = frozenset({
+    "get_doc", "new_doc", "get_all", "get_list", "get_value", "delete_doc", "get_cached_doc",
+})
+#: ``frappe.db.<x>()`` điều khiển GIAO DỊCH — không phải truy vấn dữ liệu, không tính nợ.
+_TXN_CALLS = frozenset({"rollback", "commit", "savepoint"})
+
+
+def count_db_calls(source: str) -> int:
+    """Đếm lời gọi DB THẬT bằng AST.
+
+    Vì sao AST chứ không regex: bản đầu tiên của guard này quét **văn bản** nên đếm
+    cả chú thích. ``api/imm11.py:6`` có đúng dòng ``# KHÔNG gọi frappe.db.* hay
+    frappe.get_doc trực tiếp`` — một lời nhắc TUÂN THỦ — và bị tính thành vi phạm.
+    Kết quả: nợ công bố 607 trong khi nợ thật là 510; hai file (`imm11`, `imm14`)
+    bị bêu oan dù vốn đã sạch.
+
+    Cùng class-of-bug với guard FHIR no-envelope, phát hiện cùng đợt: **guard soi
+    văn bản không phân biệt được "mã vi phạm" với "câu văn nói về vi phạm".**
+    """
+    hits = 0
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if not isinstance(f, ast.Attribute):
+            continue
+        parent = f.value
+        if (isinstance(parent, ast.Attribute) and parent.attr == "db"
+                and isinstance(parent.value, ast.Name) and parent.value.id == "frappe"):
+            if f.attr not in _TXN_CALLS:
+                hits += 1
+        elif (isinstance(parent, ast.Name) and parent.id == "frappe"
+                and f.attr in _DIRECT_CALLS):
+            hits += 1
+        elif isinstance(parent, ast.Attribute) and parent.attr == "qb":
+            hits += 1
+    return hits
 
 #: ĐÓNG BĂNG · CHỈ-GIẢM — file ``api/`` còn gọi DB thẳng (nợ 3-tier, SPEC BE §3.7).
 #: Chuẩn tham chiếu: ``api/imm08.py`` và ``api/imm09.py`` = 0 lời gọi.
 #: Uỷ quyền xuống ``services/`` thì XOÁ dòng; TUYỆT ĐỐI không thêm dòng mới.
 S1_ALLOWLIST: dict[str, int] = {
-    "imm00.py": 221,
-    "inventory.py": 89,
+    "imm00.py": 172,
+    "inventory.py": 84,
     "imm03.py": 56,
-    "user.py": 50,
+    "user.py": 38,
     "imm01.py": 32,
-    "auth.py": 27,
-    "dashboard.py": 23,
     "imm02.py": 23,
-    "import_data.py": 21,
-    "layout.py": 19,
+    "auth.py": 22,
     "purchase.py": 18,
-    "connections.py": 7,
+    "import_data.py": 17,
+    "layout.py": 15,
+    "dashboard.py": 14,
     "files.py": 5,
     "imm04.py": 5,
+    "connections.py": 3,
     "mobile/preflight.py": 3,
-    "imm10.py": 2,
-    "imm11.py": 2,
-    "imm14.py": 2,
-    "imm15.py": 2,
 }
 
-#: Tổng ngân sách đóng băng — đo từ đĩa 2026-08-14. CHỈ ĐƯỢC GIẢM.
-S1_TOTAL_BUDGET = 607
+#: Tổng ngân sách đóng băng — đo bằng AST 2026-08-18. CHỈ ĐƯỢC GIẢM.
+#:
+#: ⚠️ Mốc 607 công bố ngày 2026-08-14 đo bằng REGEX nên tính cả chú thích. Số thật
+#: đo lại bằng AST là 510; nợ KHÔNG tự giảm — chỉ là phép đo trước đó sai.
+S1_TOTAL_BUDGET = 507
 
 #: Thư mục con hợp lệ của ``assetcore/scripts/``.
 SCRIPT_HOMES = {"seed", "uat", "maintenance"}
@@ -92,7 +128,7 @@ class TestSourceLayoutConvention(unittest.TestCase):
     def test_s1_allowlist_only_shrinks(self):
         """Sổ nợ 3-tier CHỈ được giảm — thêm dòng = nợ đang mọc thêm."""
         self.assertLessEqual(
-            len(S1_ALLOWLIST), 19,
+            len(S1_ALLOWLIST), 15,
             "Allowlist S1 dài ra = có file `api/` MỚI gọi DB thẳng. "
             "Uỷ quyền xuống `services/` thay vì thêm dòng vào sổ.",
         )
@@ -107,7 +143,7 @@ class TestSourceLayoutConvention(unittest.TestCase):
         for name, budget in S1_ALLOWLIST.items():
             path = os.path.join(API_DIR, name)
             self.assertTrue(os.path.isfile(path), f"Sổ S1 trỏ file không tồn tại: api/{name}")
-            actual = len(DB_CALL.findall(_read(path)))
+            actual = count_db_calls(_read(path))
             self.assertLessEqual(
                 actual, budget,
                 f"api/{name} có {actual} lời gọi DB thẳng, vượt ngân sách đóng băng {budget}. "
@@ -125,7 +161,7 @@ class TestSourceLayoutConvention(unittest.TestCase):
             rel = os.path.relpath(p, API_DIR).replace(os.sep, "/")
             if rel in S1_ALLOWLIST:
                 continue
-            hits = len(DB_CALL.findall(_read(p)))
+            hits = count_db_calls(_read(p))
             if hits:
                 offenders.append(f"api/{rel} — {hits} lời gọi DB thẳng")
         self.assertEqual(
