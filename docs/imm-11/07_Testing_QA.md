@@ -9,7 +9,7 @@
 
 > **Mục đích**: Suy ra test case **có hệ thống** từ phân tích (file 02) bằng kỹ thuật black-box + white-box, không liệt kê tự phát. Bao gồm: phân tích đối tượng test → chọn kỹ thuật → viết test → traceability → UAT → security → code quality. Phần này là gate go-live.
 
-> **Trạng thái module**: ✅ Live — BE (`services/imm11.py`, `api/imm11.py`), 3 DocType, workflow JSON, FE (5 views + store + api client) đã deploy. Test suite `assetcore/tests/test_imm11.py` đã có 3 test class / 8 method live; phần lớn integration/API/E2E/UAT còn ⬜ Planned.
+> **Trạng thái module**: ✅ Live — BE (`services/imm11.py`, `api/imm11.py`), 3 DocType, workflow JSON, FE (5 views + store + api client) đã deploy. Test suite `assetcore/tests/imm11/test_imm11.py` đã có 3 test class / 8 method live; phần lớn integration/API/E2E/UAT còn ⬜ Planned.
 
 ---
 
@@ -170,7 +170,7 @@ Trace: CLAUDE.md §17 (TDD mandatory).
 
 ## III.2. Unit test — Service Layer
 
-File `assetcore/tests/test_imm11.py` (✅ Live — `unittest.TestCase`, helper `_make_asset` prefix `_Test`).
+File `assetcore/tests/imm11/test_imm11.py` (✅ Live — `unittest.TestCase`, helper `_make_asset` prefix `_Test`).
 
 | Test class | Function cover | Kỹ thuật | Cases (happy/negative) | Trạng thái |
 |---|---|---|---|---|
@@ -319,7 +319,7 @@ Trace: `assetcore-test` skill Phần 2 (Playwright MCP recipes + R-1..R-9).
 | Loại | Cách seed | File |
 |---|---|---|
 | Master data (Asset Category, Vendor, Device Model) | `fixtures/*.json` (qua `bench migrate`) | `assetcore/fixtures/` |
-| Backend test fixtures | helper `_make_asset` / `_ensure_cat` (prefix `_Test`) | `assetcore/tests/test_imm11.py` |
+| Backend test fixtures | helper `_make_asset` / `_ensure_cat` (prefix `_Test`) | `assetcore/tests/imm11/test_imm11.py` |
 | AC Supplier (Calibration Lab) | ⬜ Planned `tests/fixtures/test_cal_labs.json` | 2 lab (VLAS-T-028, VLAS-T-001) |
 | UAT seed | ⬜ Planned Python script | `assetcore/scripts/uat/uat_imm11.py` |
 
@@ -329,11 +329,11 @@ UAT data phải thực tế (tên bệnh viện VN, mã NCC chuẩn). Test fixtu
 
 ```bash
 # Module test (✅ chạy được)
-bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm11
+bench --site miyano run-tests --app assetcore --module assetcore.tests.imm11.test_imm11
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm11 && coverage report
+coverage run -m unittest assetcore.tests.imm11.test_imm11 && coverage report
 # Workflow smoke
-bench --site miyano run-tests --module assetcore.tests.test_workflows
+bench --site miyano run-tests --module assetcore.tests.guards.test_workflows
 ```
 
 | Layer | Target coverage | Đo | Trạng thái |
@@ -499,7 +499,7 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 | TC-11-MEASDIFF-09 (idempotent replace-set) | phiếu draft | lưu CÙNG mảng [N] hai lần liên tiếp → reload | count == **N** (KHÔNG nhân đôi; KHÔNG cần `client_request_id`) | AC-11-40, BR-11-16 |
 | TC-11-MEASDIFF-10 (unmeasured row draft-valid) | phiếu draft | lưu 1 dòng `measured_value=None` (chưa đo) → reload | dòng persist; `pass_fail` None (skip compute); submit sau vẫn chặn bởi BR-11-08 IMM11_MEASUREMENT_VALUE_REQUIRED | AC-11-34, BR-11-16 |
 
-> **DoD BR-11-16:** `bench --site miyano run-tests` module-isolated `assetcore.tests.test_imm11` XANH THẬT (`Ran N OK`, N tăng đúng số TC mới); RED-first TC-11-MEASDIFF-01 chuyển GREEN. No-regression: `TestUpdateCalibration`(scalar cũ) + `TestAddMeasurement`(per-row) + `TestCalibrationSubmitGate` GREEN. **0 OAS coupling** (`update_calibration` không mobile-mirror + `**kwargs`) → `test_mobile_oas`/`test_mobile_docset` KHÔNG cần đổi. FE vitest `CalibrationDetailView` (real store + re-fetch) GREEN. Sửa `services/imm11.py` (+ `utils/messages.py` MSG mới) dưới `--preload` → USER reload cho HTTP-live (HARD-STOP); DoD authoritative = `bench run-tests` (KHÔNG curl).
+> **DoD BR-11-16:** `bench --site miyano run-tests` module-isolated `assetcore.tests.imm11.test_imm11` XANH THẬT (`Ran N OK`, N tăng đúng số TC mới); RED-first TC-11-MEASDIFF-01 chuyển GREEN. No-regression: `TestUpdateCalibration`(scalar cũ) + `TestAddMeasurement`(per-row) + `TestCalibrationSubmitGate` GREEN. **0 OAS coupling** (`update_calibration` không mobile-mirror + `**kwargs`) → `test_mobile_oas`/`test_mobile_docset` KHÔNG cần đổi. FE vitest `CalibrationDetailView` (real store + re-fetch) GREEN. Sửa `services/imm11.py` (+ `utils/messages.py` MSG mới) dưới `--preload` → USER reload cho HTTP-live (HARD-STOP); DoD authoritative = `bench run-tests` (KHÔNG curl).
 
 ### TC-11-IDEMP-SUBMIT — `submit_calibration` idempotency dedup (BR-11-17 / CR-24-CAL-SUBMIT op#6)
 
@@ -512,7 +512,7 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 | TC-11-IDEMP-SUBMIT-05 (not-found intact) | phiếu `∄` | `submit_calibration(name=∄, client_request_id='K')` | `IMM11_CAL_NOT_FOUND` (pre-check MISS → get → not-found) | AC-11-45 |
 | TC-11-IDEMP-SUBMIT-06 (race winner-reread) | `docstatus==1` + winner concurrent CÙNG khoá đã cache GIỮA pre-check và guard (giả lập cache HIT tại guard-recheck) | call CÙNG khoá | trả cached (KHÔNG raise); khoá không khớp → `IMM11_ALREADY_SUBMITTED` | AC-11-46/AC-11-41 |
 
-> **DoD BR-11-17:** `bench --site miyano run-tests` module-isolated `assetcore.tests.test_imm11` XANH THẬT (`Ran N OK`); RED-first TC-11-IDEMP-SUBMIT-01/02/03 chuyển GREEN. No-regression: `TestCalibrationSubmitGate` (submit gate) + `TestAddMeasurement` (§4.1.9 dedup) GREEN. **COUPLED OAS slice (KHÁC BR-11-16):** `submit_calibration` CÓ mobile-mirror + live-sig guard EXACT ⇒ `test_mobile_oas` PHẢI đổi (`_SUBMIT_CAL_REQUEST_PROPS {name}→{name,client_request_id}` + prop-optional TC + `_EXPECTED_TEST_COUNT`) + `test_mobile_docset` (`_GUARD_SUITE_SUM`/`_MOBILE_OAS_TOTAL`/`_GUARD_SUITE_EXPECTED`) + OAS `SubmitCalibrationRequest` +prop — land **cùng lượt** với `.py` (Self-Correction: acceptance "test_mobile_oas unchanged" SAI — xem `05 §0.1.4-IDEMP-SUBMIT`). `oas_baseline.BASELINE_TOTAL` GIỮ (0 whitelist mới) → `test_oas_baseline` XANH KHÔNG đổi. Sửa `api/imm11.py`+`services/imm11.py` dưới `--preload` → USER reload cho HTTP-live (HARD-STOP); DoD authoritative = `bench run-tests` (KHÔNG curl — gunicorn `--preload` stale, LL-DEPLOY-07).
+> **DoD BR-11-17:** `bench --site miyano run-tests` module-isolated `assetcore.tests.imm11.test_imm11` XANH THẬT (`Ran N OK`); RED-first TC-11-IDEMP-SUBMIT-01/02/03 chuyển GREEN. No-regression: `TestCalibrationSubmitGate` (submit gate) + `TestAddMeasurement` (§4.1.9 dedup) GREEN. **COUPLED OAS slice (KHÁC BR-11-16):** `submit_calibration` CÓ mobile-mirror + live-sig guard EXACT ⇒ `test_mobile_oas` PHẢI đổi (`_SUBMIT_CAL_REQUEST_PROPS {name}→{name,client_request_id}` + prop-optional TC + `_EXPECTED_TEST_COUNT`) + `test_mobile_docset` (`_GUARD_SUITE_SUM`/`_MOBILE_OAS_TOTAL`/`_GUARD_SUITE_EXPECTED`) + OAS `SubmitCalibrationRequest` +prop — land **cùng lượt** với `.py` (Self-Correction: acceptance "test_mobile_oas unchanged" SAI — xem `05 §0.1.4-IDEMP-SUBMIT`). `oas_baseline.BASELINE_TOTAL` GIỮ (0 whitelist mới) → `test_oas_baseline` XANH KHÔNG đổi. Sửa `api/imm11.py`+`services/imm11.py` dưới `--preload` → USER reload cho HTTP-live (HARD-STOP); DoD authoritative = `bench run-tests` (KHÔNG curl — gunicorn `--preload` stale, LL-DEPLOY-07).
 
 DoD: mọi BR có ≥ 1 happy + ≥ 1 negative. `TestCalibrationSubmitGate` (✅ Live) đã cover gate before_submit (CAL-004).
 
@@ -525,7 +525,7 @@ DoD: mọi BR có ≥ 1 happy + ≥ 1 negative. `TestCalibrationSubmitGate` (✅
 | TC-11-SENDLAB-CERTGUARD-01 (RED-first — chặn + vết nguyên trạng) | phiếu **External** đã `send_to_lab` (`sent_date=D0`) + `receive_certificate` (`certificate_file` set, `certificate_date=Dc`, `status='In Progress'`) | `send_to_lab(name)` LẦN 2 | `ServiceError`/Error-envelope code `IMM11_SEND_LAB_ALREADY_CERTIFIED` (`http_status=409`, `body.message_code='IMM11-SEND-LAB-ALREADY-CERTIFIED'`); reload DB `sent_date==D0` ∧ `certificate_file` unchanged ∧ `status=='In Progress'` (0 mutate) | AC-11-47, BR-11-18 |
 | TC-11-SENDLAB-CERTGUARD-02 (regression — luồng hợp lệ) | phiếu **External** `status='Scheduled'` (`certificate_file` **rỗng**) | `send_to_lab(name)` | thành công → reload `status=='Sent to Lab'` ∧ `sent_date` set (guard KHÔNG chặn phiếu chưa-có-chứng-chỉ) | AC-11-48, BR-11-18 |
 
-> **DoD BR-11-18:** `bench --site miyano run-tests --module assetcore.tests.test_imm11` module-isolated XANH (`Ran N OK`) gồm ≥2 test mới; RED-first TC-11-SENDLAB-CERTGUARD-01 chuyển GREEN sau guard. No-regression: `TestSendReceiveLab` GREEN. **KHÔNG `bench migrate`** (field `certificate_file`/`sent_date`/`status` đã tồn tại). **Coupled FE-regen:** MSG code mới ⇒ `python scripts/gen_fe_messages.py` → `messages.ts` (chống SYS-500). **OAS mirror:** đã curate (op `sendToLab`, mã mới trong 200-oneOf Error branch) — `test_mobile_oas` 893 OK / `test_mobile_docset` 9 OK (BA verified, 0 baseline bump). Sửa `services/imm11.py`+`utils/messages.py` dưới `--preload` → USER reload; DoD authoritative = `run-tests` (KHÔNG curl — LL-DEPLOY-07).
+> **DoD BR-11-18:** `bench --site miyano run-tests --module assetcore.tests.imm11.test_imm11` module-isolated XANH (`Ran N OK`) gồm ≥2 test mới; RED-first TC-11-SENDLAB-CERTGUARD-01 chuyển GREEN sau guard. No-regression: `TestSendReceiveLab` GREEN. **KHÔNG `bench migrate`** (field `certificate_file`/`sent_date`/`status` đã tồn tại). **Coupled FE-regen:** MSG code mới ⇒ `python scripts/gen_fe_messages.py` → `messages.ts` (chống SYS-500). **OAS mirror:** đã curate (op `sendToLab`, mã mới trong 200-oneOf Error branch) — `test_mobile_oas` 893 OK / `test_mobile_docset` 9 OK (BA verified, 0 baseline bump). Sửa `services/imm11.py`+`utils/messages.py` dưới `--preload` → USER reload; DoD authoritative = `run-tests` (KHÔNG curl — LL-DEPLOY-07).
 
 ## IV.3. Component → Test mapping
 
@@ -842,7 +842,7 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 - [ ] Audit chain test (intact + tampered) — ⬜ Planned
 - [ ] API test ≥ 60% coverage + permission matrix — ⬜ Planned
 - [x] Performance target xác định (target only, chưa baseline)
-- [x] CI command chạy clean (`bench run-tests --module assetcore.tests.test_imm11`)
+- [x] CI command chạy clean (`bench run-tests --module assetcore.tests.imm11.test_imm11`)
 - [ ] SonarQube Quality Gate pass + Lighthouse ≥ target — chưa chạy
 
 ## IV. Traceability
@@ -875,7 +875,7 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 ## VIII. CR-74 — Read-gate CHI TIẾT (getCalibration) · bộ TC bắt buộc (2026-07-25)
 
 > Spec: [`05_API_Specification.md` §12](./05_API_Specification.md) · SSoT: [ADR-IMM00-LIST-SCOPE §9](../imm-00/ADR-IMM00-LIST-SCOPE.md).
-> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm11` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
+> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.imm11.test_imm11` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
 
 ### VIII.1 Fixture tối thiểu (dựng 1 lần, dùng chung 6 TC)
 
@@ -915,7 +915,7 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 ## IX. AC-CR-86 — Dời lịch hiệu chuẩn (`reschedule_calibration`) · bộ TC bắt buộc (2026-07-27)
 
 > Spec: `02 §BR-11-19` + `§BR-11-20` + US-11-04 (AC-11-49…60). Write-path: `04 §4.1.12` + `§4.1.13`. API: `05 §0.1.11` + `§2 #13`.
-> **DoD chấm bằng `bench --site miyano run-tests --module assetcore.tests.test_imm11` (module-isolated, `timeout` tool ≥ 600000ms) — KHÔNG curl** (LL-DEPLOY-07/08: dưới gunicorn `--preload`, `.py` mới cần USER reload; 417/traceback từ curl = worker cũ, KHÔNG phải bug).
+> **DoD chấm bằng `bench --site miyano run-tests --module assetcore.tests.imm11.test_imm11` (module-isolated, `timeout` tool ≥ 600000ms) — KHÔNG curl** (LL-DEPLOY-07/08: dưới gunicorn `--preload`, `.py` mới cần USER reload; 417/traceback từ curl = worker cũ, KHÔNG phải bug).
 
 ### IX.1 Fixture tối thiểu (dựng 1 lần, dùng chung)
 
@@ -964,8 +964,8 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 
 ### IX.4 Guard hợp đồng (doc-layer — ĐÃ ĐÓNG ở Bước-2)
 
-- `assetcore/tests/test_mobile_oas.py::TestMobileRescheduleCalibrationContract` — 9 TC `cr86_a..i` (path/opId/POST-only · body CLOSED 3 khoá + `minLength:5` + `format:date` · 200-oneOf 2 nhánh + `data` 4 khoá · slot `{200,401,403}` + đủ 6 `message_code` + 2 khoá `fields` · cite-drift AST · `can_reschedule` trên `CalibrationDetail` · KHÔNG reuse `ReschedulePm*` · PENDING-BE parity · meta self-count).
-- `assetcore/tests/test_mobile_docset.py` — 3 counter đồng bộ theo **DELTA +9**.
+- `assetcore/tests/guards/test_mobile_oas.py::TestMobileRescheduleCalibrationContract` — 9 TC `cr86_a..i` (path/opId/POST-only · body CLOSED 3 khoá + `minLength:5` + `format:date` · 200-oneOf 2 nhánh + `data` 4 khoá · slot `{200,401,403}` + đủ 6 `message_code` + 2 khoá `fields` · cite-drift AST · `can_reschedule` trên `CalibrationDetail` · KHÔNG reuse `ReschedulePm*` · PENDING-BE parity · meta self-count).
+- `assetcore/tests/guards/test_mobile_docset.py` — 3 counter đồng bộ theo **DELTA +9**.
 - ✅ **Bước-4 BE ĐÃ LÀM ĐỦ 3 việc trên guard (2026-07-28)** — handler LIVE `api/imm11.py:131` (POST-only) → `services/imm11.py:1217`:
   1. **LẬT** `cr86_h` → `test_mob_oas_cr86_h_message_code_registry_parity`: parity **3 tầng** hợp đồng ⇄ registry ⇄ @source — 6/6 mã ∈ `MESSAGES` LIVE, `http_status` khớp (`IMM11-CAL-NOT-FOUND` 404 · `IMM11-RESCHEDULE-BAD-STATE` 409 · 4 mã field-level 422), **và** 5 mã mới phải có call-site `MSG.<CODE>` THẬT trong `services/imm11.py` (mã có registry mà 0 nơi ném = hợp đồng khai một lỗi không bao giờ tới).
   2. **REFRESH** cite trong `description` (comment YAML KHÔNG được — guard chỉ soi spec đã parse): `_UPDATE_ALLOWED` `1155→1298` (3 chỗ), `get_calibration` `1079-1111→1082-1120`, và bồi cite numeric `@api/imm11.py:131-154` / `@services/imm11.py:1217-1295 reschedule_calibration` + `1171-1174 RESCHEDULE_CAL_STATES` + `1204-1214 _can_reschedule_cal` + `1190-1201 _require_cal_reschedule_cap`.

@@ -89,3 +89,24 @@ def check_asset_recall(asset_name: str) -> dict:
         for r in rows
     ]
     return {"asset": asset_name, "has_recall": bool(recalls), "recalls": recalls}
+
+
+def asset_exists(asset_name: str) -> bool:
+    """Kiểm tra một ``AC Asset`` có tồn tại không.
+
+    Vì sao ở tầng service: tầng ``api/`` chỉ validate + uỷ quyền (CLAUDE.md §15).
+    Trước đây ``api/imm10.py`` gọi thẳng ``frappe.db.exists`` — vi phạm 3-tier.
+
+    Caller PHẢI strip chuỗi trước khi gọi: chuỗi rỗng trả ``False`` ngay, không
+    query — tránh full-scan do tham số rỗng (giữ nguyên hành vi chống-full-scan đã
+    có ở call site cũ).
+
+    Args:
+        asset_name: mã bản ghi ``AC Asset``.
+
+    Returns:
+        True nếu bản ghi tồn tại.
+    """
+    if not asset_name:
+        return False
+    return bool(frappe.db.exists("AC Asset", asset_name))

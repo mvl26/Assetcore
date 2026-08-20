@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | **ADR-MOBILE-016** (đối-xứng PM `listPmWorkOrders` — gap "next" `listRepairWorkOrders` nêu đích danh ở §Consequences) · **ADR-MOBILE-015** (đối-xứng `IncidentMine`) · ADR-MOBILE-001 (g — envelope list-read, C3-split element RIÊNG) · C-LISTREAD (`04-api-contract.md §6.1/§6.2/§8.4`) · Core Doc IMM-09 `05_API_Specification.md §3.1` + `04_Backend_Design.md §3.6 ADR-IMM09-LISTMINE` |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm09.py`, `assetcore/services/imm09.py`, `assetcore/repositories/base.py`, `assetcore/permissions.py`, `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_imm09.py`, `assetcore/tests/test_mobile_docset.py`). Contract: [`04-api-contract.md`](./04-api-contract.md). Core Doc IMM-09: `docs/imm-09/05_API_Specification.md §3.1 (list_repair_work_orders — filter mine)` + `04_Backend_Design.md §3.6`.
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm09.py`, `assetcore/services/imm09.py`, `assetcore/repositories/base.py`, `assetcore/permissions.py`, `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/imm09/test_imm09.py`, `assetcore/tests/guards/test_mobile_docset.py`). Contract: [`04-api-contract.md`](./04-api-contract.md). Core Doc IMM-09: `docs/imm-09/05_API_Specification.md §3.1 (list_repair_work_orders — filter mine)` + `04_Backend_Design.md §3.6`.
 
 ---
 

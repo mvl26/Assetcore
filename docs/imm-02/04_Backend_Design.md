@@ -362,7 +362,7 @@ Ground truth spec: `02_Analysis_Design.md` §IV.5 + ADR-IMM02-03. Tóm tắt BE:
   ],
   ```
   `_SPEC_VALID_TRANSITIONS`, `imm_02_spec_workflow.json`, `fixtures/workflow.json`, `allow_edit` (Draft/Reviewing=`Spec User`) — **GIỮ NGUYÊN**. Persona VT-TTBYT nay có `Spec User` → tạo Draft + G01 + `Gửi rà soát` thông cùng 1 role.
-- **INVARIANT own-file mới** — `assetcore/tests/test_workflow_role_profile_coverage.py` (FILE-driven, glob source JSON + đọc catalog; mirror `_transition_groups` của `test_workflows.py`):
+- **INVARIANT own-file mới** — `assetcore/tests/guards/test_workflow_role_profile_coverage.py` (FILE-driven, glob source JSON + đọc catalog; mirror `_transition_groups` của `test_workflows.py`):
   - **INV-COV:** ∀ transition trong 22 source JSON, mọi `allowed` non-admin role ∈ `(∪roles_for_profile) ∪ {AssetCore Super Admin, System Manager} ∪ EXCEPTION_ROLES`, với `EXCEPTION_ROLES = frozenset({"Vendor Engineer"})`. RED-trước = `{Spec User}` uncovered → GREEN-sau.
   - **INV-EXC-REACH:** ∀ transition-group `allowed ∩ EXCEPTION_ROLES ≠ ∅` PHẢI có ≥1 role ∈ `∪roles_for_profile` (KHÔNG sole-gate bằng EXCEPTION). 3 group IMM-04 co-list `PM User` → GREEN.
 - **BE integration test** (mirror pattern `test_imm02` ensure_user + profile): user profile "Trưởng phòng VT-TTBYT" (non-admin) → Draft 8 spec-line → `transition_workflow('Gửi rà soát')` = success, `workflow_state=='Reviewing'`; base `AssetCore System User` → VẪN chặn. RED-trước: guard `spec_allowed_actions` role-filter `[]` → `BAD_STATE` (API) / `apply_workflow` `PermissionError` (raw).

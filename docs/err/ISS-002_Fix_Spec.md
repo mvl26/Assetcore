@@ -25,8 +25,8 @@ Frappe/ERPNext v15 · Python · MariaDB · Vue 3 FE (`apps/assetcore/frontend`).
 Cấu hình email (đọc .env → Email Account, bật scheduler, dọn queue cũ):
   bench --site miyano execute assetcore.setup.email.setup_assetcore_email
 Test (module-isolated):
-  bench --site miyano run-tests --module assetcore.tests.test_imm00_welcome_email
-  bench --site miyano run-tests --module assetcore.tests.test_setup_email
+  bench --site miyano run-tests --module assetcore.tests.imm00.test_imm00_welcome_email
+  bench --site miyano run-tests --module assetcore.tests.integration.test_setup_email
 Reload live (USER làm — gunicorn --preload):
   <lệnh reload gunicorn của bạn>   # bắt buộc để api/user.py + helpers.py phản ánh trên HTTP
 ```
@@ -39,8 +39,8 @@ assetcore/setup/email.py                         → NEW: _load_env + configure_
 assetcore/setup/install.py                       → after_migrate gọi configure_outgoing_email (env-guarded, idempotent, no-op nếu thiếu .env)
 assetcore/api/user.py                            → _build_new_user_doc (no_welcome_mail) + _send_welcome_email (NEW) + create_system_user (gọi + trả status) + _send_activation_email (now=True)
 assetcore/utils/helpers.py                       → _safe_sendmail: log_error thay vì pass; hỗ trợ now passthrough
-assetcore/tests/test_imm00_welcome_email.py      → NEW
-assetcore/tests/test_setup_email.py              → NEW
+assetcore/tests/imm00/test_imm00_welcome_email.py      → NEW
+assetcore/tests/integration/test_setup_email.py              → NEW
 frontend/src/views/auth/UserProfileFormView.vue  → surface welcome_email_sent/failed toast (nhẹ, optional)
 ```
 

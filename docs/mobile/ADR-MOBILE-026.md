@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | **ADR-MOBILE-025** (`listDepartments` REF-DATA/CR-10a — cùng single-list-family, curate ref-data GET; ADR này ĐỐI XỨNG cho Vị trí) · **ADR-MOBILE-001** (Decision-B route-by-VALUE `body.success`, Error envelope HTTP-200, 0 discriminator) · **ADR-MOBILE-021** (`listTransfers` SINGLE-shape — handler LUÔN `_ok`, 0 `_err` in-handler ⇒ KHÔNG `oneOf [Env,Error]`) · **ADR-MOBILE-023** (`getAssetPmHistory` — int-vs-bool trap Check→`integer enum[0,1]`) · Core Doc IMM-00 [`05_API_Specification.md`](../imm-00/05_API_Specification.md) (§III.3 `list_locations`) |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm00.py` `list_locations` @def line **1354** vùng ~1354-1368, `assetcore/assetcore/doctype/ac_location/ac_location.json` — `is_group`/`power_backup_available` = `Check`; `clinical_area_type`/`infection_control_level` = `Select` LEADING-BLANK; `assetcore/utils/response.py` `_ok`, `assetcore/api/imm00.py` `_enrich`:227-256, `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_mobile_docset.py`). Contract mirror: [`openapi/assetcore-mobile.openapi.yaml`](./openapi/assetcore-mobile.openapi.yaml). Narrative: [`04-api-contract.md`](./04-api-contract.md) (§8.32 `listLocations`).
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm00.py` `list_locations` @def line **1354** vùng ~1354-1368, `assetcore/assetcore/doctype/ac_location/ac_location.json` — `is_group`/`power_backup_available` = `Check`; `clinical_area_type`/`infection_control_level` = `Select` LEADING-BLANK; `assetcore/utils/response.py` `_ok`, `assetcore/api/imm00.py` `_enrich`:227-256, `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/guards/test_mobile_docset.py`). Contract mirror: [`openapi/assetcore-mobile.openapi.yaml`](./openapi/assetcore-mobile.openapi.yaml). Narrative: [`04-api-contract.md`](./04-api-contract.md) (§8.32 `listLocations`).
 
 ---
 
@@ -104,7 +104,7 @@ Decision-B (ADR-MOBILE-001): lỗi nghiệp vụ = **HTTP-200 + Error envelope**
 
 ## Handoff BE/Test (Bước-4 — kế-hoạch, ATOMIC pure-yaml)
 
-> **CONTRACT-ONLY** — TUYỆT ĐỐI KHÔNG đụng `api/imm00.py`/`services/imm00.py` (`list_locations` ĐÃ LIVE, sig `{parent}` nguyên). Không reload/migrate/commit. DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_mobile_oas` + `.test_mobile_docset` = **'Ran N OK' THẬT** (guard-suite sums +9 synced).
+> **CONTRACT-ONLY** — TUYỆT ĐỐI KHÔNG đụng `api/imm00.py`/`services/imm00.py` (`list_locations` ĐÃ LIVE, sig `{parent}` nguyên). Không reload/migrate/commit. DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.guards.test_mobile_oas` + `.test_mobile_docset` = **'Ran N OK' THẬT** (guard-suite sums +9 synced).
 
 **(1) yaml** (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`):
 - +1 path `GET /api/method/assetcore.api.imm00.list_locations` (opId `listLocations`, tag `ref-data`); slot `{200,401,403}` (`401 Unauthorized401`, `403 Forbidden`); 200 = SINGLE `$ref LocationListEnvelope` (**KHÔNG `oneOf`**); param `$ref LocationParent`.

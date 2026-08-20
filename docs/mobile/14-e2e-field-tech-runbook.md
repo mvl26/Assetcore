@@ -173,7 +173,7 @@ curl -sS -X POST "$HOST/api/method/frappe.integrations.oauth2.get_token" \
 **[AUTO] kiểm hợp đồng refresh-on-401 (doc-guard, không cần cloud):**
 
 ```bash
-bench --site miyano run-tests --module assetcore.tests.test_mobile_oas
+bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas
 # PASS: Ran 141 tests ... OK (gồm TestMobileRefreshOn401DocGuard — invariant 03 §2.5/§2.6 + 04 §9d)
 ```
 
@@ -460,14 +460,14 @@ for op in getOAuthToken resolveQrToken reportIncident createPmWorkOrder listPmWo
 **[AUTO] — docset parity GREEN sau khi thêm chương 14:**
 
 ```bash
-bench --site miyano run-tests --module assetcore.tests.test_mobile_docset
+bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_docset
 # PASS: Ran 9 tests ... OK (FS↔index parity 15 chương 00–14; 0 broken link; 0 placeholder ngoài code-fence)
 ```
 
 **[AUTO] — contract suite XANH (route-by-VALUE + closed-schema + refresh-on-401 doc-guard):**
 
 ```bash
-bench --site miyano run-tests --module assetcore.tests.test_mobile_oas
+bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas
 # PASS: Ran 141 tests ... OK (0 dangling $ref; 200-oneOf closed-schema; refresh-on-401 doc-guard)
 ```
 

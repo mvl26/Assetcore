@@ -113,7 +113,7 @@ Vòng này **curate 1 path POST** `attach_incident_photo` vào `assetcore-mobile
 
 ## Handoff BE/Test (Bước-4 — kế-hoạch, ATOMIC pure-yaml)
 
-> **CONTRACT-ONLY** — TUYỆT ĐỐI KHÔNG đụng `api/imm12.py`/`services/imm12.py` (`attach_incident_photo`+`svc_attach_photo`+hằng photo ĐÃ LIVE trên đĩa). Không reload/migrate/commit. DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_mobile_oas` + `.test_mobile_docset` = **'Ran N OK' THẬT** (guard-suite sums +10 synced).
+> **CONTRACT-ONLY** — TUYỆT ĐỐI KHÔNG đụng `api/imm12.py`/`services/imm12.py` (`attach_incident_photo`+`svc_attach_photo`+hằng photo ĐÃ LIVE trên đĩa). Không reload/migrate/commit. DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.guards.test_mobile_oas` + `.test_mobile_docset` = **'Ran N OK' THẬT** (guard-suite sums +10 synced).
 
 **(1) yaml** (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`):
 - +1 path `POST /api/method/assetcore.api.imm12.attach_incident_photo` (opId `attachIncidentPhoto`, tag `incident`); requestBody `multipart/form-data` DUY NHẤT (`required:true`, schema `$ref AttachIncidentPhotoRequest`); 200 = `oneOf [AttachIncidentPhotoEnvelope, Error]`; slot `{200,401,403}` (`401 Unauthorized401`, **`403 Forbidden` SINGLE-SHAPE** — KHÔNG dual-403).

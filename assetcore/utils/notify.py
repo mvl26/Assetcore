@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from assetcore.services.shared.errors import ServiceError
+from assetcore.utils.errors import ServiceError
 from assetcore.utils.messages import MESSAGES, MSG, MessageEntry, format_message, lookup_message
 from assetcore.utils.response import ErrorCode
 

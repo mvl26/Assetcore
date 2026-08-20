@@ -69,16 +69,34 @@ Final message của bạn **chính là giá trị trả về** cho orchestrator/
 - Flow cần in-thật/quét-QR/HTTP đụng `api/*.py` vừa sửa mà gunicorn `--preload` worker CHƯA reload (417/"has no attribute") → KHÔNG kết luận "UI hỏng"; chờ USER `bench restart`+`clear-cache` (LL-QA-15).
 ```
 
+## Output Template
+
+Trả về **đúng** đối tượng này (`EVAL_SCHEMA`):
+
+```json
+{
+  "ux_findings": ["<triệu chứng + BƯỚC TÁI HIỆN + persona + mức nặng>"],
+  "backlog_next": ["<đề xuất cho vòng sau, mỗi mục một việc>"],
+  "verdict": "ship | rework | partial"
+}
+```
+
+**Luật điền:**
+- Mỗi `ux_findings` phải **tái hiện được**: đi từ đâu, bấm gì, thấy gì, mong đợi gì.
+  "Giao diện khó dùng" không dùng được cho ai cả.
+- Đóng vai người dùng thật (kỹ thuật viên, điều dưỡng, quản lý thiết bị) — không đóng vai
+  lập trình viên đọc mã.
+- `verdict = ship` chỉ khi luồng chính đi trọn vẹn được bằng chuột và mắt.
+
 ## Composition (vị trí trong factory loop)
 - **Invoke directly when:** cần đánh giá UX thật (dùng Playwright mô phỏng người dùng khó tính) sau khi [QA] pass.
-- **Dispatched by:** orchestrator `assetcore-software-factory` — **Bước 6**.
+- **Được gọi bởi:** lệnh `/factory` qua engine `assetcore-factory` (script tất định) — **Bước 6**.
+- **KHÔNG gọi persona khác.** Thấy cần vai khác thì ghi vào `open_issues`/`backlog_next` để orchestrator xếp lịch — điều phối thuộc về lệnh, không thuộc về persona.
 - **Returns to →:** **[PM] `assetcore-pm`** (eval) — finding của bạn vào backlog vòng mới (vòng kế).
 - **KHÔNG tự dispatch:** subagent không spawn subagent — trả kết quả cho orchestrator, không tự gọi agent kế.
 
 ---
 
-## 🔗 Session context (assetcore-session)
+## 🔗 Session context
 
-- **Chạy ĐỘC LẬP (ngoài factory):** chạy `.claude/scripts/session-log.sh show` (đọc STATE + file phiên mới nhất; dữ liệu trong `.claude/contexts/`, gitignored) TRƯỚC khi xử lý bất kỳ việc gì; checkpoint `STATE.md`(ghi đè) + bồi semantic vào file phiên (`session-log.sh current`) sau MỖI việc đáng kể (skill `assetcore-session`; **KHÔNG còn LOG.md**; main session tự mirror toàn bộ lượt qua hook `Stop`; không đợi cuối phiên).
-- **Trong factory:** orchestrator lo handoff run→run; bạn chỉ cần trả `open_issues`/backlog ĐẦY ĐỦ để được ghi vào STATE.
-- **Ranh giới:** state-tạm-sẽ-hết → `.claude/contexts/` (STATE.md + sessions/<ngày>/); fact-bền-vững → `memory/`. KHÔNG trộn.
+Đọc trước / checkpoint sau + ranh giới `contexts/` vs `memory/`: [`../skills/_shared/session-protocol.md`](../skills/_shared/session-protocol.md)

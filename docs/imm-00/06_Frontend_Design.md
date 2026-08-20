@@ -2538,7 +2538,7 @@ Bảng đầy đủ ở **ADR §16.3**. Loại test: **tĩnh** 1 (guard cũ, kh�
 
 > **CR**: `AC-CR-100` — đề mục PM gọi «AC-CR-96», số đó **đã bị chiếm** (bảng đối chiếu [ADR §8.0](./ADR-IMM00-TRUNCATION-SSOT.md)). Quyết định: **ADR-IMM00-TRUNCATION-SSOT §8** (D-TL-1..9 · INV-TL-1..11 · microcopy §8.8). FR-00-TL-01 / BR-00-TL-01..09: [02 §IV.40](./02_Analysis_Design.md). Hợp đồng API: [05 §III.25](./05_API_Specification.md). Test + DoD: [07 §XIX](./07_Testing_QA.md).
 >
-> **Biên (A-biên — đo được)**: FE chạm **ĐÚNG 1** file sản phẩm `frontend/src/views/asset/AssetDetailView.vue` (chỉ vùng tab `timeline`) + **1 file test mới** `frontend/src/views/asset/assetDetailTimelinePagination.test.ts`. BE chạm **ĐÚNG 1 dòng** `assetcore/api/imm00.py:293` + **1 class guard** trong `assetcore/tests/test_imm00.py`. Bất kỳ file khác trong diff ⇒ **ra khỏi biên ⇒ ĐỎ**.
+> **Biên (A-biên — đo được)**: FE chạm **ĐÚNG 1** file sản phẩm `frontend/src/views/asset/AssetDetailView.vue` (chỉ vùng tab `timeline`) + **1 file test mới** `frontend/src/views/asset/assetDetailTimelinePagination.test.ts`. BE chạm **ĐÚNG 1 dòng** `assetcore/api/imm00.py:293` + **1 class guard** trong `assetcore/tests/imm00/test_imm00.py`. Bất kỳ file khác trong diff ⇒ **ra khỏi biên ⇒ ĐỎ**.
 
 ### VIII.11.1 Hiện trạng phải sửa (verify @source 2026-07-28 — chép nguyên, đừng đọc lại bằng trí nhớ)
 
@@ -2807,7 +2807,7 @@ Phạm vi rà: `api/connectionsApi.guard.test.ts` · `components/common/RelatedR
 | 8 | `frontend/src/constants/labels.ts` | **+1 dòng** `'Warranty Repair': 'Bảo hành'` vào `REPAIR_TYPE_LABEL` (`:660`) — bổ khuyết map GỐC, **không** map thứ hai |
 | T1 | `frontend/src/components/asset/tests/AssetOperationalHistory.test.ts` | **MỚI** — render/lười/3 trạng thái/nhãn VI/đếm trung thực |
 | T2 | `frontend/src/router/assetOpHistoryRouteParity.test.ts` | **MỚI** — parity route SSoT + chống link chết + 0 URL literal |
-| T3 | `assetcore/tests/test_asset_operational_history_contract.py` | **MỚI (BE, chỉ đọc)** — parity `fields` @source ⇄ `05 §III.26.3` |
+| T3 | `assetcore/tests/integration/test_asset_operational_history_contract.py` | **MỚI (BE, chỉ đọc)** — parity `fields` @source ⇄ `05 §III.26.3` |
 
 File khác trong `git diff --name-only` ⇒ **ra khỏi biên ⇒ ĐỎ**. Ngoại lệ **duy nhất được phép**: `frontend/src/stores/tests/assetHistoryTruncation.test.ts` nếu guard cache làm nó đỏ (§VIII.13.3 ⚠️) — phải khai trong báo cáo.
 
@@ -3049,7 +3049,7 @@ expect(w.findAll('[data-testid="conn-create"]').length).toBe(
 | 2 | `src/views/asset/AssetDetailView.vue` | Trong `[tab-panel-related]` (`:1045-1052`): **đảo thứ tự** — `<AssetOperationalHistory>` **trước**; `<RelatedRecords>` bọc trong `<div>` có `<h3 data-testid="related-block-heading">Liên kết nhanh theo chức năng</h3>`; cập nhật comment `:1047-1050` cho khớp thứ tự mới |
 | T1 | `src/components/asset/tests/AssetOperationalHistory.test.ts` | **Sửa `TC-FE-OPH-09` `:298-307`** (`not.toContain('Đang xem')` ⇄ AC1 — `D-OPH-20` **cho phép + bắt buộc**) + **thêm** `TC-FE-OPH-14..18` (§XXII) |
 | T2 | `src/views/asset/tests/AssetDetailView.relatedTab.test.ts` | **Thêm** TC thứ tự DOM + đếm `related-block-heading` (`TC-FE-OPH-19..20`); sửa TC cũ **chỉ nếu** thật sự đỏ |
-| T3 | `assetcore/tests/test_asset_operational_history_contract.py` | **Thêm** `INV-OPH-27..30` vào file **đã có** (BE, **chỉ đọc**, 0 dòng prod) |
+| T3 | `assetcore/tests/integration/test_asset_operational_history_contract.py` | **Thêm** `INV-OPH-27..30` vào file **đã có** (BE, **chỉ đọc**, 0 dòng prod) |
 
 `stores/assetHistoryTruncation.test.ts` **phải xanh KHÔNG sửa** (khác vòng `AC-CR-102`) — nó đỏ ⇒ có người sửa store ngoài biên.
 

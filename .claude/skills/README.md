@@ -67,9 +67,9 @@ Chuẩn hóa từ kiến trúc agent-skills (`.claude/agent-skills/README.md` §
 
 | Skill | References |
 |---|---|
-| assetcore-be | `error-codes.md`, `permission-matrix.md`, `lessons-learned.md` (LL-BE-* — BẮT BUỘC đọc) |
-| assetcore-fe | `component-patterns.md`, `lessons-learned.md` (LL-FE-* — BẮT BUỘC đọc) |
-| assetcore-audit | `lessons-learned.md` (regression classes A–L, LL-AUDIT-* — BẮT BUỘC đọc) |
+| assetcore-be | `error-codes.md`, `permission-matrix.md`, `rules.md` + `archive/` (LL-BE-* — đọc CHỈ MỤC, archive theo triệu chứng) |
+| assetcore-fe | `component-patterns.md`, `rules.md` + `archive/` (LL-FE-* — đọc CHỈ MỤC, archive theo triệu chứng) |
+| assetcore-audit | `rules.md` + `archive/` (regression classes A–L, LL-AUDIT-* — đọc CHỈ MỤC, archive theo triệu chứng) |
 | assetcore-doc | `light-touch-recipes.md`, `module-catalog.md`, `source-map.md` |
 | assetcore-test | `playwright-patterns.md` |
 

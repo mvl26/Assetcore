@@ -201,11 +201,11 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 
 → CLAUDE.md §17 (TDD mandatory).
 
-**Trạng thái thực tế (2026-05-29):** business logic đã refactor ra `assetcore/services/imm05.py` (24 hàm — xem I.1). Test hiện tại nằm trong **một file duy nhất** `assetcore/tests/test_imm05.py`; các file con `test_imm05_workflow.py` / `_api.py` / `_audit.py` / `test_asset_document_doctype.py` mô tả dưới đây là **kế hoạch chia file** (⬜ Planned), hiện chưa tách.
+**Trạng thái thực tế (2026-05-29):** business logic đã refactor ra `assetcore/services/imm05.py` (24 hàm — xem I.1). Test hiện tại nằm trong **một file duy nhất** `assetcore/tests/imm05/test_imm05.py`; các file con `test_imm05_workflow.py` / `_api.py` / `_audit.py` / `test_asset_document_doctype.py` mô tả dưới đây là **kế hoạch chia file** (⬜ Planned), hiện chưa tách.
 
 ## III.2. Unit test — Service Layer
 
-**File:** `assetcore/tests/test_imm05.py` (đang có) — các test sau ✅ Live đã được viết thật trong file này.
+**File:** `assetcore/tests/imm05/test_imm05.py` (đang có) — các test sau ✅ Live đã được viết thật trong file này.
 
 | Test class | Function cover (I.1) | Kỹ thuật | Cases (happy/negative) | Status |
 |---|---|---|---|---|
@@ -226,14 +226,14 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 | `TestArchiveDocument` | `archive_document` (#16) | EP | — | ⬜ Planned |
 | `TestMarkExempt` | `mark_exempt` (#25) | Decision Table + role guard | — | ⬜ Planned |
 | `TestGetAssetDocuments` | `get_asset_documents` (#19) | EP (completeness) | — | ⬜ Planned |
-| `TestAssetDossierFileMeta` (AC-CR-81) | `get_asset_documents` (#19) — 5 khoá TỆP, BR-05-22..25 | Decision Table (có tệp / mồ côi / rỗng) + Invariant (INV-FILE-1..8) + Counterexample (link mồ côi) + Đo-số-query (chống N+1) | **12 / 12** (§III.2.b) + 4 FE render | ✅ **Đã hiện thực** (`assetcore/tests/test_imm05.py::TestAssetDossierFileMeta`, module **91 OK** — 79 CR-75 + 12 AC-CR-81; mutation ×4 verified, xem §III.2.b) |
-| `TestAssetDossierTruth` (CR-75) | `get_asset_documents` (#19) + `is_expired_row` — BR-05-17..21 | BVA (biên hạn) + Decision Table (5 trạng thái) + Invariant (INV-DOC-2/3, INV-EXP-2) + Counterexample (Archived quá hạn) | **25 / 25** (18 ca §III.2.a + 7 ca bồi: `05b` loại không bắt buộc · `11b` Active quá hạn ⇒ `is_expired=1` · `12b` expiry NULL ⇒ `days_until_expiry=null` · `18b` no-leak Internal_Only · `19` 0-regress 5 khoá cũ + grouped-object · `20` guard nguồn literal · `21` từ vựng enum) | ✅ **Đã hiện thực** (`assetcore/tests/test_imm05.py::TestAssetDossierTruth`, module 79 OK) |
+| `TestAssetDossierFileMeta` (AC-CR-81) | `get_asset_documents` (#19) — 5 khoá TỆP, BR-05-22..25 | Decision Table (có tệp / mồ côi / rỗng) + Invariant (INV-FILE-1..8) + Counterexample (link mồ côi) + Đo-số-query (chống N+1) | **12 / 12** (§III.2.b) + 4 FE render | ✅ **Đã hiện thực** (`assetcore/tests/imm05/test_imm05.py::TestAssetDossierFileMeta`, module **91 OK** — 79 CR-75 + 12 AC-CR-81; mutation ×4 verified, xem §III.2.b) |
+| `TestAssetDossierTruth` (CR-75) | `get_asset_documents` (#19) + `is_expired_row` — BR-05-17..21 | BVA (biên hạn) + Decision Table (5 trạng thái) + Invariant (INV-DOC-2/3, INV-EXP-2) + Counterexample (Archived quá hạn) | **25 / 25** (18 ca §III.2.a + 7 ca bồi: `05b` loại không bắt buộc · `11b` Active quá hạn ⇒ `is_expired=1` · `12b` expiry NULL ⇒ `days_until_expiry=null` · `18b` no-leak Internal_Only · `19` 0-regress 5 khoá cũ + grouped-object · `20` guard nguồn literal · `21` từ vựng enum) | ✅ **Đã hiện thực** (`assetcore/tests/imm05/test_imm05.py::TestAssetDossierTruth`, module 79 OK) |
 
 > Test thuần công thức (`_resolve_alert_level`) dùng `unittest.TestCase` không cần DB — chạy ms-level, không cần fixture cleanup.
 
 ### III.2.a. `TestAssetDossierTruth` — bộ ca kiểm thử CR-75 (BE viết theo TDD)
 
-**File:** `assetcore/tests/test_imm05.py` · **Fixture:** dùng `_make_asset()` / `_make_doc()` sẵn có + tạo `Required Document Type` tạm (`autoname = field:type_name` ⇒ **đặt tên có tiền tố `_Test CR75 …`** và purge trong `tearDownClass`; nhớ `AC Asset Category` tạm nếu ca cần category — dọn theo `category_name`, KHÔNG theo `name` (autoname `CAT-####`)).
+**File:** `assetcore/tests/imm05/test_imm05.py` · **Fixture:** dùng `_make_asset()` / `_make_doc()` sẵn có + tạo `Required Document Type` tạm (`autoname = field:type_name` ⇒ **đặt tên có tiền tố `_Test CR75 …`** và purge trong `tearDownClass`; nhớ `AC Asset Category` tạm nếu ca cần category — dọn theo `category_name`, KHÔNG theo `name` (autoname `CAT-####`)).
 
 | # | Ca | Setup | Assert |
 |---|---|---|---|
@@ -260,7 +260,7 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 
 **Mutation-verified (bắt buộc ≥1 lần, LL-TEST):** (a) đổi `is_expired_row` bỏ mệnh đề `workflow_state not in (...)` ⇒ #10/#11/#17 ĐỎ; (b) đổi call-site truyền `is_exempt=True` thô ⇒ #14 ĐỎ; (c) tính completeness trên tập đã lọc visibility ⇒ #18 ĐỎ. Hoàn nguyên ⇒ XANH.
 
-**Chạy:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm05` — **đặt timeout tool ≥ 600000 ms** (kill giữa chừng ⇒ tearDown không chạy ⇒ nhiễm DB, không phải bug sản phẩm).
+**Chạy:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.imm05.test_imm05` — **đặt timeout tool ≥ 600000 ms** (kill giữa chừng ⇒ tearDown không chạy ⇒ nhiễm DB, không phải bug sản phẩm).
 
 **FE (vitest + `vue-tsc`):** `stores/imm05.test.ts` map đủ khoá mới; test `CommissioningDetailView` — `is_compliant: 1` ⇒ tông xanh/CTA mở, `is_compliant: 0` ⇒ đỏ + hiện khối "Hết hạn: …" khi `expired_required` non-empty; test nhãn **tiếng Việt** (không rò `Compliant`/`Expiring_Soon` ra DOM); test `required_total === 0` ⇒ hiện câu "Không có loại hồ sơ bắt buộc áp dụng…" thay vì "100%".
 
@@ -273,7 +273,7 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 ### III.2.b. `TestAssetDossierFileMeta` — bộ ca kiểm thử AC-CR-81 (BE viết theo TDD)
 
 **Hợp đồng:** [05 §2.7.c](./05_API_Specification.md) (INV-FILE-1..8) · thực thi [04 §4.4-bis](./04_Backend_Design.md) · FE [06 §4.4-bis](./06_Frontend_Design.md).
-**File:** `assetcore/tests/test_imm05.py` — class MỚI `TestAssetDossierFileMeta` (tái dùng fixture `_mk_asset` / `_mk_type` / `_mk_doc` của `TestAssetDossierTruth`, thêm helper `_mk_file(url, *, private, size)` tạo `File` doc thật và **xoá trong `tearDownClass`**).
+**File:** `assetcore/tests/imm05/test_imm05.py` — class MỚI `TestAssetDossierFileMeta` (tái dùng fixture `_mk_asset` / `_mk_type` / `_mk_doc` của `TestAssetDossierTruth`, thêm helper `_mk_file(url, *, private, size)` tạo `File` doc thật và **xoá trong `tearDownClass`**).
 
 > ⚠️ **Fixture hiện hữu là ca MỒ CÔI sẵn:** `_mk_doc` gán `file_attachment = "/files/dummy-test.pdf"` mà **không** có `File` doc ⇒ mọi ca CR-75 cũ tự động rơi vào nhánh `has_file = 0` — đây là **tính năng** (0 sửa fixture cũ), và cũng là lý do ca #03 phải khẳng định tường minh.
 
@@ -329,7 +329,7 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 
 ## III.4. Integration — Workflow transitions
 
-**File:** `assetcore/tests/test_imm05.py` (module `assetcore.tests.test_imm05`). Workflow `'IMM-05 Document Workflow'` (`fixtures/workflow.json`): **6 state** (Draft, Pending Review, Active, Rejected, Archived, **Expired** — declared-dead, giữ theo ADR-IMM-05-02). Cạnh unique SAU Self-Correction = 6: `Draft→Pending Review`, **`Draft→Archived` (Hủy bỏ — THÊM MỚI)**, `Pending Review→Active`, `Pending Review→Rejected`, `Rejected→Pending Review`, `Active→Archived`. `Archived`/`Expired` = 0 outbound.
+**File:** `assetcore/tests/imm05/test_imm05.py` (module `assetcore.tests.imm05.test_imm05`). Workflow `'IMM-05 Document Workflow'` (`fixtures/workflow.json`): **6 state** (Draft, Pending Review, Active, Rejected, Archived, **Expired** — declared-dead, giữ theo ADR-IMM-05-02). Cạnh unique SAU Self-Correction = 6: `Draft→Pending Review`, **`Draft→Archived` (Hủy bỏ — THÊM MỚI)**, `Pending Review→Active`, `Pending Review→Rejected`, `Rejected→Pending Review`, `Active→Archived`. `Archived`/`Expired` = 0 outbound.
 
 > **BR-05-16 / ADR-IMM-05-02 — state `Expired` GIỮ (supersede COUPLED TEST CONTRACT cũ):** contract cũ yêu cầu gỡ state-def `Expired` + hạ `test_workflows.py` `min_states` 6→5. **Quyết định mới:** GIỮ `Expired` (declared-dead terminal) → `test_workflows.py` giữ `min_states 6` (KHÔNG đổi), fixture giữ 6 state. Ngữ nghĩa derived-expiry (fix bug count-vs-drill ở read-path `expired_filter` + FE marker) KHÔNG phụ thuộc state-def → vẫn xanh. Gỡ `Expired` là backlog dọn-dẹp độc lập, KHÔNG thuộc change CTA này.
 
@@ -359,7 +359,7 @@ Mirror `test_imm11.TestCalibrationAllowedTransitions`. **Chỉ xanh SAU khi thê
 
 **(d) `can_approve` theo quyền:** user có `doc.approve` (Compliance Manager) → `can_approve == 1`; user KHÔNG có (vd technician-only) → `can_approve == 0`. (FE gating false-permissive test ở vitest — 06 §7.5.)
 
-**Run:** `bench --site miyano run-tests --module assetcore.tests.test_imm05` → `Ran N OK` (không FAIL/ERROR).
+**Run:** `bench --site miyano run-tests --module assetcore.tests.imm05.test_imm05` → `Ran N OK` (không FAIL/ERROR).
 
 ## III.5. Integration — Audit chain integrity
 
@@ -430,9 +430,9 @@ Target-only (chưa benchmark). Tool **k6** hoặc `pytest-benchmark`.
 
 ```bash
 # Module test (file hiện có)
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm05
+bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.imm05.test_imm05
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm05 && coverage report
+coverage run -m unittest assetcore.tests.imm05.test_imm05 && coverage report
 # Scheduler thủ công
 bench --site assetcore.local execute assetcore.services.imm05.check_document_expiry
 ```
@@ -863,7 +863,7 @@ Screenshot SonarQube + Lighthouse gắn vào `09_Release.md §Release Notes` khi
 - [ ] Audit chain test (idempotent + version) — chưa viết
 - [ ] API test ≥ 60% + permission matrix — chưa viết `test_imm05_api.py`
 - [x] Performance target xác định (target-only)
-- [x] CI command chạy clean (`run-tests --module assetcore.tests.test_imm05`)
+- [x] CI command chạy clean (`run-tests --module assetcore.tests.imm05.test_imm05`)
 - [ ] SonarQube Quality Gate pass + Lighthouse ≥ target — chưa chạy
 
 ## IV. Traceability

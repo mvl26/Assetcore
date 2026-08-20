@@ -174,7 +174,7 @@ Exact file paths:
 bench --site miyano export-fixtures --app assetcore
 bench --site miyano migrate
 bench --site miyano run-tests --module assetcore.tests.test_immXX
-bench --site miyano run-tests --module assetcore.tests.test_workflows
+bench --site miyano run-tests --module assetcore.tests.guards.test_workflows
 ```
 
 **Gate**: Fresh site provision thành công (workflow + roles sẵn có).

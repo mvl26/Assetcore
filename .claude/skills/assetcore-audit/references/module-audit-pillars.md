@@ -203,7 +203,7 @@ grep -n "_STATUS_\|STATUS_COLOR\|STATUS_LABEL\|allowed_transitions" services/imm
 
 ```bash
 bench --site miyano run-tests --module assetcore.tests.test_immXX
-bench --site miyano run-tests --module assetcore.tests.test_workflows
+bench --site miyano run-tests --module assetcore.tests.guards.test_workflows
 ```
 
 ### Pillar 8 — Docs & Audit trail

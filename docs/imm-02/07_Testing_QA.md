@@ -9,7 +9,7 @@
 
 > **Mục đích**: Suy ra test case có hệ thống từ phân tích (file 02) bằng kỹ thuật black-box + white-box, không liệt kê tự phát. Bao gồm: phân tích đối tượng test → chọn kỹ thuật → viết test → traceability → UAT → security → code quality. Phần VI là gate go-live.
 
-> **Trạng thái**: Wave 2 — Live. Unit test thực tế tại `assetcore/tests/test_imm02.py` (7 TestClass · 24 test method, đã chạy). Layer Integration/Workflow/API hiện ở trạng thái Planned.
+> **Trạng thái**: Wave 2 — Live. Unit test thực tế tại `assetcore/tests/imm02/test_imm02.py` (7 TestClass · 24 test method, đã chạy). Layer Integration/Workflow/API hiện ở trạng thái Planned.
 
 ---
 
@@ -202,7 +202,7 @@ Toàn bộ artefact test được của IMM-02. Mỗi dòng → ≥ 1 test class
 
 ## III.2. Unit test — Service Layer
 
-File: `assetcore/tests/test_imm02.py` (1 file, 7 TestClass, 24 method — đã chạy). Mỗi class trace về ≥ 1 dòng I.1.
+File: `assetcore/tests/imm02/test_imm02.py` (1 file, 7 TestClass, 24 method — đã chạy). Mỗi class trace về ≥ 1 dòng I.1.
 
 | Test class | Function cover | Kỹ thuật | Method (Live) |
 |---|---|---|---|
@@ -227,7 +227,7 @@ File: `assetcore/tests/test_imm02.py` (1 file, 7 TestClass, 24 method — đã c
 
 **Run:**
 ```bash
-bench --site <site> run-tests --app assetcore --module assetcore.tests.test_imm02
+bench --site <site> run-tests --app assetcore --module assetcore.tests.imm02.test_imm02
 ```
 
 > Lưu ý naming thực tế: `draft_from_plan` nằm ở `api/imm02.py` (không phải `services`); lock-in tính qua `validate_lock_in_assessment(doc)` (không có hàm `compute_lock_in` riêng).
@@ -321,7 +321,7 @@ File dự kiến: `tests/test_imm02_api.py`. Cover happy + envelope `success=tru
 
 > **Tách RBAC-gate ≠ business-gate:** `test_transition_workflow_advertised_action_reachable` phải dựng fixture thoả G01–G04 cho cạnh đang kiểm (vd Draft→Reviewing cần ≥8 mandatory + test_method), hoặc assert INVARIANT-2 ở mức role-permission. `allowed_actions` chỉ advertise cạnh role-reachable; `BUSINESS_RULE` khi bấm là UX đúng, KHÔNG vi phạm invariant.
 
-> **KHÔNG đụng** `imm_02_spec_workflow.json` → `test_workflow_admin_override` GIỮ GREEN (verify trong DoD). FE parity: `TechSpecDetailView.ctaGating.test.ts` +case `allowed_actions` (render `cta-wf-<slug>`, click → `store.transitionWorkflow` + `fetchOne`, rỗng/thiếu → 0 nút wf, Pending Approval không nuốt `cta-lock`/`cta-withdraw`). DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm02` → 'Ran N OK' THẬT (dòng cuối) + `vue-tsc` sạch + `vitest` xanh.
+> **KHÔNG đụng** `imm_02_spec_workflow.json` → `test_workflow_admin_override` GIỮ GREEN (verify trong DoD). FE parity: `TechSpecDetailView.ctaGating.test.ts` +case `allowed_actions` (render `cta-wf-<slug>`, click → `store.transitionWorkflow` + `fetchOne`, rỗng/thiếu → 0 nút wf, Pending Approval không nuốt `cta-lock`/`cta-withdraw`). DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.imm02.test_imm02` → 'Ran N OK' THẬT (dòng cuối) + `vue-tsc` sạch + `vitest` xanh.
 
 ## III.7. E2E browser (Playwright)
 
@@ -351,9 +351,9 @@ Dùng cho flow UI khó cover bằng API: dropdown cascade `device_category`/`sou
 
 ```bash
 # Module test (Live)
-bench --site <site> run-tests --app assetcore --module assetcore.tests.test_imm02
+bench --site <site> run-tests --app assetcore --module assetcore.tests.imm02.test_imm02
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm02 && coverage report
+coverage run -m unittest assetcore.tests.imm02.test_imm02 && coverage report
 # Workflow smoke (khi test_imm02_workflow.py có)
 bench --site <site> run-tests --module assetcore.tests.test_imm02_workflow
 ```
@@ -712,7 +712,7 @@ Trước release đầu tiên: Burp/ZAP scan, sqlmap (an toàn), CSRF test, role
 - [ ] Audit chain test (intact + tampered) — Planned
 - [ ] API test ≥ 60% coverage + permission matrix — chưa có `test_imm02_api.py`
 - [x] Performance target xác định (III.8)
-- [x] CI command chạy clean (`bench run-tests --module assetcore.tests.test_imm02`)
+- [x] CI command chạy clean (`bench run-tests --module assetcore.tests.imm02.test_imm02`)
 - [ ] SonarQube Quality Gate pass + Lighthouse ≥ target — chưa chạy/báo cáo
 
 ## IV. Traceability

@@ -9,7 +9,7 @@
 
 > **Mục đích**: Suy ra test case **có hệ thống** từ phân tích (file 02) bằng kỹ thuật black-box + white-box, không liệt kê tự phát. Bao gồm: phân tích đối tượng test → chọn kỹ thuật → viết test → traceability → UAT → security → code quality. Phần này là gate go-live.
 
-> **Trạng thái hiện tại (2026-05-29)**: Module IMM-15 **đã triển khai** (Wave 2). Test thực tế: `assetcore/tests/test_imm15.py` — 9 lớp test, 15 test method **✅ Live**. Coverage formal report **chưa chạy** → các con số coverage dưới đây là *target*, không phải đo thực. Field-level permission (permlevel) **chưa cấu hình** trên DocType → đánh dấu gap ở VI.1.
+> **Trạng thái hiện tại (2026-05-29)**: Module IMM-15 **đã triển khai** (Wave 2). Test thực tế: `assetcore/tests/imm15/test_imm15.py` — 9 lớp test, 15 test method **✅ Live**. Coverage formal report **chưa chạy** → các con số coverage dưới đây là *target*, không phải đo thực. Field-level permission (permlevel) **chưa cấu hình** trên DocType → đánh dấu gap ở VI.1.
 
 ---
 
@@ -196,7 +196,7 @@ CLAUDE.md §17: TDD bắt buộc. Hiện tại trọng tâm test thực ở tầ
 
 ## III.2. Unit test — Service Layer
 
-File: `assetcore/tests/test_imm15.py`. Lớp test + method **đã tồn tại** (✅ Live) hoặc **chưa viết** (⬜ Planned).
+File: `assetcore/tests/imm15/test_imm15.py`. Lớp test + method **đã tồn tại** (✅ Live) hoặc **chưa viết** (⬜ Planned).
 
 | Test class | Test method | Function cover | Kỹ thuật | Status |
 |---|---|---|---|---|
@@ -292,7 +292,7 @@ State Transition Testing: mỗi edge = 1 test pass (đúng role + đúng state) 
 
 ### III.4a INVARIANT `TestCycleCountAllowedTransitions` + `TestCycleCountRecount` (vòng 11, CR-WF-15-CC)
 
-File: `assetcore/tests/test_imm15.py` (thêm `import json`). Mirror `TestIncidentAllowedTransitions` (test_imm12.py CR-WF-12).
+File: `assetcore/tests/imm15/test_imm15.py` (thêm `import json`). Mirror `TestIncidentAllowedTransitions` (test_imm12.py CR-WF-12).
 
 **INVARIANT `TestCycleCountAllowedTransitions`** — SSoT `_cycle_allowed_transitions` (qua 3 map §04 §VI.2.1) ⇄ `imm_15_cycle_count_workflow.json`. RED trước fix, GREEN sau.
 
@@ -333,11 +333,11 @@ def _cycle_service_edges() -> set[tuple[str, str]]:
 > API-layer guest: `recount_cycle_count` qua HTTP guest → **dispatcher 401** (không tới handler). Kiểm ở `tests/test_imm15_api.py` (⬜ Planned) nếu cần; cap-403 in-handler đã cover ở TC-04.
 
 **DoD (đọc DÒNG CUỐI `Ran N OK` THẬT):**
-`bench --site miyano run-tests --module assetcore.tests.test_imm15` GREEN · `--module assetcore.tests.test_workflows` GREEN (`test_workflow_admin_override` KHÔNG đổi — vòng 11 KHÔNG đụng workflow json) · FE `npm test` (vitest `cycleCountDetailCtaGate` — thêm case Recount) GREEN · `vue-tsc` sạch (type `CycleCountAction` +`'Recount'`).
+`bench --site miyano run-tests --module assetcore.tests.imm15.test_imm15` GREEN · `--module assetcore.tests.guards.test_workflows` GREEN (`test_workflow_admin_override` KHÔNG đổi — vòng 11 KHÔNG đụng workflow json) · FE `npm test` (vitest `cycleCountDetailCtaGate` — thêm case Recount) GREEN · `vue-tsc` sạch (type `CycleCountAction` +`'Recount'`).
 
 ### III.4b INVARIANT `TestImm15AuditEventTypeParity` + audit-row per-transition + bare-pass regression guard (vòng 12, CR-WF-15-AUDIT)
 
-File: `assetcore/tests/test_imm15.py`. Đóng silent-audit-loss: 6 slug domain IMM-15 ∉ Select `IMM Audit Trail.event_type` ⇒ ValidationError bị try/except nuốt ⇒ 0 dòng audit. Xem 04 §IV-AUDIT + ADR-IMM-15-09 + BR-15-10.
+File: `assetcore/tests/imm15/test_imm15.py`. Đóng silent-audit-loss: 6 slug domain IMM-15 ∉ Select `IMM Audit Trail.event_type` ⇒ ValidationError bị try/except nuốt ⇒ 0 dòng audit. Xem 04 §IV-AUDIT + ADR-IMM-15-09 + BR-15-10.
 
 **(A) INVARIANT `TestImm15AuditEventTypeParity`** — chống drift emit-nhưng-quên-đăng-ký. RED trước khi thêm 6 option vào `imm_audit_trail.json`, GREEN sau (+ `bench migrate` sync JSON→DB).
 
@@ -386,7 +386,7 @@ class TestImm15AuditEventTypeParity(FrappeTestCase):
 
 ### III.4c INVARIANT `TestAllocationAllowedTransitions` (vòng 16, CR-WF-15-ALLOC)
 
-File: `assetcore/tests/test_imm15.py` (đã có `import json`). Mirror `TestCycleCountAllowedTransitions` (§III.4a) + `TestIncidentAllowedTransitions` (test_imm12.py). SSoT `_allocation_allowed_transitions` (dict `_ALLOCATION_ALLOWED_TRANSITIONS`, 04 §VI.1.1) ⇄ `imm_15_allocation_workflow.json`. **RED trước fix** (`_ALLOCATION_ALLOWED_TRANSITIONS` chưa tồn tại → `AttributeError`/`ImportError`; `get_allocation` chưa emit → KeyError), **GREEN sau**.
+File: `assetcore/tests/imm15/test_imm15.py` (đã có `import json`). Mirror `TestCycleCountAllowedTransitions` (§III.4a) + `TestIncidentAllowedTransitions` (test_imm12.py). SSoT `_allocation_allowed_transitions` (dict `_ALLOCATION_ALLOWED_TRANSITIONS`, 04 §VI.1.1) ⇄ `imm_15_allocation_workflow.json`. **RED trước fix** (`_ALLOCATION_ALLOWED_TRANSITIONS` chưa tồn tại → `AttributeError`/`ImportError`; `get_allocation` chưa emit → KeyError), **GREEN sau**.
 
 ```python
 def _load_allocation_workflow_edges() -> set[tuple[str, str]]:
@@ -412,7 +412,7 @@ def _allocation_service_edges() -> set[tuple[str, str]]:
 | `test_map_matches_core_doc` | `[Requested]==["Approved","Issued","Cancelled"]`; `[Approved]==["Issued","Cancelled"]`; `[Picked]==["Cancelled"]`; `[Issued]==["Returned"]`; `[Returned]==[]`; `[Cancelled]==[]` | RED | GREEN |
 | `test_get_allocation_emits_allowed_transitions` | `get_allocation(name)` CHỨA key `allowed_transitions == _allocation_allowed_transitions(status)` cho ≥3 status (Requested/Approved/Issued) + terminal Cancelled → `[]` | RED (no emit) | GREEN |
 
-> **DoD (đọc DÒNG CUỐI `Ran N OK` THẬT):** `bench --site miyano run-tests --module assetcore.tests.test_imm15` GREEN · `--module assetcore.tests.test_imm15_reservation` GREEN (regression — recompute_reserved KHÔNG đụng) · `--module assetcore.tests.test_workflows` GREEN (`IMM-15 Spare Allocation Workflow` min_transitions:12 GIỮ — KHÔNG đụng json) · `test_workflow_admin_override` GREEN (22/22 — 0 migrate/reload). FE: `vue-tsc` sạch (interface `AllocationDetail += allowed_transitions: string[]`). Sửa root cause — KHÔNG false-green (RED-first mỗi INVARIANT trước khi thêm map/emit).
+> **DoD (đọc DÒNG CUỐI `Ran N OK` THẬT):** `bench --site miyano run-tests --module assetcore.tests.imm15.test_imm15` GREEN · `--module assetcore.tests.imm15.test_imm15_reservation` GREEN (regression — recompute_reserved KHÔNG đụng) · `--module assetcore.tests.guards.test_workflows` GREEN (`IMM-15 Spare Allocation Workflow` min_transitions:12 GIỮ — KHÔNG đụng json) · `test_workflow_admin_override` GREEN (22/22 — 0 migrate/reload). FE: `vue-tsc` sạch (interface `AllocationDetail += allowed_transitions: string[]`). Sửa root cause — KHÔNG false-green (RED-first mỗi INVARIANT trước khi thêm map/emit).
 
 ## III.5. Integration — Audit chain integrity
 
@@ -467,9 +467,9 @@ Dùng cho flow UI khó cover bằng API: dropdown cascade chọn warehouse/part,
 
 ```bash
 # Module test
-bench --site [site] run-tests --app assetcore --module assetcore.tests.test_imm15
+bench --site [site] run-tests --app assetcore --module assetcore.tests.imm15.test_imm15
 # Coverage
-bench --site [site] run-tests --app assetcore --coverage --module assetcore.tests.test_imm15
+bench --site [site] run-tests --app assetcore --coverage --module assetcore.tests.imm15.test_imm15
 # Scheduler jobs (manual trigger)
 bench --site [site] execute assetcore.services.imm15.check_critical_spare_breach
 bench --site [site] execute assetcore.services.imm15.check_low_stock_and_alert

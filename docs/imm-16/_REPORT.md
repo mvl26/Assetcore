@@ -72,7 +72,7 @@
 
 ## 2026-05-18 Full Code-sync Pass
 
-**Nguồn**: Đọc trực tiếp `assetcore/services/imm16.py` (2076 dòng), `assetcore/api/imm16.py` (424 dòng), `assetcore/repositories/compliance_repo.py`, 7 DocType JSON, `assetcore/hooks.py`, `assetcore/tests/test_imm16.py`, `frontend/src/api/imm16.ts`, `frontend/src/router/index.ts`, `frontend/src/views/compliance/`.
+**Nguồn**: Đọc trực tiếp `assetcore/services/imm16.py` (2076 dòng), `assetcore/api/imm16.py` (424 dòng), `assetcore/repositories/compliance_repo.py`, 7 DocType JSON, `assetcore/hooks.py`, `assetcore/tests/imm16/test_imm16.py`, `frontend/src/api/imm16.ts`, `frontend/src/router/index.ts`, `frontend/src/views/compliance/`.
 
 ### Bảng file đã chạm
 
@@ -167,7 +167,7 @@ Light-touch updates to files NOT covered in Pass 1.
 |---|---|
 | `02_Analysis_Design.md` | Banner `PLANNED — Wave 3` → `IMPLEMENTED — Wave 2` với list 11 DocType folder thực tế. BPMN/use-case/BR sections giữ nguyên (cross-referenced `services/imm16.py` — function names match). |
 | `03_Diagrams.md` | Header + metadata table updated (version `0.3.0` → `1.0.0-rc.2`, date → 2026-05-14). ERD/state machine giữ nguyên. |
-| `07_Testing_QA.md` | Header updated. PREPENDED §0 — Test Suite Inventory liệt kê 9 TestCase + 14 test method thực tế trong `assetcore/tests/test_imm16.py` (rule lifecycle, finding waiver, audit close, CAPA workflow, effectiveness, scorecard, cross-module gate, dashboard). Test plan template §I–§VII giữ làm backlog. |
+| `07_Testing_QA.md` | Header updated. PREPENDED §0 — Test Suite Inventory liệt kê 9 TestCase + 14 test method thực tế trong `assetcore/tests/imm16/test_imm16.py` (rule lifecycle, finding waiver, audit close, CAPA workflow, effectiveness, scorecard, cross-module gate, dashboard). Test plan template §I–§VII giữ làm backlog. |
 | `08_Deployment.md` | Header updated. PREPENDED §0 — Wired Artefacts với verified `doc_events` (Rule/Finding/CAPA validate+submit+update, Internal Audit validate, Scorecard immutability, WO submit gate, 4 real-time eval hooks) + scheduler (4 hourly, 1 daily, 2 weekly), fixture list (`imm16_custom_field_capa_record.json` + workflow JSONs), 14 DocType folder name. Note `patches.txt` không có entry IMM-16. |
 | `05_API_Specification.md` (Pass 1 leftover) | §5 TypeScript Types banner `Pending Wave 3` → `IMPLEMENTED Wave 2`. |
 | `06_Frontend_Design.md` (Pass 1 leftover) | §II.1 dashboard route `/imm16/dashboard` → `/compliance/heatmap` (note dashboard hợp nhất); §II.2 `/imm16/heatmap` → `/compliance/heatmap`; §II.3 `/imm16/capa` → `/capas`; §II.4 `/imm16/capa/:name` → `/capas/:id`; drill-down link sửa sang `/compliance/findings`; §III store filename `imm16Store.ts` → `imm16.ts`. |

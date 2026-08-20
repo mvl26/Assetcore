@@ -540,12 +540,12 @@ Reference: `memory/factory_rounds_6_10_20260602.md`, §Event-driven, LL-TEST-17.
 Triệu chứng→nguyên nhân: doc tạo trong `setUpClass` → commit → KHÔNG rollback per-test (R-9). Asset đi qua `on_trash` guard (`force=True` KHÔNG bypass ISO/LinkExists) → leak thật đã gặp: 53 asset + 21 part + 21 warehouse.
 
 **Rule kiểm-được:**
-1. Asset cleanup dùng `from assetcore.tests._asset_cleanup import purge_asset` — raw-SQL purge IMM Audit Trail + Asset Lifecycle Event + Asset Document (cả 3 có `on_trash` guard không bypass được), cancel children docstatus=1 trước (xem LL-TEST-17).
+1. Asset cleanup dùng `from assetcore.tests._helpers._asset_cleanup import purge_asset` — raw-SQL purge IMM Audit Trail + Asset Lifecycle Event + Asset Document (cả 3 có `on_trash` guard không bypass được), cancel children docstatus=1 trước (xem LL-TEST-17).
 2. **KHÔNG** `try/except: pass` quanh delete chain → nuốt exception = leak thầm. Để exception propagate.
 3. Local-var fixture trong test method → `self.addCleanup(...)` NGAY (`tearDownClass` chỉ thấy `cls.*`).
 4. Pre-release verify count `%test%` = 0 (R-9).
 
-Reference: `assetcore/tests/_asset_cleanup.py`, R-9, LL-TEST-17, `memory/test_session_20260529_wave1.md`.
+Reference: `assetcore/tests/_helpers/_asset_cleanup.py`, R-9, LL-TEST-17, `memory/test_session_20260529_wave1.md`.
 
 ### LL-TEST-23: AC Asset Category — tra cứu + cleanup theo field `category_name`, KHÔNG theo `name` (LL-QA-6)
 

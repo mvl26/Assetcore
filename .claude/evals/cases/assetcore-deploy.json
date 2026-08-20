@@ -1,0 +1,10 @@
+{ "skill_name": "assetcore-deploy",
+  "trigger": {
+    "positive": [
+      { "prompt": "chạy bench migrate rồi rebuild assets cho site", "top_k": 2 },
+      { "prompt": "site bị lỗi sau khi install-app, cần rollback", "top_k": 2 },
+      { "prompt": "email không gửi được, SMTP cấu hình sao", "top_k": 2 }
+    ],
+    "negative": [
+      { "prompt": "chia commit rồi push code lên GitHub", "owner": "assetcore-commit" }
+    ] } }

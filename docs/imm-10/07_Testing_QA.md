@@ -302,9 +302,9 @@ UAT data phải **thực tế** (tên BV VN, mã NCC chuẩn). Backend test fixt
 
 ```bash
 # Module test (sau khi scaffold)
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm10
+bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.imm10.test_imm10
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm10 && coverage report
+coverage run -m unittest assetcore.tests.imm10.test_imm10 && coverage report
 # Workflow smoke
 bench --site assetcore.local run-tests --module assetcore.tests.test_imm10_workflow
 # UAT golden

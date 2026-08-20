@@ -920,13 +920,13 @@ allowed     = is_reporter OR has_write
 >
 > 🔁 **DELTA 2026-07-25 (vòng sửa lỗi CR-69):** (1) **GATE quyền** `assert_doctype_read_permission` + `@rowscoped` — xem **§20.1** (lỗ OWASP A01: persona 0-DocPerm-read vẫn đọc được sự cố + `total`); (2) **hist_07 hết vacuous** — seed 12 → **101** (12 < 100 và 12 < 500 cho kết quả y hệt ⇒ TC cũ không phân biệt được có/không clamp); (3) **hist_08 MỚI** phủ nửa cắt của INV-INCH-5 (25 sự cố, `limit=0`); (4) **parity `limit=0` sửa THẬT** ở imm08/imm09 (trước đó doc hứa parity mà code lệch 20-vs-10).
 >
-> Guard: `assetcore/tests/test_imm12.py::TestAssetIncidentHistoryTruncation` (**9 TC** — HIST-01/02/03 + int-parity + zero-cost spy `frappe.db.count` 0-lần/1-lần + clamp `limit=0` (2 nhánh) + `limit=500` trên fixture 101) + `assetcore/tests/test_rowscope_docperm_gate.py` (3 TC gate) + `assetcore/tests/test_rowscope_scope_guard.py::G4` (guard tĩnh). FE `.ts` = việc của Bước-4 [FE] (song song).
+> Guard: `assetcore/tests/imm12/test_imm12.py::TestAssetIncidentHistoryTruncation` (**9 TC** — HIST-01/02/03 + int-parity + zero-cost spy `frappe.db.count` 0-lần/1-lần + clamp `limit=0` (2 nhánh) + `limit=500` trên fixture 101) + `assetcore/tests/integration/test_rowscope_docperm_gate.py` (3 TC gate) + `assetcore/tests/guards/test_rowscope_scope_guard.py::G4` (guard tĩnh). FE `.ts` = việc của Bước-4 [FE] (song song).
 
 > **Mục tiêu (CR-69):** tab **"Sự cố"** của màn hồ-sơ-vận-hành thiết bị đang **cắt IM LẶNG** theo `limit` (mặc định 10). Người dùng thấy 10 sự cố và tưởng đã xem hết trong khi máy có 30 — làm hỏng đúng 2 quyết định mà tab này sinh ra để phục vụ: **chronic failure** (BR-12-12, ≥3 sự cố cùng `fault_code`/90 ngày) và hồ sơ theo dõi thiết bị (NĐ98). Quyết định gốc: [`ADR-IMM00-TRUNCATION-SSOT`](../imm-00/ADR-IMM00-TRUNCATION-SSOT.md) (EXTENDS CR-43/46/47).
 
 **Endpoint KHÔNG đổi:** `GET assetcore.api.imm12.get_asset_incident_history` (`api/imm12.py:232` → `services/imm12.py::get_asset_incident_history` `:1521-1530`). Auth/param **GIỮ NGUYÊN**.
 
-> ✅ **`AC-CR-119` (2026-07-30) — cap SOUND của endpoint này là `corrective.read`** → `("Incident Report","read")` (`services/shared/rbac.py`), **khớp đúng** DocType mà truy vấn đọc (`services/imm12.py::_DT_INCIDENT`, gate `assert_doctype_read_permission(_DT_INCIDENT)` `:1731`) ⇒ **KHÔNG cần cap mới** cho IMM-12. Khai chính thức 1 lần ở SSoT `services/shared/connection_meta.py::OP_HISTORY_BRANCH_GATE["incident"] = ("corrective.read", "Incident Report")`, khoá bằng guard `CAPABILITY_MAP[cap] == (doctype, "read")` (`INV-OPH-32`, `assetcore/tests/test_asset_op_history_acl.py`). **Hai loại lỗi quyền phải phân biệt ở FE**: handler chặn `Guest` ⇒ **401** envelope (`api/imm12.py:234-235`, FE redirect login); thiếu DocPerm ⇒ **403 in-envelope trên HTTP-200** (FE **KHÔNG** logout, hiện **trạng thái KHOÁ** `[op-history-locked]`, 0 «Thử lại»). Envelope BE **KHÔNG đổi 1 ký tự**; xem [`docs/imm-00/05 §III.26.7`](../imm-00/05_API_Specification.md) + [`ADR-IMM00-ASSET-OP-HISTORY §11`](../imm-00/ADR-IMM00-ASSET-OP-HISTORY.md).
+> ✅ **`AC-CR-119` (2026-07-30) — cap SOUND của endpoint này là `corrective.read`** → `("Incident Report","read")` (`services/shared/rbac.py`), **khớp đúng** DocType mà truy vấn đọc (`services/imm12.py::_DT_INCIDENT`, gate `assert_doctype_read_permission(_DT_INCIDENT)` `:1731`) ⇒ **KHÔNG cần cap mới** cho IMM-12. Khai chính thức 1 lần ở SSoT `services/shared/connection_meta.py::OP_HISTORY_BRANCH_GATE["incident"] = ("corrective.read", "Incident Report")`, khoá bằng guard `CAPABILITY_MAP[cap] == (doctype, "read")` (`INV-OPH-32`, `assetcore/tests/integration/test_asset_op_history_acl.py`). **Hai loại lỗi quyền phải phân biệt ở FE**: handler chặn `Guest` ⇒ **401** envelope (`api/imm12.py:234-235`, FE redirect login); thiếu DocPerm ⇒ **403 in-envelope trên HTTP-200** (FE **KHÔNG** logout, hiện **trạng thái KHOÁ** `[op-history-locked]`, 0 «Thử lại»). Envelope BE **KHÔNG đổi 1 ký tự**; xem [`docs/imm-00/05 §III.26.7`](../imm-00/05_API_Specification.md) + [`ADR-IMM00-ASSET-OP-HISTORY §11`](../imm-00/ADR-IMM00-ASSET-OP-HISTORY.md).
 
 **Response — 2 khoá MỚI (ADDITIVE) trong `data`:**
 
@@ -1439,7 +1439,7 @@ def nthrow(message_code: str, *, error_code: str | None = None,
 | 200 | `oneOf [SubmitRcaEnvelope, Error]` closed-schema, disjoint required-set, **0 discriminator** |
 | Mô tả bắt buộc nêu | 5 `message_code` · 5 khoá `fields` khả dĩ · bất đối xứng đọc≠ghi · bất biến **KHÔNG-MUTATE** · **417** (điều không còn xảy ra) |
 
-**Guard** `assetcore/tests/test_mobile_oas.py::TestMobileSubmitRcaContract` — `cr83_a..f`:
+**Guard** `assetcore/tests/guards/test_mobile_oas.py::TestMobileSubmitRcaContract` — `cr83_a..f`:
 
 | TC | Khoá điều gì |
 |---|---|
@@ -1458,7 +1458,7 @@ def nthrow(message_code: str, *, error_code: str | None = None,
 
 ### §22.11 Handoff
 
-**[BE] Bước-4 — ✅ HOÀN TẤT 2026-07-27** (tất cả 6 gạch đầu dòng): `services/imm12.py` (3 predicate `:974/:1028/:1043` + 2 adapter `:1074/:1080` + pre-check `submit_rca:1236-1250` + `fields` cho 2 nhánh cũ) · `utils/notify.py` (`nthrow(fields=…)`) · `utils/messages.py` (3 hằng + 3 entry) · `assetcore/doctype/imm_rca_record/imm_rca_record.py` (6 `frappe.throw` → **0**) · `assetcore/tests/test_imm12.py` (13 TC: `TestRcaSubmitEnvelope` 11 + `TestRcaValidatorSsot` 3, trừ TC-FE) · **refresh cite OAS** + lật `cr83_d` → `cr83_g`. ⚠️ **HARD-STOP còn lại:** `.py` API đã đổi ⇒ **USER phải `bench restart`** (gunicorn `--preload`) trước khi live-verify bằng curl/app.
+**[BE] Bước-4 — ✅ HOÀN TẤT 2026-07-27** (tất cả 6 gạch đầu dòng): `services/imm12.py` (3 predicate `:974/:1028/:1043` + 2 adapter `:1074/:1080` + pre-check `submit_rca:1236-1250` + `fields` cho 2 nhánh cũ) · `utils/notify.py` (`nthrow(fields=…)`) · `utils/messages.py` (3 hằng + 3 entry) · `assetcore/doctype/imm_rca_record/imm_rca_record.py` (6 `frappe.throw` → **0**) · `assetcore/tests/imm12/test_imm12.py` (13 TC: `TestRcaSubmitEnvelope` 11 + `TestRcaValidatorSsot` 3, trừ TC-FE) · **refresh cite OAS** + lật `cr83_d` → `cr83_g`. ⚠️ **HARD-STOP còn lại:** `.py` API đã đổi ⇒ **USER phải `bench restart`** (gunicorn `--preload`) trước khi live-verify bằng curl/app.
 
 **[FE] Bước-4** — `RCADetailView.vue` đọc `ApiError.fields` (đã có sẵn đường dẫn: `helpers.ts::hydrateApiError` → `ApiError.fields`) và render dưới đúng control; xem `06_Frontend_Design.md §7`.
 

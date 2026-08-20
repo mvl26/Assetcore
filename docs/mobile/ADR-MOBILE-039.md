@@ -138,14 +138,14 @@ CONTRACT-ONLY. Áp CHÍNH XÁC (grep-verify baseline @source TRƯỚC bump — �
 1. **yaml** `docs/mobile/openapi/assetcore-mobile.openapi.yaml`:
    - +1 path `/api/method/assetcore.api.imm00.get_asset_downtime_metrics` (GET, opId `getAssetDowntimeMetrics`, tag `[asset]`, 2 param `asset_name`+`year`, 200 oneOf `[AssetDowntimeMetricsEnvelope, Error]`, slot `{200,401,403}`) — chèn CẠNH `getAssetKpi` path (@`yaml:8099`) hoặc cụm asset-detail flow-2.
    - +4 schema `AssetDowntimeMetrics`/`AssetDowntimeMetricsEnvelope`/`AssetDowntimeLog`/`AssetDowntimeLogOpen` — chèn CẠNH `AssetKpi`/`AssetKpiEnvelope` (@`yaml:5678-5765`). `current_open` = `{nullable:true, allOf:[{$ref: AssetDowntimeLogOpen}]}`.
-2. **test** `assetcore/tests/test_mobile_oas.py`:
+2. **test** `assetcore/tests/guards/test_mobile_oas.py`:
    - +class `TestMobileAssetDowntimeMetricsCurate` a..h (8 TC — xem Invariant contract). Hằng path/schema-ref mới (`_ASSET_DOWNTIME_METRICS_PATH`, `_ASSET_DOWNTIME_METRICS_ENVELOPE_SCHEMA`/`_REF`, `_ASSET_DOWNTIME_METRICS_SCHEMA_REF`) mirror `_ASSET_KPI_*`.
    - `_EXPECTED_TEST_COUNT` **632→640**; + membership: thêm path vào `_MVP_BUSINESS_PATHS` + `_MVP_READ_ENVELOPE` + c5 map `getAssetDowntimeMetrics → AssetDowntimeMetricsEnvelope` (**55→56**).
    - **⚠️ path-count assertion 66→67:** ~40+ literal `66` (`len(paths)`/`len(ids)`/`len(set(ids))`/`len(ops)`) rải toàn file (chèn theo getAssetKpi 65→66) PHẢI bump **66→67**. Full test-run bắt sót.
-3. **docset** `assetcore/tests/test_mobile_docset.py`:
+3. **docset** `assetcore/tests/guards/test_mobile_docset.py`:
    - `_GUARD_SUITE_EXPECTED["test_mobile_oas.py"]` **632→640** · `_GUARD_SUITE_SUM` **775→783** · `_MOBILE_OAS_TOTAL` **801→809**.
    - `test_tc_mob_doc_09`: +`asset_downtime_metrics_curate_delta = 8` (cạnh `asset_kpi_curate_delta`) + `- asset_downtime_metrics_curate_delta` vào chuỗi trừ `pre_fc3_six` (giữ `==191`).
-4. **DoD:** `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` → **Ran 640 OK** · `…test_mobile_docset` → **Ran 9 OK**; RED-before (strip path) → FAIL → restore → GREEN.
+4. **DoD:** `bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas` → **Ran 640 OK** · `…test_mobile_docset` → **Ran 9 OK**; RED-before (strip path) → FAIL → restore → GREEN.
 
 ## Handoff CORE-DEV (native repo — ngoài `assetcore`)
 

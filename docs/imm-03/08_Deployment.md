@@ -25,7 +25,7 @@
 | 6 | IMM Audit Trail DocType đã có | `frappe.db.exists("DocType", "IMM Audit Trail")` | Chung hệ thống |
 | 7 | Patch v3_1.003_install_imm03 đã commit | `git log assetcore/patches/v3_1/003_install_imm03.py` | Bootstrap gộp 1 patch |
 | 8 | 3 Workflow JSON đã có | `ls assetcore/assetcore/workflow/imm_03_*` | — |
-| 9 | Unit test pass | `bench run-tests --module assetcore.tests.test_imm03` | 5 class hiện có |
+| 9 | Unit test pass | `bench run-tests --module assetcore.tests.imm03.test_imm03` | 5 class hiện có |
 | 10 | Frontend build thành công | `yarn build` (hoặc `npm run build`) | — |
 | 11 | `patches.txt` đã đăng ký `assetcore.patches.v3_1.003_install_imm03` | `cat patches.txt` | — |
 | 12 | Backup database + site | `bench backup --with-files` | Bắt buộc trước migrate |

@@ -171,11 +171,11 @@ Toàn bộ artefact test được của module IMM-08. Mỗi dòng → ≥ 1 tes
 
 TDD bắt buộc (→ CLAUDE.md §17). Mỗi BR-08-01..10 có ≥ 1 happy + 1 negative test.
 
-> **Trạng thái thực tế (2026-05-29):** test code hợp nhất trong **một file** `assetcore/tests/test_imm08.py` (444 dòng). Các class **đã viết (✅ Live)**: `TestPMChecklistTemplate`, `TestPMSchedule`, `TestPMWorkOrder`, `TestPMBackfillAndSupervisor`, `TestPMCompletionGate`. Các class còn lại = **⬜ Planned** (Wave 2). Split sang nhiều file là mục tiêu refactor.
+> **Trạng thái thực tế (2026-05-29):** test code hợp nhất trong **một file** `assetcore/tests/imm08/test_imm08.py` (444 dòng). Các class **đã viết (✅ Live)**: `TestPMChecklistTemplate`, `TestPMSchedule`, `TestPMWorkOrder`, `TestPMBackfillAndSupervisor`, `TestPMCompletionGate`. Các class còn lại = **⬜ Planned** (Wave 2). Split sang nhiều file là mục tiêu refactor.
 
 ## III.2. Unit test — Service Layer
 
-**File:** `assetcore/tests/test_imm08.py`
+**File:** `assetcore/tests/imm08/test_imm08.py`
 
 | Test class | Function cover | Kỹ thuật | Cases | Trạng thái |
 |---|---|---|---|---|
@@ -193,7 +193,7 @@ TDD bắt buộc (→ CLAUDE.md §17). Mỗi BR-08-01..10 có ≥ 1 happy + 1 ne
 
 ## III.3. Integration — DocType lifecycle
 
-**File:** `assetcore/tests/test_imm08.py` (hợp nhất — xem ghi chú §III.1)
+**File:** `assetcore/tests/imm08/test_imm08.py` (hợp nhất — xem ghi chú §III.1)
 
 | Test | Setup | Action | Assert | Trạng thái |
 |---|---|---|---|---|
@@ -306,9 +306,9 @@ UAT data dùng tên/mã thực tế VN. Backend test fixture mới dùng prefix 
 
 ```bash
 # Module test (tất cả trong một file)
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm08
+bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.imm08.test_imm08
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm08 && coverage report
+coverage run -m unittest assetcore.tests.imm08.test_imm08 && coverage report
 # Full suite (CI)
 bench --site assetcore.local run-tests --app assetcore --coverage
 ```
@@ -418,7 +418,7 @@ Bổ sung gate đã Live: `test_complete_blocked_when_labor_zero` (BR-08-09 dura
 | TC-PM-PHOTO-EVIDENCE-02 (rollback-on-throw) | Monkeypatch `create_lifecycle_event` raise → toàn giao dịch rollback: **0 File orphan** + `row.photo` KHÔNG đổi + KHÔNG commit (mirror imm12 rollback). | 🔴 Viết mới |
 | TC-PM-PHOTO-EVIDENCE-03 (read-back parity + count==rows) | Sau success: `get_work_order(WO).checklist_results[idx].photo == file_url` vừa trả; `len(_pm_checklist_photos(WO, idx))` == số File chặn max (count==rows); mục chưa đính → `photo` rỗng, helper == `[]`. | 🔴 Viết mới |
 
-**Boundaries test (chống false-green):** assert **0 File** ở MỌI nhánh reject (query `frappe.get_all("File", filters={attached_to_name: WO})` count trước/sau == nhau); KHÔNG assert chỉ envelope. Grep guard: 0 `wo.save()` trong `attach_pm_checklist_photo` (phải `db.set_value`); 0 `frappe.throw`/`raise` HTTP-4xx cho lỗi nghiệp vụ (phải Decision-B). `bench --site miyano run-tests --module assetcore.tests.test_imm08` → `Ran N OK` (N tăng + KHÔNG regression). Live curl hoãn tới USER reload `--preload` (417/404 khi chưa reload = stale-worker, ĐỪNG re-fix — LL-DEPLOY-07).
+**Boundaries test (chống false-green):** assert **0 File** ở MỌI nhánh reject (query `frappe.get_all("File", filters={attached_to_name: WO})` count trước/sau == nhau); KHÔNG assert chỉ envelope. Grep guard: 0 `wo.save()` trong `attach_pm_checklist_photo` (phải `db.set_value`); 0 `frappe.throw`/`raise` HTTP-4xx cho lỗi nghiệp vụ (phải Decision-B). `bench --site miyano run-tests --module assetcore.tests.imm08.test_imm08` → `Ran N OK` (N tăng + KHÔNG regression). Live curl hoãn tới USER reload `--preload` (417/404 khi chưa reload = stale-worker, ĐỪNG re-fix — LL-DEPLOY-07).
 
 ### IV.2.d Test mới CR-28b — `getDuePmSchedules` màn "Nhắc việc" nửa-PM (F8)
 
@@ -915,7 +915,7 @@ Screenshot SonarQube + Lighthouse gắn vào `09_Release.md` §Release Notes khi
 ## VIII. CR-74 — Read-gate CHI TIẾT (getPmWorkOrder) · bộ TC bắt buộc (2026-07-25)
 
 > Spec: [`05_API_Specification.md` §12](./05_API_Specification.md) · SSoT: [ADR-IMM00-LIST-SCOPE §9](../imm-00/ADR-IMM00-LIST-SCOPE.md).
-> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm08` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
+> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.imm08.test_imm08` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
 
 ### VIII.1 Fixture tối thiểu (dựng 1 lần, dùng chung 6 TC)
 
@@ -954,7 +954,7 @@ Screenshot SonarQube + Lighthouse gắn vào `09_Release.md` §Release Notes khi
 ## IX. AC-CR-77 — `available_actions[]` server-driven 4 CTA · bộ TC bắt buộc (2026-07-26)
 
 > Hợp đồng: [`05 §13`](./05_API_Specification.md) · code-shape: [`04 §4.3`](./04_Backend_Design.md) · FE: [`06 §3.4.a`](./06_Frontend_Design.md).
-> **Lệnh chấm (DoD):** `bench --site miyano run-tests --module assetcore.tests.test_imm08` · `...test_mobile_oas` · `...test_mobile_docset` — **timeout tool ≥ 600000 ms**, module-isolated. **KHÔNG curl** (BLOCKED-RELOAD gunicorn `--preload` — worker chưa nạp `.py` mới; 417/403 lúc curl là **stale worker**, KHÔNG phải bug). **KHÔNG `bench migrate`**, **KHÔNG `npm run build`**.
+> **Lệnh chấm (DoD):** `bench --site miyano run-tests --module assetcore.tests.imm08.test_imm08` · `...test_mobile_oas` · `...test_mobile_docset` — **timeout tool ≥ 600000 ms**, module-isolated. **KHÔNG curl** (BLOCKED-RELOAD gunicorn `--preload` — worker chưa nạp `.py` mới; 417/403 lúc curl là **stale worker**, KHÔNG phải bug). **KHÔNG `bench migrate`**, **KHÔNG `npm run build`**.
 
 ### IX.1 Fixture tối thiểu (dựng 1 lần, dùng chung)
 
@@ -968,7 +968,7 @@ Screenshot SonarQube + Lighthouse gắn vào `09_Release.md` §Release Notes khi
 
 > ♻️ **Dọn dẹp:** mọi fixture phải xoá ở `tearDownClass` (bài học: tool-timeout kill giữa chừng ⇒ rác DB ⇒ suite ĐỎ giả). Đặt timeout ≥600000ms.
 
-### IX.2 Bộ TC — `assetcore/tests/test_imm08.py::TestPmAvailableActions`
+### IX.2 Bộ TC — `assetcore/tests/imm08/test_imm08.py::TestPmAvailableActions`
 
 | TC | Điều kiện | Kỳ vọng | INV |
 |---|---|---|---|
@@ -1071,11 +1071,11 @@ Danh sách TC + 4 counter cần cộng **delta +9**: xem `05 §13.9`. **Đọc s
 
 | Suite | Trước (đọc lại trên đĩa!) | Sau |
 |---|---|---|
-| `bench --site miyano run-tests --module assetcore.tests.test_imm08` | **182 `def test`** | ✅ **194 OK** (12 TC mới, đo 2026-07-27) |
-| `… --module assetcore.tests.test_imm09` | **230** | ✅ **242 OK** |
-| `… --module assetcore.tests.test_mobile_oas` | **959 OK** | ✅ **967 OK** |
-| `… --module assetcore.tests.test_mobile_docset` | **9 OK** | ✅ **9 OK** (không đổi số TC) |
-| `… --module assetcore.tests.test_rowscope_invariant` | xanh | ✅ **21 OK** (0 regress) |
+| `bench --site miyano run-tests --module assetcore.tests.imm08.test_imm08` | **182 `def test`** | ✅ **194 OK** (12 TC mới, đo 2026-07-27) |
+| `… --module assetcore.tests.imm09.test_imm09` | **230** | ✅ **242 OK** |
+| `… --module assetcore.tests.guards.test_mobile_oas` | **959 OK** | ✅ **967 OK** |
+| `… --module assetcore.tests.guards.test_mobile_docset` | **9 OK** | ✅ **9 OK** (không đổi số TC) |
+| `… --module assetcore.tests.integration.test_rowscope_invariant` | xanh | ✅ **21 OK** (0 regress) |
 | FE `vue-tsc --noEmit` · `vitest run` | xanh | **xanh** (+2 file test mới) |
 
 > 🔴 **Mọi `run-tests` đặt `timeout` tool ≥ 600000ms** — kill giữa chừng = nhiễm DB, **không phải** bug sản phẩm.

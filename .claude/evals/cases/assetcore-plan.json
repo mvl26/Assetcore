@@ -1,0 +1,11 @@
+{ "skill_name": "assetcore-plan",
+  "trigger": {
+    "positive": [
+      { "prompt": "sprint tới nên làm gì tiếp theo", "top_k": 2 },
+      { "prompt": "ưu tiên việc nào trước, chia task cho BE và FE", "top_k": 2 },
+      { "prompt": "đề xuất tính năng mới cho backlog", "top_k": 3 }
+    ],
+    "negative": [
+      { "prompt": "viết tài liệu module imm-04 theo template chuẩn", "owner": "assetcore-doc" },
+      { "prompt": "thêm endpoint mới cho service", "owner": "assetcore-be" }
+    ] } }

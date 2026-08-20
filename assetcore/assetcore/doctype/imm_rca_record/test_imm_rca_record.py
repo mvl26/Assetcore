@@ -78,7 +78,7 @@ class TestIMMRCARecordValidate(unittest.TestCase):
         '_Test RCA Asset/Cat/Model' fixtures never leak into prod-like lists."""
         from contextlib import suppress
 
-        from assetcore.tests._asset_cleanup import (
+        from assetcore.tests._helpers._asset_cleanup import (
             purge_asset,
             purge_category_by_name,
         )

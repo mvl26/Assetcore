@@ -57,6 +57,8 @@ const ITEM = {
   be_tasks: ['emit create_prefill', 'gate create_incident'],
   fe_tasks: ['tiêu thụ create_prefill'],
   test_cases: ['TC1'],
+  needs_ux_review: true,
+  goal_met: false,
 }
 
 const failures = []
@@ -173,6 +175,123 @@ function check(name, cond, detail) {
     !(gap.items_done || []).length && JSON.stringify(gap.items_unfinished || []).includes('create_prefill'),
     `items_done=${JSON.stringify(gap.items_done)} unfinished=${JSON.stringify(gap.items_unfinished)}`
   )
+
+
+  // ── INV-9..13: định tuyến vai + dừng-khi-đạt-mục-tiêu + không paraphrase ──────
+  const seenLabels = []
+  const allPrompts = []
+  const mkAgent = (item) => async (prompt, opts = {}) => {
+    const label = opts.label || ''
+    seenLabels.push(label)
+    allPrompts.push(prompt)
+    if (label === 'carry-over') return { carryover: '(STATE trống)' }
+    if (label === 'intake-goal') return { goal_ready: false, goal: '', acceptance: [], open_questions: ['q'] }
+    if (label.endsWith('·PM')) return item
+    if (label.endsWith('·BE') || label.endsWith('·FE'))
+      return { did_work: true, files_changed: ['x.ts'], summary: 'ok', open_issues: [], landed_symbols: ['s → x.ts:1'], contract_unverified: [] }
+    if (label.includes('QA'))
+      return { tests_ran: true, tests_green: true, command: 'c', totals: 'Ran 1 OK', failures: [], summary: 'xanh', disk_verified: ['acceptance → x.ts:1'], pre_existing_failures: [] }
+    if (label.endsWith('·USER')) return { ux_findings: [], backlog_next: [], verdict: 'ship' }
+    if (label === 'verify-claims') return { landed: ['s → x.ts:1'], unlanded: [] }
+    return {}
+  }
+
+  const mkAgentWithPlan = (item) => async (prompt, opts = {}) => {
+    const label = opts.label || ''
+    if (label === 'intake-goal') return { goal_ready: true, goal: 'G', acceptance: ['acc1'], open_questions: [] }
+    if (label === 'plan-tasks') return { task_count: 1, task_ids: ['T01'], summary: 's' }
+    return mkAgent(item)(prompt, opts)
+  }
+
+  // Chỉ có việc FE, không cần review UX → engine phải BỎ QUA cả [BE] lẫn [USER]
+  seenLabels.length = 0; allPrompts.length = 0
+  const feOnly = { ...ITEM, be_tasks: [], fe_tasks: ['sửa nhãn VI'], needs_core_doc: false, needs_ux_review: false, goal_met: false }
+  const feRun = await runEngine({ agent: mkAgent(feOnly), parallelImpl: parallelNullOnThrow, argsValue: { rounds: 1 } })
+  check('INV-9 task chỉ-FE ⇒ KHÔNG spawn agent [BE]',
+    !seenLabels.some((l) => l.endsWith('·BE')), `labels=${JSON.stringify(seenLabels)}`)
+  check('INV-10 needs_ux_review=false ⇒ KHÔNG spawn agent [USER]',
+    !seenLabels.some((l) => l.endsWith('·USER')), `labels=${JSON.stringify(seenLabels)}`)
+  check('INV-11 mọi prompt trong vòng đều cấm agent tự đọc STATE',
+    allPrompts.filter((p) => /^\[(BA|BE|FE|QA|USER|PM)\]/.test(p)).every((p) => p.includes('KHÔNG chạy `session-log.sh show`')),
+    'thiếu chỉ thị NO_STATE_READ ở ít nhất 1 prompt vai')
+
+  // goal_met=true ⇒ dừng sớm — CHỈ khi có GOAL/TASKS thật để đối chiếu.
+  // (Trường hợp KHÔNG có mục tiêu được INV-17 canh riêng: phải BỎ QUA, không dừng.)
+  seenLabels.length = 0
+  const early = await runEngine({
+    agent: mkAgentWithPlan({ ...ITEM, goal_met: true }),
+    parallelImpl: parallelNullOnThrow,
+    argsValue: { rounds: 5, goal: 'mục tiêu có thật', auto: true },
+  })
+  check('INV-12 có GOAL/TASKS + goal_met=true ⇒ dừng sớm, không chạy hết số vòng',
+    early.result.rounds_run === 1 && !seenLabels.some((l) => l.endsWith('·QA')),
+    `rounds_run=${early.result.rounds_run} labels=${JSON.stringify(seenLabels)}`)
+
+  // Prompt PM vòng 2 KHÔNG được nhồi JSON của vòng trước (anti-pattern paraphrase)
+  seenLabels.length = 0; allPrompts.length = 0
+  await runEngine({ agent: mkAgent({ ...ITEM, needs_ux_review: false }), parallelImpl: parallelNullOnThrow, argsValue: { rounds: 2 } })
+  const pmPrompts = allPrompts.filter((p) => p.startsWith('[PM]'))
+  check('INV-13 prompt PM không nhồi JSON vòng trước (truyền con trỏ, không paraphrase)',
+    pmPrompts.length >= 2 && !pmPrompts.some((p) => p.includes('"did_work"') || p.includes('"files_changed"')),
+    `pmPrompts=${pmPrompts.length}`)
+
+
+  // ── INV-14..17: INTAKE→PLAN, cổng duyệt, và goal_met không được dừng câm ─────
+  const planAgent = (item, extra = {}) => async (prompt, opts = {}) => {
+    const label = opts.label || ''
+    seenLabels.push(label); allPrompts.push(prompt)
+    if (label === 'carry-over') return { carryover: '(STATE trống)' }
+    if (label === 'intake-goal') return { goal_ready: true, goal: 'G', acceptance: ['acc1'], open_questions: [] }
+    if (label === 'plan-tasks') return { task_count: 2, task_ids: ['T01', 'T02'], summary: 'kế hoạch' }
+    if (label.endsWith('·PM')) return item
+    if (label.endsWith('·BE') || label.endsWith('·FE'))
+      return { did_work: true, files_changed: ['x.ts'], summary: 'ok', open_issues: [], landed_symbols: ['s → x.ts:1'], contract_unverified: [] }
+    if (label.includes('QA'))
+      return { tests_ran: true, tests_green: true, command: 'c', totals: 'Ran 1 OK', failures: [], summary: 'xanh', disk_verified: ['acc1 → x.ts:1'], pre_existing_failures: [] }
+    if (label.endsWith('·USER')) return { ux_findings: [], backlog_next: [], verdict: 'ship' }
+    if (label === 'verify-claims') return { landed: ['s → x.ts:1'], unlanded: [] }
+    return {}
+  }
+  const PLAN_ITEM = { ...ITEM, be_tasks: ['x'], fe_tasks: [], needs_ux_review: false, goal_met: false }
+
+  // /factory KHÔNG auto ⇒ dừng ở cổng duyệt, CHƯA chạy vòng nào
+  seenLabels.length = 0; allPrompts.length = 0
+  const gated = await runEngine({ agent: planAgent(PLAN_ITEM), parallelImpl: parallelNullOnThrow, argsValue: { rounds: 3, goal: 'sửa danh sách rỗng' } })
+  check('INV-14 có kế hoạch + không `auto` ⇒ DỪNG ở cổng duyệt, chưa spawn vai nào',
+    gated.result.stopped_for_approval === true && !seenLabels.some((l) => /·(PM|BE|FE|QA|USER)$/.test(l)),
+    `result=${JSON.stringify(gated.result).slice(0, 160)} labels=${JSON.stringify(seenLabels)}`)
+
+  // /factory auto ⇒ chạy thẳng; PM phải nhận CON TRỎ TASKS.md (không phải nội dung)
+  seenLabels.length = 0; allPrompts.length = 0
+  const auto = await runEngine({ agent: planAgent(PLAN_ITEM), parallelImpl: parallelNullOnThrow, argsValue: { rounds: 1, goal: 'sửa danh sách rỗng', auto: true } })
+  const pmPrompt = allPrompts.find((p) => p.startsWith('[PM]')) || ''
+  check('INV-15 `auto` ⇒ INTAKE→PLAN chạy và PM nhận CON TRỎ TASKS.md',
+    seenLabels.includes('intake-goal') && seenLabels.includes('plan-tasks') && /TASKS\.md/.test(pmPrompt) && auto.result.rounds_run === 1,
+    `labels=${JSON.stringify(seenLabels)} rounds_run=${auto.result && auto.result.rounds_run}`)
+
+  // goal_ready=false ⇒ KHÔNG lập plan, KHÔNG dựng cổng duyệt giả
+  seenLabels.length = 0
+  const vagueAgent = async (prompt, opts = {}) => {
+    const label = opts.label || ''
+    seenLabels.push(label)
+    if (label === 'intake-goal') return { goal_ready: false, goal: '', acceptance: [], open_questions: ['ai là người duyệt?'] }
+    return planAgent(PLAN_ITEM)(prompt, opts)
+  }
+  const vague = await runEngine({ agent: vagueAgent, parallelImpl: parallelNullOnThrow, argsValue: { rounds: 1, goal: 'làm cho nó tốt hơn' } })
+  check('INV-16 yêu cầu mơ hồ (goal_ready=false) ⇒ KHÔNG lập TASKS, không dừng ở cổng giả',
+    !seenLabels.includes('plan-tasks') && vague.result.stopped_for_approval !== true,
+    `labels=${JSON.stringify(seenLabels)}`)
+
+  // KHÔNG có goal ⇒ goal_met của PM KHÔNG được làm dừng sớm (chống dừng câm)
+  seenLabels.length = 0
+  const noGoal = await runEngine({
+    agent: planAgent({ ...PLAN_ITEM, goal_met: true }),
+    parallelImpl: parallelNullOnThrow,
+    argsValue: { rounds: 4 },
+  })
+  check('INV-17 không có GOAL/TASKS ⇒ goal_met=true bị BỎ QUA (không dừng câm ở vòng 1)',
+    noGoal.result.rounds_run === 4,
+    `rounds_run=${noGoal.result.rounds_run} (yêu cầu 4)`)
 
   for (const c of checks) console.log(`${c.ok ? '  ok  ' : ' FAIL '} ${c.name}${c.ok ? '' : ' :: ' + c.detail}`)
   console.log(`\n${checks.length - failures.length}/${checks.length} bất biến xanh`)

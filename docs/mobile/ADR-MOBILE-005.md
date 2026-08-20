@@ -49,4 +49,4 @@ Nếu `UserListEnvelope.data.pagination` `$ref` thẳng `Pagination` (cho "gọn
 
 ## Guard
 
-`TestMobileListUsersContract` (`assetcore/tests/test_mobile_oas.py`, read-only yaml): `UserListPagination` 4-key + KHÔNG `offset` + `required`==4-key + `total_pages` floor-1 documented; `UserListEnvelope.data.pagination` `$ref UserListPagination` (KHÔNG `Pagination`). 0 đụng `.py`, KHÔNG reload/migrate.
+`TestMobileListUsersContract` (`assetcore/tests/guards/test_mobile_oas.py`, read-only yaml): `UserListPagination` 4-key + KHÔNG `offset` + `required`==4-key + `total_pages` floor-1 documented; `UserListEnvelope.data.pagination` `$ref UserListPagination` (KHÔNG `Pagination`). 0 đụng `.py`, KHÔNG reload/migrate.

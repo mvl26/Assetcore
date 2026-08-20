@@ -1,0 +1,7 @@
+{ "skill_name": "assetcore-router",
+  "trigger": {
+    "positive": [
+      { "prompt": "yêu cầu này thì nên dùng skill nào", "top_k": 2 },
+      { "prompt": "trình tự làm một tính năng mới gồm những bước nào", "top_k": 3 }
+    ],
+    "negative": [] } }

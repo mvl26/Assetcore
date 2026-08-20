@@ -469,4 +469,7 @@ override_doctype_class = {}
 override_whitelisted_methods = {}
 website_route_rules = [
     {"from_route": "/assetcore/<path:app_path>", "to_route": "assetcore"},
+    # Bề mặt HL7 FHIR R4 — docs/fhir/00_SPEC_FHIR_MIGRATION.md §6.1.
+    # Controller: assetcore/www/fhir_router.py → assetcore/fhir/router.py
+    {"from_route": "/fhir/<path:fhir_path>", "to_route": "fhir_router"},
 ]

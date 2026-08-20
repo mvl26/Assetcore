@@ -86,7 +86,7 @@ Source-of-truth verify lại từ:
 - `assetcore/assetcore/doctype/imm_tech_spec/imm_tech_spec.json` + 7 doctype liên quan
 - `assetcore/assetcore/workflow/imm_02_spec_workflow.json` (7 states, **9 transitions**)
 - `assetcore/patches/v3_1/002_install_imm02.py`
-- `assetcore/tests/test_imm02.py` (7 TestClass, 24 test method)
+- `assetcore/tests/imm02/test_imm02.py` (7 TestClass, 24 test method)
 - `frontend/src/views/tech-specs/{TechSpecListView,TechSpecCreateView,TechSpecDetailView}.vue`
 - `frontend/src/api/imm02.ts`, `frontend/src/stores/imm02.ts`, `frontend/src/router/index.ts`
 

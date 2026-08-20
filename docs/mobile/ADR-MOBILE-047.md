@@ -72,7 +72,7 @@ Request KHÔNG `client_request_id` (hoặc rỗng) → `_dedupe_lookup("")` retu
 
 ## Handoff BE/Test (Bước-4 — ĐÃ XONG, KHÔNG [AUTO] — reload gunicorn)
 
-> **BE-OWNED — KHÔNG contract-only:** đã đụng `api/imm12.py` (@88/102/131) + `services/imm12.py` (@450/484/499-501/544-545/548-559) + `incident_report.json` (@414) + `bench migrate`. **HARD-STOP: USER reload gunicorn (`--preload`)** cho HTTP live. Không commit (HARD-STOP user). DoD VERIFY: `bench --site miyano run-tests --module assetcore.tests.test_imm12` = **'Ran 131 OK' THẬT** (6 TC mới TC1-6; RED-before neutralize CR-24 → TC1/TC2/TC5/TC6 FAIL → restore → GREEN) · `.test_mobile_oas` = **'Ran 707 OK'** (self-count guard 707==707 + TC7 contract) · `.test_mobile_docset` = **'Ran 9 OK'** (balance ADR 47==47, transition-baseline `pre_fc3_six==191`).
+> **BE-OWNED — KHÔNG contract-only:** đã đụng `api/imm12.py` (@88/102/131) + `services/imm12.py` (@450/484/499-501/544-545/548-559) + `incident_report.json` (@414) + `bench migrate`. **HARD-STOP: USER reload gunicorn (`--preload`)** cho HTTP live. Không commit (HARD-STOP user). DoD VERIFY: `bench --site miyano run-tests --module assetcore.tests.imm12.test_imm12` = **'Ran 131 OK' THẬT** (6 TC mới TC1-6; RED-before neutralize CR-24 → TC1/TC2/TC5/TC6 FAIL → restore → GREEN) · `.test_mobile_oas` = **'Ran 707 OK'** (self-count guard 707==707 + TC7 contract) · `.test_mobile_docset` = **'Ran 9 OK'** (balance ADR 47==47, transition-baseline `pre_fc3_six==191`).
 
 **(1) DocType** (`incident_report.json`) — ĐÃ BỒI: field `client_request_id` (`Data` unique read_only no_copy set_only_once) + `field_order`. `bench migrate` → cột `varchar(140) NULL UNI` + BTREE unique index.
 

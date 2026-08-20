@@ -188,7 +188,7 @@ Tránh heredoc với `Co-Authored-By` — không bao giờ thêm dòng đó.
 
 ```bash
 # Commit 1 — bug fix nhỏ
-git add assetcore/api/imm03.py assetcore/tests/test_imm03.py
+git add assetcore/api/imm03.py assetcore/tests/imm03/test_imm03.py
 git commit \
   -m "fix(imm03): align VR-03 check with renamed workflow state" \
   -m "- imm03.py: dùng workflow_state thay vì status string
@@ -282,6 +282,13 @@ hash + subject từng commit + xác nhận `git push` thành công.
 
 ## Verification
 
+> **Mốc DoD của dự án** (áp cho MỌI thay đổi, bổ sung chứ không thay thế checklist dưới đây):
+> [`../_shared/definition-of-done.md`](../_shared/definition-of-done.md)
+
+> **Thao tác phải xin phép USER** (commit · migrate · drop DB · deploy prod · sửa dữ liệu live):
+> [`../_shared/hard-stops.md`](../_shared/hard-stops.md) — SSoT, đừng chép lại.
+
+
 Trước khi tuyên bố commit "xong" — phải có BẰNG CHỨNG (không "có vẻ đúng"):
 
 - [ ] Đã đọc `git status` + `git diff` để phân nhóm theo chủ đề logic.
@@ -297,8 +304,6 @@ Trước khi tuyên bố commit "xong" — phải có BẰNG CHỨNG (không "c�
 
 ---
 
-## 🔗 Session context — bàn giao phiên (assetcore-session)
+## 🔗 Session context
 
-- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE + file phiên mới nhất (curated; cần truy gốc chi tiết → đọc mục 🪞 Mirror của file phiên) — "đang dở ở đâu"; dữ liệu trong `.claude/contexts/` — gitignored; file phiên ở `sessions/<ngày>/`). Main session: hook tự nạp mỗi prompt + tự **mirror TOÀN BỘ lượt** (prompt+phản hồi+tool) vào file phiên qua hook `Stop`; subagent phải TỰ chạy lệnh này.
-- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY: `STATE.md`(ghi đè) + bồi **semantic** vào file phiên (`session-log.sh current` → path; **KHÔNG còn LOG.md**). Hook `Stop` đã mirror nguyên văn → bạn CHỈ cần tóm Làm/Quyết-định/Để-lại. KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
-- **Ranh giới:** state-tạm-sẽ-hết → `.claude/contexts/` (STATE.md + sessions/<ngày>/); fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.
+Đọc trước / checkpoint sau + ranh giới `contexts/` vs `memory/`: [`../_shared/session-protocol.md`](../_shared/session-protocol.md)

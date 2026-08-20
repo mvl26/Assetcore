@@ -163,8 +163,8 @@ P3 (T18–T20) đụng `<dt>.json` ⇒ **không** song song với T21.
 - [ ] Khai danh sách 12 hub trong hằng số `HUB_DOCTYPES` (SSoT của guard).
 - [ ] Với mỗi hub: có `<dt>_dashboard.py::get_data()` trả ≥1 `transactions` nhóm; mọi doctype trong `items` **tồn tại thật**; có field trỏ ngược về hub (`fieldname` hoặc `non_standard_fieldnames`).
 - [ ] Test tự-cắn: bịa 1 hub trỏ tới doctype không tồn tại ⇒ `AssertionError`.
-**Verify:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_doctype_connectivity` → **ĐỎ với đúng lý do "thiếu dashboard"**, không phải lỗi import.
-**Files:** `assetcore/tests/test_doctype_connectivity.py` · **Phụ thuộc:** T01 · **Scope:** M
+**Verify:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.guards.test_doctype_connectivity` → **ĐỎ với đúng lý do "thiếu dashboard"**, không phải lỗi import.
+**Files:** `assetcore/tests/guards/test_doctype_connectivity.py` · **Phụ thuộc:** T01 · **Scope:** M
 
 #### T03 — Static guard: một trục trạng thái (RED trước)
 **Mô tả:** Guard khẳng định invariant của ADR-CORE-01.
@@ -174,7 +174,7 @@ P3 (T18–T20) đụng `<dt>.json` ⇒ **không** song song với T21.
 - [ ] Grep-guard `frappe.db.set_value(...,"status"...)` / `doc.status = ` trong `services/`: đếm ≤ ngưỡng khai trong `ALLOWED_LEGACY` (khởi điểm = số hiện tại, giảm dần mỗi task P2 → 0 ở T17).
 - [ ] Test tự-cắn cho cả 2 nhánh (read_only bị gỡ; thêm 1 chỗ ghi tay ngoài whitelist).
 **Verify:** module test chạy → GREEN với ngưỡng khởi điểm; sửa ngưỡng xuống 0 thủ công ⇒ ĐỎ (chứng minh guard cắn).
-**Files:** `assetcore/tests/test_state_axis_invariant.py` · **Phụ thuộc:** T01 · **Scope:** M
+**Files:** `assetcore/tests/guards/test_state_axis_invariant.py` · **Phụ thuộc:** T01 · **Scope:** M
 
 > ### ⛳ Checkpoint A — sau T01–T03
 > - [ ] 2 guard chạy được, ĐỎ/GREEN đúng lý do dự kiến, có test tự-cắn.
@@ -202,7 +202,7 @@ P3 (T18–T20) đụng `<dt>.json` ⇒ **không** song song với T21.
 - [ ] **Áp permission thật**: dùng `frappe.get_list` (không `ignore_permissions`) ⇒ KTV ngoài scope thấy count=0, không rò dữ liệu.
 - [ ] Doctype không có dashboard ⇒ trả `[]` (không 500).
 - [ ] Có curate OpenAPI (`openapi_overrides.py`) + tag tiếng Việt để `test_oas_d9_tags` không đỏ thêm.
-**Verify:** `--module assetcore.tests.test_connections` (2 persona: QTV thấy đủ, KTV bị lọc) + `test_oas_baseline` không đỏ thêm ngoài 2 lỗi pre-existing của IMM-10.
+**Verify:** `--module assetcore.tests.connections.test_connections` (2 persona: QTV thấy đủ, KTV bị lọc) + `test_oas_baseline` không đỏ thêm ngoài 2 lỗi pre-existing của IMM-10.
 **Doc sync:** `docs/imm-00/05_API_Specification.md` — thêm endpoint.
 **Files:** `assetcore/api/connections.py`, `api/openapi_overrides.py`, `tests/test_connections.py`, doc · **Phụ thuộc:** T04 · **Scope:** M · ⚠️ **cần USER reload**
 
@@ -252,7 +252,7 @@ P3 (T18–T20) đụng `<dt>.json` ⇒ **không** song song với T21.
 - [ ] `services/shared/state.py`: `transition(doc, action, *, actor=None)` bọc `apply_workflow`; `allowed_transitions(doc)` bọc `get_transitions()` + gate capability.
 - [ ] `ROLLUP_MAP` khai **một chỗ** cho 2 ngoại lệ (`IMM CAPA Record`, `AC Asset`), phủ **100%** state (test bắt state thiếu ánh xạ).
 - [ ] Unit test không cần record thật cho `ROLLUP_MAP`; integration test cho `transition()`.
-**Verify:** `--module assetcore.tests.test_shared_state`. **Doc sync:** ADR-CORE-01 §Kiểm chứng (đánh dấu đã có helper).
+**Verify:** `--module assetcore.tests.integration.test_shared_state`. **Doc sync:** ADR-CORE-01 §Kiểm chứng (đánh dấu đã có helper).
 **Files:** `services/shared/state.py`, `tests/test_shared_state.py` · **Phụ thuộc:** Checkpoint A · **Scope:** S
 
 #### T11 — Patch backfill `workflow_state` (viết, KHÔNG chạy)
@@ -261,7 +261,7 @@ P3 (T18–T20) đụng `<dt>.json` ⇒ **không** song song với T21.
 - [ ] In ra số record đã sửa (site dev = 0 → log "0 record, no-op").
 - [ ] Đăng ký trong `patches.txt` kèm comment.
 - [ ] Test chạy patch **2 lần** ⇒ lần 2 sửa 0 record.
-**Verify:** `--module assetcore.tests.test_patch_backfill_workflow_state`. **Không chạy `bench migrate`** — ghi vào STATE là "chờ USER".
+**Verify:** `--module assetcore.tests.integration.test_patch_backfill_workflow_state`. **Không chạy `bench migrate`** — ghi vào STATE là "chờ USER".
 **Files:** patch, `patches.txt`, test · **Phụ thuộc:** T10 · **Scope:** S
 
 #### T12 — Cắt IMM-08 (PM Work Order) sang workflow engine
@@ -271,7 +271,7 @@ P3 (T18–T20) đụng `<dt>.json` ⇒ **không** song song với T21.
 - [ ] `allowed_transitions` trả từ engine; xoá bảng `_PM_*_TRANSITIONS` chép tay.
 - [ ] `status` giữ nguyên giá trị trả về cho FE/OAS ⇒ **FE không phải sửa**; test FE hiện có vẫn xanh.
 - [ ] Ngưỡng `ALLOWED_LEGACY` trong guard T03 giảm tương ứng.
-**Verify:** `--module assetcore.tests.test_imm08` xanh + `--module assetcore.tests.test_state_axis_invariant` + `cd frontend && npm run test:unit`.
+**Verify:** `--module assetcore.tests.imm08.test_imm08` xanh + `--module assetcore.tests.guards.test_state_axis_invariant` + `cd frontend && npm run test:unit`.
 **Doc sync:** `docs/imm-08/04_Backend_Design.md` (state machine giờ do workflow điều khiển) + `02_Analysis_Design.md` (ghi ADR-CORE-01 thay cho mô tả dual-track).
 **Files:** `services/imm08.py`, `api/imm08.py`, `tests/test_imm08.py`, 2 doc · **Phụ thuộc:** T11 · **Scope:** M · ⚠️ **cần USER reload**
 
@@ -289,14 +289,14 @@ P3 (T18–T20) đụng `<dt>.json` ⇒ **không** song song với T21.
 
 #### T16 — IMM-15/16: gỡ lockstep, xoá invariant dual-track
 **Acceptance:** `imm15.py`/`imm16.py` bỏ `db.set_value` đồng bộ 2 field; dùng `transition()`; xoá `TestAllocationAllowedTransitions` + `_CYCLE_EXCEPTION_EDGES` + `_ALLOCATION_SHORTCUT_EDGES` (không còn lý do tồn tại); rollup CAPA lấy từ `ROLLUP_MAP`.
-**Verify:** `--module assetcore.tests.test_imm15` + `test_imm16` xanh.
+**Verify:** `--module assetcore.tests.imm15.test_imm15` + `test_imm16` xanh.
 **Doc sync:** `docs/imm-15/02+04` và `docs/imm-16/02+04` — đánh dấu **ADR-IMM-15-08, ADR-IMM-15-10, ADR-IMM-16-05 superseded bởi ADR-CORE-01**.
 **Files:** `services/imm15.py`, `services/imm16.py`, 2 test, doc → **tách T16a/T16b** để giữ ≤5 file.
 **Phụ thuộc:** Checkpoint D · **Scope:** L → chia đôi
 
 #### T17 — `AC Asset`: `status` thành rollup dẫn xuất
 **Acceptance:** `lifecycle_status` là trục duy nhất ghi được; `status` `read_only:1` + tính lại từ `ROLLUP_MAP`; giá trị legacy `Submitted` ánh xạ rõ ràng; guard T03 về **0** legacy.
-**Verify:** `--module assetcore.tests.test_imm00` + guard T03 GREEN với ngưỡng 0.
+**Verify:** `--module assetcore.tests.imm00.test_imm00` + guard T03 GREEN với ngưỡng 0.
 **Doc sync:** `docs/imm-00/02+04`.
 **Files:** `ac_asset.json`, `doctype/ac_asset/ac_asset.py`, `services/imm00.py`, test, doc · **Phụ thuộc:** T16 · **Scope:** M
 

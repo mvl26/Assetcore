@@ -267,7 +267,7 @@ curl -X GET '<base>/list_<entity>?filters=%7B%22search%22%3A%22XYZ%22%7D' \
 # Phải trả {success: true, data: {items: [...], total: N, ...}} — không SQL error.
 ```
 
-Test regression chung: `assetcore/tests/test_list_search_filter.py`.
+Test regression chung: `assetcore/tests/integration/test_list_search_filter.py`.
 
 **Đồng bộ FE placeholder (BẮT BUỘC)**: Khi khai báo `searchable_fields` hoặc
 thay đổi nó, **đồng thời** sửa `search-placeholder` của list view tương ứng

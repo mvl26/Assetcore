@@ -1,0 +1,9 @@
+{ "skill_name": "assetcore-commit",
+  "trigger": {
+    "positive": [
+      { "prompt": "commit code cho tôi", "top_k": 2 },
+      { "prompt": "chia working tree thành nhiều commit rồi push", "top_k": 2 }
+    ],
+    "negative": [
+      { "prompt": "deploy lên server production", "owner": "assetcore-deploy" }
+    ] } }

@@ -254,7 +254,7 @@ POST /api/method/assetcore.api.imm15.create_allocation
 | **K5** | `warehouse` chỉ tra theo `items[0]`; phụ tùng đầu chưa có `AC Spare Part Stock` ⇒ **cả phiếu** không được cấp phát dù các phụ tùng sau có tồn | `services/imm09.py:1657-1661` (caller) | Duyệt `items` theo thứ tự, lấy `warehouse` của **phụ tùng đầu tiên tra được**; không có phụ tùng nào ⇒ `allocation=null` (hợp lệ) |
 | **K6** | `work_order_doctype` ghi cứng `"IMM PM Work Order" if work_order_ref else None`, trong khi phiếu gọi từ IMM-09 là **`Asset Repair`** ⇒ `work_order_ref` (Dynamic Link) **trỏ sai DocType**; sai lệch bị `doc.flags.ignore_links = True` che | `services/imm15.py:270-271` · `imm_spare_allocation.json` (`work_order_doctype` Select **đã có** option `Asset Repair`) | `create_allocation(..., work_order_doctype: str = "")` — rỗng ⇒ giữ heuristic cũ (**0 regression IMM-08**); IMM-09 truyền `"Asset Repair"`. **Additive, 0 field mới, KHÔNG `bench migrate`.** |
 
-**Boundaries:** **Never** nới gate của endpoint whitelisted `create_allocation` · **Never** đổi shape response · **Always** giữ `approve`/`issue` sau gate `inventory.*` · thực thi K4 ⇒ **bắt buộc** chạy `bench --site miyano run-tests --module assetcore.tests.test_imm15`.
+**Boundaries:** **Never** nới gate của endpoint whitelisted `create_allocation` · **Never** đổi shape response · **Always** giữ `approve`/`issue` sau gate `inventory.*` · thực thi K4 ⇒ **bắt buộc** chạy `bench --site miyano run-tests --module assetcore.tests.imm15.test_imm15`.
 
 ---
 

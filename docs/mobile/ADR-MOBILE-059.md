@@ -88,7 +88,7 @@ Handler bare `@frappe.whitelist()` @`:188` KHÔNG `allow_guest` ⇒ guest/no-tok
 
 ### (f) CONTRACT-ONLY — 0 `.py`/reload/migrate
 
-`get_user_competencies` + service **ĐÃ LIVE** @source ⇒ `git diff` round này = CHỈ `docs/mobile/*` (yaml + ADR-059 + 04-api-contract §8.53) + `docs/imm-06/*` (Core Doc binding — fix C.2 stale + cross-ref) + `assetcore/tests/test_mobile_oas.py` + `assetcore/tests/test_mobile_docset.py` (guard). **0** file `.py` runtime, **0** gunicorn reload (KHÔNG HARD-STOP — `[AUTO]`), **0** `bench migrate`, **0** git commit (working-tree để USER review).
+`get_user_competencies` + service **ĐÃ LIVE** @source ⇒ `git diff` round này = CHỈ `docs/mobile/*` (yaml + ADR-059 + 04-api-contract §8.53) + `docs/imm-06/*` (Core Doc binding — fix C.2 stale + cross-ref) + `assetcore/tests/guards/test_mobile_oas.py` + `assetcore/tests/guards/test_mobile_docset.py` (guard). **0** file `.py` runtime, **0** gunicorn reload (KHÔNG HARD-STOP — `[AUTO]`), **0** `bench migrate`, **0** git commit (working-tree để USER review).
 
 ---
 

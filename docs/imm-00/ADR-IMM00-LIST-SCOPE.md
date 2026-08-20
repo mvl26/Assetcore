@@ -611,7 +611,7 @@ def get_work_order(name: str) -> dict:
 
 > **INV-DETAIL-3 là test BẮT BUỘC đóng P0** — nó phát biểu trực tiếp "đọc ⇔ ghi ⇔ thấy trong danh sách". **INV-DETAIL-1/2/5 PHẢI chạy dưới session user THẬT** — Administrator short-circuit `frappe/permissions.py:107-109` ⇒ xanh giả.
 
-## 9.8 Guard tĩnh **G5** (`assetcore/tests/test_rowscope_scope_guard.py`)
+## 9.8 Guard tĩnh **G5** (`assetcore/tests/guards/test_rowscope_scope_guard.py`)
 
 G1–G4 chỉ nhìn **list/raw-query**; đường **detail** (`<X>Repo.get(` / `frappe.get_doc(`) hoàn toàn **vô hình** với cả 4 — đúng lỗ đã lọt của CR-74. G5 gồm 2 vế:
 
@@ -815,9 +815,9 @@ Không phải lỗ an ninh (kết quả vẫn ⊆ phạm vi được giao) nhưn
 
 | Bất biến | File | Ghi chú |
 |---|---|---|
-| INV-COMM-SCOPE-2/3 · INV-CONN-27 · INV-CONN-21 | **append class mới** vào `assetcore/tests/test_rowscope_invariant.py` | đã có `_ensure_user` + kỷ luật `frappe.set_user` + là nhà của họ INV-ROWSCOPE. **Read-fresh rồi append** (file dirty ở phiên khác) |
-| INV-VENDORSCOPE-1..4 (đại số + 5 doctype) | **FILE MỚI** `assetcore/tests/test_vendor_scope_intersect.py` | thuần unit; **CẤM** append vào `test_rbac.py` (shared, đang dirty) |
-| INV-COMM-SCOPE-1/4 | delta trong `assetcore/tests/test_rowscope_scope_guard.py` | xoá 1 dòng backlog + thêm assert `len(...) <= 16` |
+| INV-COMM-SCOPE-2/3 · INV-CONN-27 · INV-CONN-21 | **append class mới** vào `assetcore/tests/integration/test_rowscope_invariant.py` | đã có `_ensure_user` + kỷ luật `frappe.set_user` + là nhà của họ INV-ROWSCOPE. **Read-fresh rồi append** (file dirty ở phiên khác) |
+| INV-VENDORSCOPE-1..4 (đại số + 5 doctype) | **FILE MỚI** `assetcore/tests/integration/test_vendor_scope_intersect.py` | thuần unit; **CẤM** append vào `test_rbac.py` (shared, đang dirty) |
+| INV-COMM-SCOPE-1/4 | delta trong `assetcore/tests/guards/test_rowscope_scope_guard.py` | xoá 1 dòng backlog + thêm assert `len(...) <= 16` |
 | A9 (FE) | **FILE MỚI** `frontend/src/views/commissioning/tests/CommissioningListView.scopedEmpty.test.ts` | xem `docs/imm-04/06_Frontend_Design.md §11` |
 
 **DoD run list** (`timeout` tool ≥ 600000 ms, chấm theo **DELTA** đo từ đĩa — baseline trong prompt/STATE **luôn có thể stale**):
@@ -851,11 +851,11 @@ Không phải lỗ an ninh (kết quả vẫn ⊆ phạm vi được giao) nhưn
 
 | Artefact | Số đo trên đĩa | Trạng thái git | Hệ quả |
 |---|---|---|---|
-| `assetcore/tests/test_vendor_scope_intersect.py` | **18** `def test_` · 293 dòng | **untracked** | INV-VENDORSCOPE-1/2 **chưa** có bằng chứng chạy |
-| `assetcore/tests/test_rowscope_scope_guard.py` | **11** · 584 dòng | **untracked** | INV-COMM-SCOPE-1/4 〃 |
-| `assetcore/tests/test_rowscope_invariant.py` | **28** · 1161 dòng | **untracked** | INV-COMM-SCOPE-2/3 · INV-CONN-21/27 〃 |
-| `assetcore/tests/test_rowscope_docperm_gate.py` | **22** · 904 dòng | **untracked** | §10.6 (2 loại 403) 〃 |
-| `assetcore/tests/test_imm04.py` | **110** | tracked | baseline hồi quy |
+| `assetcore/tests/integration/test_vendor_scope_intersect.py` | **18** `def test_` · 293 dòng | **untracked** | INV-VENDORSCOPE-1/2 **chưa** có bằng chứng chạy |
+| `assetcore/tests/guards/test_rowscope_scope_guard.py` | **11** · 584 dòng | **untracked** | INV-COMM-SCOPE-1/4 〃 |
+| `assetcore/tests/integration/test_rowscope_invariant.py` | **28** · 1161 dòng | **untracked** | INV-COMM-SCOPE-2/3 · INV-CONN-21/27 〃 |
+| `assetcore/tests/integration/test_rowscope_docperm_gate.py` | **22** · 904 dòng | **untracked** | §10.6 (2 loại 403) 〃 |
+| `assetcore/tests/imm04/test_imm04.py` | **110** | tracked | baseline hồi quy |
 | `frontend/src/views/commissioning/tests/CommissioningListView.scopedEmpty.test.ts` | **8** `it()` | untracked | 8/8 PASS 14:59 hôm nay (đã chạy thật) |
 | Tổng file test FE | **287** `*.test.ts` (KHÔNG phải 284) | — | prompt/STATE stale ⇒ **chấm theo delta** |
 

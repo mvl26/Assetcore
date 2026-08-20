@@ -212,7 +212,7 @@ Lỗi (1) **đã được giải** ở BE từ 2026-07-22 (endpoint lọc theo `
 ## 8. AC-CR-100 — áp dụng thứ 6: nguồn **ĐÃ phân trang** ⇒ cắt IM LẶNG dịch xuống **lớp CLIENT** (tab «Lịch sử» — Chi tiết tài sản)
 
 > **Status**: Accepted — 2026-07-28 · **EXTENDS** ADR này (không supersede). Đóng backlog run-3 *«`AssetDetailView.vue:202` vẫn `as unknown`, vứt `pagination.total`»*.
-> **Phạm vi (đóng khung, đo được)**: `frontend/src/views/asset/AssetDetailView.vue` (chỉ tab `timeline`) · **ĐÚNG 1 dòng** `assetcore/api/imm00.py:293` (`_ORDER_EVENT_TS_DESC`) · 1 file test FE mới · 1 class guard mới trong `assetcore/tests/test_imm00.py`.
+> **Phạm vi (đóng khung, đo được)**: `frontend/src/views/asset/AssetDetailView.vue` (chỉ tab `timeline`) · **ĐÚNG 1 dòng** `assetcore/api/imm00.py:293` (`_ORDER_EVENT_TS_DESC`) · 1 file test FE mới · 1 class guard mới trong `assetcore/tests/imm00/test_imm00.py`.
 > **0 OAS delta · 0 schema/DocType/cap/enum/patch delta · 0 file `.py` prod nào khác.**
 
 ### 8.0 Đối chiếu số CR — ĐỌC TRƯỚC KHI VIẾT DÒNG ĐẦU TIÊN

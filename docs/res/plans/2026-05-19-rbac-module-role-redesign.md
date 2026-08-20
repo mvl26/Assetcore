@@ -29,7 +29,7 @@
 - `assetcore/services/shared/rbac.py` — `CAPABILITY_MAP`, `can()`, `require()`, `get_capabilities()`, `DOCTYPE_DOMAIN`, `DOMAIN_DOCTYPES`
 - `assetcore/setup/gen_docperms.py` — script sinh block `permissions` cho 105 DocType JSON
 - `assetcore/patches/v3_2/001_module_role_redesign.py` — migration wipe persona/legacy/profile
-- `assetcore/tests/test_rbac.py` — test capability layer + DocPerm invariants
+- `assetcore/tests/integration/test_rbac.py` — test capability layer + DocPerm invariants
 - `frontend/src/composables/useCapabilities.ts` — `can(cap)` đọc store cache
 - `frontend/src/views/admin/RoleAdminView.vue` — trang catalog + gán role grid
 - `frontend/src/api/roleAdmin.ts` — API client cho RoleAdminView
@@ -61,9 +61,9 @@
 
 **Files:**
 - Modify: `assetcore/services/shared/constants.py`
-- Test: `assetcore/tests/test_rbac.py`
+- Test: `assetcore/tests/integration/test_rbac.py`
 
-- [ ] **Step 1: Viết test thất bại** — `assetcore/tests/test_rbac.py`
+- [ ] **Step 1: Viết test thất bại** — `assetcore/tests/integration/test_rbac.py`
 
 ```python
 # Copyright (c) 2026, AssetCore Team
@@ -101,7 +101,7 @@ class TestRolesCatalog(unittest.TestCase):
 
 - [ ] **Step 2: Chạy test — xác nhận FAIL**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: FAIL (`AttributeError: type object 'Roles' has no attribute 'ALL'`)
 
 - [ ] **Step 3: Viết lại `class Roles` + `ROLE_METADATA`**
@@ -187,7 +187,7 @@ ROLE_METADATA: dict[str, dict[str, str]] = {
 
 - [ ] **Step 4: Chạy test — xác nhận PASS**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: PASS (5 test)
 
 - [ ] **Step 5: Commit** (chờ user xác nhận)
@@ -203,7 +203,7 @@ git add -A && git commit -m "refactor(rbac): redesign Roles catalog to 30 module
 
 **Files:**
 - Create: `assetcore/services/shared/rbac.py`
-- Test: `assetcore/tests/test_rbac.py`
+- Test: `assetcore/tests/integration/test_rbac.py`
 
 - [ ] **Step 1: Thêm test thất bại** vào `test_rbac.py`
 
@@ -235,7 +235,7 @@ class TestCapabilityMap(unittest.TestCase):
 
 - [ ] **Step 2: Chạy — FAIL**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: FAIL (`ModuleNotFoundError: assetcore.services.shared.rbac`)
 
 - [ ] **Step 3: Tạo `assetcore/services/shared/rbac.py`**
@@ -376,7 +376,7 @@ def invalidate_capabilities(user: str | None = None) -> None:
 
 - [ ] **Step 4: Chạy — PASS**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: PASS (toàn bộ class trong test_rbac)
 
 - [ ] **Step 5: Commit** (chờ user)
@@ -394,7 +394,7 @@ git add -A && git commit -m "feat(rbac): add capability layer (rbac.py) with Doc
 
 **Files:**
 - Create: `assetcore/setup/gen_docperms.py`
-- Test: `assetcore/tests/test_rbac.py` (thêm class)
+- Test: `assetcore/tests/integration/test_rbac.py` (thêm class)
 
 - [ ] **Step 1: Thêm test bất biến DocPerm**
 
@@ -433,7 +433,7 @@ class TestDocPermInvariants(unittest.TestCase):
 
 - [ ] **Step 2: Chạy — FAIL**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: FAIL (`KeyError: 'PM Manager'` — JSON còn persona)
 
 - [ ] **Step 3: Tạo `assetcore/setup/gen_docperms.py`**
@@ -527,7 +527,7 @@ if __name__ == "__main__":
 Run:
 ```
 cd /home/miyano/frappe-bench/apps/assetcore && python -m assetcore.setup.gen_docperms
-cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac
+cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac
 ```
 Expected: generator in `N DocType JSON cap nhat`; test PASS (3 invariant test).
 
@@ -551,7 +551,7 @@ git add -A && git commit -m "refactor(rbac): regenerate DocPerm for 105 DocTypes
 ### Task 2.1: Refactor 10 file dùng `Roles.`/`CAN_`/`ALL_IMM`
 
 **Files (Modify):** `assetcore/api/user.py`, `assetcore/api/auth.py`, `assetcore/services/imm00.py`, `assetcore/services/imm05.py`, `assetcore/services/imm06.py`, `assetcore/services/imm09.py`, `assetcore/services/imm15.py`, `assetcore/services/imm16.py`, `assetcore/services/auth_service.py`, `assetcore/services/shared/permissions.py`
-- Test: `assetcore/tests/test_rbac.py`
+- Test: `assetcore/tests/integration/test_rbac.py`
 
 - [ ] **Step 1: Test "không còn tham chiếu role-name trong logic"**
 
@@ -572,7 +572,7 @@ class TestNoHardcodedRoleChecks(unittest.TestCase):
 
 - [ ] **Step 2: Chạy — FAIL** (10 file còn `Roles.CAN_*`)
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: FAIL, in danh sách dòng vi phạm.
 
 - [ ] **Step 3: Refactor từng chỗ theo pattern**
@@ -612,14 +612,14 @@ Bảng ánh xạ `CAN_* → capability`:
 Trong `api/auth.py`: xóa hằng `_ROLE_ADMIN/_ROLE_QA/...`; chỗ `_get_role_emails(_ROLE_*)` là *email theo role* (data lookup, không phải gate) → đổi sang role mới: `_ROLE_ADMIN`→`"AssetCore Super Admin"`, `_ROLE_QA`→`"Compliance Manager"`, `_ROLE_OPS`→`"Commissioning Manager"`, `_ROLE_WORKSHOP`/`_ROLE_TECH`→`"PM Manager"`, `_ROLE_DOC`→`"Document Manager"`, `_ROLE_DEPT_HEAD`→bỏ.
 
 > Mỗi file sửa xong chạy ngay test module liên quan, ví dụ:
-> `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm09`
+> `bench --site miyano run-tests --app assetcore --module assetcore.tests.imm09.test_imm09`
 
 - [ ] **Step 4: Ghi baseline + chạy test toàn bộ — PASS**
 
 Run:
 ```
 cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore 2>&1 | tail -5   # baseline TRƯỚC khi sửa, ghi lại số pass/fail
-bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac
+bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac
 bench --site miyano run-tests --app assetcore 2>&1 | tail -5
 ```
 Expected: `TestNoHardcodedRoleChecks` PASS; suite không phát sinh fail mới so với baseline.
@@ -641,7 +641,7 @@ git add -A && git commit -m "refactor(rbac): replace Roles.CAN_* role checks wit
 **Files:**
 - Modify: `assetcore/api/auth.py`, `assetcore/hooks.py`
 - Create: `assetcore/services/shared/role_hooks.py`
-- Test: `assetcore/tests/test_rbac.py`
+- Test: `assetcore/tests/integration/test_rbac.py`
 
 - [ ] **Step 1: Test endpoint + umbrella hook**
 
@@ -674,7 +674,7 @@ class TestUmbrellaRole(unittest.TestCase):
 
 - [ ] **Step 2: Chạy — FAIL**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: FAIL (`ImportError: get_capabilities`)
 
 - [ ] **Step 3a: Thêm endpoint vào `assetcore/api/auth.py`**
@@ -759,7 +759,7 @@ doc_events = {
 
 - [ ] **Step 4: Chạy — PASS**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano migrate && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano migrate && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: PASS (endpoint + umbrella).
 
 - [ ] **Step 5: Commit** (chờ user)
@@ -780,7 +780,7 @@ git add -A && git commit -m "feat(rbac): add get_capabilities endpoint + umbrell
 - Modify: `assetcore/hooks.py`, `assetcore/setup/setup_permissions.py`, `assetcore/setup/setup_role_profiles.py`
 - Replace: `assetcore/fixtures/role.json`
 - Delete: `assetcore/fixtures/role_profile.json`, `assetcore/fixtures/module_profile.json`
-- Test: `assetcore/tests/test_rbac.py`
+- Test: `assetcore/tests/integration/test_rbac.py`
 
 - [ ] **Step 1: Test fixtures**
 
@@ -801,7 +801,7 @@ class TestRoleFixture(unittest.TestCase):
 
 - [ ] **Step 2: Chạy — FAIL**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: FAIL.
 
 - [ ] **Step 3a: Sinh `fixtures/role.json`**
@@ -838,7 +838,7 @@ _LEGACY_ROLES = (
 
 - [ ] **Step 4: migrate + test — PASS**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano migrate && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano migrate && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: PASS.
 
 - [ ] **Step 5: Commit** (chờ user)
@@ -854,7 +854,7 @@ git add -A && git commit -m "refactor(rbac): regen role.json (30) and drop role/
 ### Task 4.2: Remap workflow `allowed`/`allow_edit` (gồm `Internal Auditor`)
 
 **Files (Modify):** `assetcore/fixtures/workflow.json`, `assetcore/fixtures/workflow_action_master.json`, `assetcore/assetcore/workflow/*.json`
-- Test: `assetcore/tests/test_rbac.py`
+- Test: `assetcore/tests/integration/test_rbac.py`
 
 - [ ] **Step 1: Test workflow sạch persona/Internal Auditor**
 
@@ -872,7 +872,7 @@ class TestWorkflowRoles(unittest.TestCase):
 
 - [ ] **Step 2: Chạy — FAIL**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: FAIL.
 
 - [ ] **Step 3: Remap bằng bảng** — đổi `allowed`/`allow_edit` mọi workflow:
@@ -900,8 +900,8 @@ Expected: FAIL.
 Run:
 ```
 cd /home/miyano/frappe-bench && bench --site miyano migrate
-bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac
-bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm16
+bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac
+bench --site miyano run-tests --app assetcore --module assetcore.tests.imm16.test_imm16
 ```
 Expected: PASS; workflow IMM-16 transition không lỗi role.
 
@@ -920,7 +920,7 @@ git add -A && git commit -m "refactor(rbac): remap workflow allowed roles to mod
 **Files:**
 - Create: `assetcore/patches/v3_2/001_module_role_redesign.py`, `assetcore/patches/v3_2/__init__.py`
 - Modify: `assetcore/patches.txt`
-- Test: `assetcore/tests/test_rbac.py`
+- Test: `assetcore/tests/integration/test_rbac.py`
 
 - [ ] **Step 1: Test post-migration state**
 
@@ -941,7 +941,7 @@ class TestMigrationWipe(unittest.TestCase):
 
 - [ ] **Step 2: Chạy — FAIL** (persona còn tồn tại trước patch)
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: FAIL.
 
 - [ ] **Step 3a: Tạo `assetcore/patches/v3_2/__init__.py`** (file rỗng)
@@ -1004,7 +1004,7 @@ Run:
 ```
 cd /home/miyano/frappe-bench && bench --site miyano backup
 bench --site miyano migrate
-bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac
+bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac
 ```
 Expected: patch chạy; PASS (`TestMigrationWipe`).
 
@@ -1266,7 +1266,7 @@ git add -A && git commit -m "refactor(fe): migrate all role-name checks to capab
 **Files:**
 - Create: `frontend/src/views/admin/RoleAdminView.vue`, `frontend/src/api/roleAdmin.ts`
 - Modify: `assetcore/api/user.py`, `frontend/src/router/index.ts`
-- Test: `assetcore/tests/test_rbac.py`
+- Test: `assetcore/tests/integration/test_rbac.py`
 
 - [ ] **Step 1: Test BE set-role endpoint**
 
@@ -1289,7 +1289,7 @@ class TestSetUserRoles(unittest.TestCase):
 
 - [ ] **Step 2: Chạy — FAIL**
 
-Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac`
+Run: `cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac`
 Expected: FAIL (`ImportError: set_user_roles`).
 
 - [ ] **Step 3a: Thêm vào `assetcore/api/user.py`**
@@ -1460,7 +1460,7 @@ async function save() {
 
 Run:
 ```
-cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rbac
+cd /home/miyano/frappe-bench && bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rbac
 cd apps/assetcore/frontend && npm run build 2>&1 | tail -3
 ```
 Expected: BE PASS; FE build OK.

@@ -329,7 +329,7 @@ bench --site <site> run-tests --app assetcore --module assetcore.tests.test_imm1
 # Coverage
 coverage run -m unittest assetcore.tests.test_imm13 && coverage report
 # Workflow smoke
-bench --site <site> run-tests --module assetcore.tests.test_workflows
+bench --site <site> run-tests --module assetcore.tests.guards.test_workflows
 ```
 
 Coverage là **target** (chưa có số đo — BE chưa scaffold). Theo `CONVENTIONS §6` + [02 §V.6](./02_Analysis_Design.md#phần-v--yêu-cầu-phi-chức-năng-nfr):

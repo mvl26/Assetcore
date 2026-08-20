@@ -1,0 +1,10 @@
+{ "skill_name": "assetcore-doc",
+  "trigger": {
+    "positive": [
+      { "prompt": "chuẩn hoá tài liệu module IMM-05 theo 9 file template", "top_k": 2 },
+      { "prompt": "viết Core Doc cho IMM-12 gồm scope và business rules", "top_k": 2 },
+      { "prompt": "rà soát docs imm- xem module nào thiếu tài liệu", "top_k": 2 }
+    ],
+    "negative": [
+      { "prompt": "nên làm module nào trước trong sprint này", "owner": "assetcore-plan" }
+    ] } }

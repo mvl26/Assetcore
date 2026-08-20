@@ -104,7 +104,7 @@ Toàn bộ artefact test được của foundation layer. Mỗi dòng → ≥ 1 
 | BR-00-39 | Hard-cap `page_size [1,100]` ở 11 list-endpoint imm00 (RC-LIST-PAGESIZE): SSoT `clamp_page_size()`; `page_size>100`→limit thực+metadata=100; `<=0`→1; `<=100` giữ nguyên; non-int→`ValueError` (no nuốt lỗi); `list_assets` count==drill/count==rows giữ (clamp chỉ đụng `limit_page_length`); no field-leak; no literal 100 rải rác; EXCLUDE `list_assets_depreciation` | `utils/pagination.py::clamp_page_size()` + 11 endpoint `api/imm00.py` | BVA(boundary 0/1/100/100000) + API(parity 11 endpoint) + Regression(count==drill) + grep-guard(1 SSoT) |
 
 #### TC cho BR-00-39 — hard-cap `page_size [1,100]` (factory vòng 5)
-> File: bổ sung class `TestListPageSizeCap` vào `assetcore/tests/test_imm00.py` (chạy `bench --site miyano run-tests --module assetcore.tests.test_imm00`). Verify logic-level, fresh-import — KHÔNG cần reload gunicorn / KHÔNG bench migrate / KHÔNG tuyên bố verify HTTP/Playwright live (STALE-WORKER gate).
+> File: bổ sung class `TestListPageSizeCap` vào `assetcore/tests/imm00/test_imm00.py` (chạy `bench --site miyano run-tests --module assetcore.tests.imm00.test_imm00`). Verify logic-level, fresh-import — KHÔNG cần reload gunicorn / KHÔNG bench migrate / KHÔNG tuyên bố verify HTTP/Playwright live (STALE-WORKER gate).
 
 | TC | Request | Expected | Kỹ thuật | AC |
 |---|---|---|---|---|
@@ -231,7 +231,7 @@ Theo CLAUDE.md §17 (TDD mandatory). Hiện trạng IMM-00: phần lớn test l�
 
 ## III.2. Unit test — Service Layer
 
-File: `assetcore/tests/test_imm00.py` (live), `assetcore/tests/test_imm00_smoke.py` (live).
+File: `assetcore/tests/imm00/test_imm00.py` (live), `assetcore/tests/imm00/test_imm00_smoke.py` (live).
 
 | Test class | Function cover | Kỹ thuật | Trạng thái |
 |---|---|---|---|
@@ -244,7 +244,7 @@ File: `assetcore/tests/test_imm00.py` (live), `assetcore/tests/test_imm00_smoke.
 
 ### III.2b. Notification Framework — TDD test cases (viết TRƯỚC implement)
 
-File: `assetcore/tests/test_notifications.py`. Chạy: `bench --site miyano run-tests --module assetcore.tests.test_notifications`. Dùng `frappe.flags.in_test` (notification log tạo đồng bộ) + `frappe.flags.mute_emails=False` mock `_safe_sendmail` để assert gọi.
+File: `assetcore/tests/notifications/test_notifications.py`. Chạy: `bench --site miyano run-tests --module assetcore.tests.notifications.test_notifications`. Dùng `frappe.flags.in_test` (notification log tạo đồng bộ) + `frappe.flags.mute_emails=False` mock `_safe_sendmail` để assert gọi.
 
 | TC ID | Test | Cover | Assert | Kỹ thuật |
 |---|---|---|---|---|
@@ -284,7 +284,7 @@ File: `assetcore/tests/test_notifications.py`. Chạy: `bench --site miyano run-
 
 ### III.2c. RC-03 — Kế thừa luật khấu hao Category→Asset (TDD, viết TRƯỚC implement)
 
-> File: `assetcore/tests/test_depreciation.py` (mở rộng) + `assetcore/tests/test_imm00.py` (compute_all). Chạy: `bench --site miyano run-tests --module assetcore.tests.test_depreciation` / `...test_imm00`. **RED-first BẮT BUỘC:** chứng minh từng TC FAIL trước khi implement SoT (vd before_insert chưa wire → months vẫn None → assert fail). Setup: tạo Category có luật (`total_depreciation_months>0`, `default_residual_value_pct` ví dụ 5%) + Category trống luật (`total_depreciation_months=0`). Teardown: dùng `_asset_cleanup` shared (memory test_session_20260529_wave1) để purge asset tạo trong test.
+> File: `assetcore/tests/depreciation/test_depreciation.py` (mở rộng) + `assetcore/tests/imm00/test_imm00.py` (compute_all). Chạy: `bench --site miyano run-tests --module assetcore.tests.depreciation.test_depreciation` / `...test_imm00`. **RED-first BẮT BUỘC:** chứng minh từng TC FAIL trước khi implement SoT (vd before_insert chưa wire → months vẫn None → assert fail). Setup: tạo Category có luật (`total_depreciation_months>0`, `default_residual_value_pct` ví dụ 5%) + Category trống luật (`total_depreciation_months=0`). Teardown: dùng `_asset_cleanup` shared (memory test_session_20260529_wave1) để purge asset tạo trong test.
 
 | TC ID | Test | Cover (FR/BR) | Assert | Kỹ thuật |
 |---|---|---|---|---|
@@ -304,7 +304,7 @@ File: `assetcore/tests/test_notifications.py`. Chạy: `bench --site miyano run-
 
 #### III.2c-1. RC-04 — Per-asset self-heal tại `regenerate_depreciation_schedule` (TDD, Round-2)
 
-> File: `assetcore/tests/test_depreciation.py` (mở rộng — block RC-04) + `assetcore/tests/test_imm00.py` (depreciation block, regenerate path). **RED-first BẮT BUỘC:** mô phỏng asset CŨ — tạo asset rồi RESET `total_depreciation_months=0` qua `frappe.db.set_value` (bypass `before_insert` để giả lập asset tạo trước round-1), chứng minh `regenerate_depreciation_schedule` trả 422 TRƯỚC khi wire self-heal, GREEN sau. Setup tái dùng Category-có-luật / Category-trống-luật của §III.2c. Teardown: `_asset_cleanup` shared.
+> File: `assetcore/tests/depreciation/test_depreciation.py` (mở rộng — block RC-04) + `assetcore/tests/imm00/test_imm00.py` (depreciation block, regenerate path). **RED-first BẮT BUỘC:** mô phỏng asset CŨ — tạo asset rồi RESET `total_depreciation_months=0` qua `frappe.db.set_value` (bypass `before_insert` để giả lập asset tạo trước round-1), chứng minh `regenerate_depreciation_schedule` trả 422 TRƯỚC khi wire self-heal, GREEN sau. Setup tái dùng Category-có-luật / Category-trống-luật của §III.2c. Teardown: `_asset_cleanup` shared.
 
 | TC ID | Test | Cover (FR/BR) | Assert | Kỹ thuật |
 |---|---|---|---|---|
@@ -321,7 +321,7 @@ File: `assetcore/tests/test_notifications.py`. Chạy: `bench --site miyano run-
 
 #### III.2c-2. RC-05 — `bulk_regenerate_by_category` hợp nhất về SoT (TDD, Round-4)
 
-> File: `assetcore/tests/test_depreciation.py` (mở rộng — block RC-05). Chạy: `bench --site miyano run-tests --module assetcore.tests.test_depreciation` / `...test_imm00`. **RED-first BẮT BUỘC cho 2 TC trọng yếu:** (a) `test_bulk_no_clobber` — chứng minh code inline cũ **clobber** field user (asset months=24, Category=120 → bulk cũ ghi đè thành 120 ⇒ assert `==24` FAIL trên code cũ, PASS sau khi route qua SoT); (b) `test_bulk_n1_query_count` — đếm số query executed-history (`frappe.db.count`/`get_all` filter status='Executed') ⇒ trên code inline cũ = N (per-asset) ⇒ assert `==1` FAIL, PASS sau khi prefetch GROUP BY. Setup tái dùng Category-có-luật / Category-trống-luật của §III.2c. Teardown: `_asset_cleanup` shared.
+> File: `assetcore/tests/depreciation/test_depreciation.py` (mở rộng — block RC-05). Chạy: `bench --site miyano run-tests --module assetcore.tests.depreciation.test_depreciation` / `...test_imm00`. **RED-first BẮT BUỘC cho 2 TC trọng yếu:** (a) `test_bulk_no_clobber` — chứng minh code inline cũ **clobber** field user (asset months=24, Category=120 → bulk cũ ghi đè thành 120 ⇒ assert `==24` FAIL trên code cũ, PASS sau khi route qua SoT); (b) `test_bulk_n1_query_count` — đếm số query executed-history (`frappe.db.count`/`get_all` filter status='Executed') ⇒ trên code inline cũ = N (per-asset) ⇒ assert `==1` FAIL, PASS sau khi prefetch GROUP BY. Setup tái dùng Category-có-luật / Category-trống-luật của §III.2c. Teardown: `_asset_cleanup` shared.
 
 | TC ID | Method | Maps | Mô tả | Kỹ thuật |
 |---|---|---|---|---|
@@ -343,7 +343,7 @@ File: `assetcore/tests/test_notifications.py`. Chạy: `bench --site miyano run-
 
 #### III.2c-3. RC-06 — SoT `effective_book_value` (fix falsy-zero, BR-05-13, TDD viết TRƯỚC)
 
-> File: `assetcore/tests/test_depreciation.py` (SoT unit) + `assetcore/tests/test_imm00.py` (stats/list integration). Chạy: `bench --site miyano run-tests --module assetcore.tests.test_depreciation` / `...test_imm00`. **RED-first BẮT BUỘC:** revert SoT về idiom `current_book_value or gross` → TC-DEP-70 (fully_depreciated-count) + TC-DEP-71 (total_book no-phantom) **FAIL**; restore → GREEN. Setup: asset `gross>0, residual=0, configured`, `frappe.db.set_value('AC Asset', name, 'current_book_value', 0.0)` (book đã KH hết về 0 hợp lệ). Teardown: `_asset_cleanup` shared.
+> File: `assetcore/tests/depreciation/test_depreciation.py` (SoT unit) + `assetcore/tests/imm00/test_imm00.py` (stats/list integration). Chạy: `bench --site miyano run-tests --module assetcore.tests.depreciation.test_depreciation` / `...test_imm00`. **RED-first BẮT BUỘC:** revert SoT về idiom `current_book_value or gross` → TC-DEP-70 (fully_depreciated-count) + TC-DEP-71 (total_book no-phantom) **FAIL**; restore → GREEN. Setup: asset `gross>0, residual=0, configured`, `frappe.db.set_value('AC Asset', name, 'current_book_value', 0.0)` (book đã KH hết về 0 hợp lệ). Teardown: `_asset_cleanup` shared.
 
 | TC ID | Method | Maps | Mô tả | Kỹ thuật |
 |---|---|---|---|---|
@@ -365,7 +365,7 @@ File: `assetcore/tests/test_notifications.py`. Chạy: `bench --site miyano run-
 
 #### III.2c-4. RC-07 — Thanh lý hủy kỳ Pending khấu hao (BR-00-24, TDD viết TRƯỚC)
 
-> File: `assetcore/tests/test_imm00.py` (block decommission-depreciation) — nơi đặt vì feature sống ở `services/imm00.py::transition_asset_status`. Chạy: `bench --site miyano run-tests --module assetcore.tests.test_imm00`. **RED-first BẮT BUỘC:** TC-DEP-80 (`pending_periods==0` sau decommission) **FAIL** trên code hiện tại (`_suspend_all_schedules` không đụng depreciation rows) → GREEN sau khi wire `_cancel_pending_depreciation_on_decommission`. **Setup chuẩn:** tạo asset `gross>0` + Category-có-luật, `generate_schedule(force=True)` → có ≥3 kỳ Pending; `run_due_depreciation(as_of=<quá khứ>)` execute ≥1 kỳ rồi giữ ≥1 kỳ Pending (asset thanh lý **mid-life**). Đưa asset về `Active` trước (NEG-09 chặn decommission từ Under-* — phải qua Active). Teardown: `_asset_cleanup` shared (purge asset + child rows + ALE + audit).
+> File: `assetcore/tests/imm00/test_imm00.py` (block decommission-depreciation) — nơi đặt vì feature sống ở `services/imm00.py::transition_asset_status`. Chạy: `bench --site miyano run-tests --module assetcore.tests.imm00.test_imm00`. **RED-first BẮT BUỘC:** TC-DEP-80 (`pending_periods==0` sau decommission) **FAIL** trên code hiện tại (`_suspend_all_schedules` không đụng depreciation rows) → GREEN sau khi wire `_cancel_pending_depreciation_on_decommission`. **Setup chuẩn:** tạo asset `gross>0` + Category-có-luật, `generate_schedule(force=True)` → có ≥3 kỳ Pending; `run_due_depreciation(as_of=<quá khứ>)` execute ≥1 kỳ rồi giữ ≥1 kỳ Pending (asset thanh lý **mid-life**). Đưa asset về `Active` trước (NEG-09 chặn decommission từ Under-* — phải qua Active). Teardown: `_asset_cleanup` shared (purge asset + child rows + ALE + audit).
 
 | TC ID | Method | Maps | Mô tả | Kỹ thuật |
 |---|---|---|---|---|
@@ -382,7 +382,7 @@ File: `assetcore/tests/test_notifications.py`. Chạy: `bench --site miyano run-
 
 #### III.2c-5. RC-08 — Tạm ngừng sử dụng: PAUSE + DỜI lịch khấu hao (BR-00-25, TDD viết TRƯỚC)
 
-> File: `assetcore/tests/test_imm00.py` (block oos-depreciation) — feature sống ở `services/imm00.py::transition_asset_status` (2 nhánh mới `Out of Service` + `Active←Out of Service`). Chạy: `bench --site miyano run-tests --module assetcore.tests.test_imm00`. **RED-first BẮT BUỘC:** TC-DEP-92 (`delta_accumulated==0` cho kỳ idle sau restore + `run_due_depreciation(today)`) **FAIL** trên code hiện tại (chưa dời lịch → phantom catch-up trích bù toàn bộ N kỳ idle 1 lần) → GREEN sau khi wire `_reschedule_pending_depreciation_on_restore`. **Setup chuẩn:** tạo asset `gross>0` + Category-có-luật, `generate_schedule(force=True)` → ≥4 kỳ Pending với `scheduled_date` rải theo tháng; `run_due_depreciation(as_of=<quá khứ>)` execute 1 kỳ để có baseline accumulated; đưa asset về `Active`. **Mô phỏng OoS-window:** `transition_asset_status(asset,'Out of Service')` (mở downtime log → `start_time`=mốc OoS); để N kỳ Pending có `scheduled_date < restore_date` (giả lập ngừng dài ngày — set `start_time` downtime log về quá khứ hoặc chèn ALE `out_of_service` quá khứ để `oos_days` đủ lớn). Teardown: `_asset_cleanup` shared (purge asset + child rows + downtime log + ALE + audit).
+> File: `assetcore/tests/imm00/test_imm00.py` (block oos-depreciation) — feature sống ở `services/imm00.py::transition_asset_status` (2 nhánh mới `Out of Service` + `Active←Out of Service`). Chạy: `bench --site miyano run-tests --module assetcore.tests.imm00.test_imm00`. **RED-first BẮT BUỘC:** TC-DEP-92 (`delta_accumulated==0` cho kỳ idle sau restore + `run_due_depreciation(today)`) **FAIL** trên code hiện tại (chưa dời lịch → phantom catch-up trích bù toàn bộ N kỳ idle 1 lần) → GREEN sau khi wire `_reschedule_pending_depreciation_on_restore`. **Setup chuẩn:** tạo asset `gross>0` + Category-có-luật, `generate_schedule(force=True)` → ≥4 kỳ Pending với `scheduled_date` rải theo tháng; `run_due_depreciation(as_of=<quá khứ>)` execute 1 kỳ để có baseline accumulated; đưa asset về `Active`. **Mô phỏng OoS-window:** `transition_asset_status(asset,'Out of Service')` (mở downtime log → `start_time`=mốc OoS); để N kỳ Pending có `scheduled_date < restore_date` (giả lập ngừng dài ngày — set `start_time` downtime log về quá khứ hoặc chèn ALE `out_of_service` quá khứ để `oos_days` đủ lớn). Teardown: `_asset_cleanup` shared (purge asset + child rows + downtime log + ALE + audit).
 
 | TC ID | Tên test | FR/BR | Kịch bản | Kỹ thuật |
 |---|---|---|---|---|
@@ -401,7 +401,7 @@ File: `assetcore/tests/test_notifications.py`. Chạy: `bench --site miyano run-
 
 **RC-09 (Vòng 14) — INV-ALE-RESTORE: nhãn sự kiện khôi phục `restored` ĐÚNG 1 (BR-00-27 / FR-00-69, TDD viết TRƯỚC):**
 
-> File: `assetcore/tests/test_imm00.py` (block ale-restore-label) — feature ở `services/imm00.py::_lifecycle_event_for(to, from)` + `transition_asset_status` + `_reschedule_pending_depreciation_on_restore` (bỏ emit ALE) + controller `ac_asset.py::on_update`. **RED-first BẮT BUỘC:** TC-ALE-RESTORE-01 (có-Pending → đếm `activated`==0 ∧ `restored`==1) **FAIL** trên code hiện tại (double-emit: `activated`+`restored`) → GREEN sau fix. Helper count ALE theo `event_type` + `to_status='Active'`. **REGRESSION đặc biệt cần verify:** `test_imm09:839` (`activated` từ Under Repair→Active) + `test_imm11:1317`/branch-A (`activated` từ Calibrating→Active) PHẢI vẫn pass — fix CHỈ đổi nhãn đường `from='Out of Service'`.
+> File: `assetcore/tests/imm00/test_imm00.py` (block ale-restore-label) — feature ở `services/imm00.py::_lifecycle_event_for(to, from)` + `transition_asset_status` + `_reschedule_pending_depreciation_on_restore` (bỏ emit ALE) + controller `ac_asset.py::on_update`. **RED-first BẮT BUỘC:** TC-ALE-RESTORE-01 (có-Pending → đếm `activated`==0 ∧ `restored`==1) **FAIL** trên code hiện tại (double-emit: `activated`+`restored`) → GREEN sau fix. Helper count ALE theo `event_type` + `to_status='Active'`. **REGRESSION đặc biệt cần verify:** `test_imm09:839` (`activated` từ Under Repair→Active) + `test_imm11:1317`/branch-A (`activated` từ Calibrating→Active) PHẢI vẫn pass — fix CHỈ đổi nhãn đường `from='Out of Service'`.
 
 | TC ID | Tên test | FR/BR | Kịch bản | Kỹ thuật |
 |---|---|---|---|---|
@@ -417,7 +417,7 @@ File: `assetcore/tests/test_notifications.py`. Chạy: `bench --site miyano run-
 
 ## III.3. Integration — DocType lifecycle
 
-File: `assetcore/tests/test_imm00.py`. Cover hook `validate / before_save / on_submit / before_submit`.
+File: `assetcore/tests/imm00/test_imm00.py`. Cover hook `validate / before_save / on_submit / before_submit`.
 
 | Test class · method | Setup | Action | Assert | Kỹ thuật |
 |---|---|---|---|---|
@@ -434,7 +434,7 @@ File: `assetcore/tests/test_imm00.py`. Cover hook `validate / before_save / on_s
 
 ## III.4. Integration — Workflow transitions
 
-File: `assetcore/tests/test_imm00.py` + `test_imm00_smoke.py`. Workflow `ac_asset_lifecycle_workflow.json` có **16 transition** (verified: `python3 -c "import json;print(len(json.load(open('assetcore/assetcore/workflow/ac_asset_lifecycle_workflow.json'))['transitions']))"`).
+File: `assetcore/tests/imm00/test_imm00.py` + `test_imm00_smoke.py`. Workflow `ac_asset_lifecycle_workflow.json` có **16 transition** (verified: `python3 -c "import json;print(len(json.load(open('assetcore/assetcore/workflow/ac_asset_lifecycle_workflow.json'))['transitions']))"`).
 
 State Transition Testing — mỗi edge = 1 test pass + 1 test fail (wrong role).
 
@@ -468,7 +468,7 @@ State Transition Testing — mỗi edge = 1 test pass + 1 test fail (wrong role)
 
 ## III.6. API test
 
-File: `assetcore/tests/test_imm00_list_assets.py` (live). Envelope `{success, data}`.
+File: `assetcore/tests/imm00/test_imm00_list_assets.py` (live). Envelope `{success, data}`.
 
 | Test · method | Endpoint | Verify | Kỹ thuật | Trạng thái |
 |---|---|---|---|---|
@@ -483,7 +483,7 @@ File: `assetcore/tests/test_imm00_list_assets.py` (live). Envelope `{success, da
 
 ### III.6.0b — D6 (EXECUTED Vòng 3): TÁCH cap in/rotate `asset.print` + `asset.qr.rotate` (ADR-IMM00-QR-SCAN-ACTION)
 
-File BE: class `TestLabelWriteCapability` + `TestRegenerateQrToken` (`assetcore/tests/test_imm00.py`). **D6 RECONCILE:** in nhãn gate `asset.write`→**`asset.print`** (DocPerm print=1 sẵn cho persona vận hành → in được); rotate gate `asset.write`→**`asset.qr.rotate`** (=write, chỉ Super Admin/được cấp). Đo QUA layer `require` với **user THẬT** (KHÔNG mock `require`/`has_permission` → tránh false-green; luật skill).
+File BE: class `TestLabelWriteCapability` + `TestRegenerateQrToken` (`assetcore/tests/imm00/test_imm00.py`). **D6 RECONCILE:** in nhãn gate `asset.write`→**`asset.print`** (DocPerm print=1 sẵn cho persona vận hành → in được); rotate gate `asset.write`→**`asset.qr.rotate`** (=write, chỉ Super Admin/được cấp). Đo QUA layer `require` với **user THẬT** (KHÔNG mock `require`/`has_permission` → tránh false-green; luật skill).
 
 **Acceptance — ĐÃ XANH (2026-06-08):** `bench --site miyano run-tests test_imm00` (254 OK) + `test_rbac` (53 OK); `bench migrate` sạch; **cap-set version `v95.3388ee5629c1` → `v97.c30c69b8974d`** (thêm 2 cap); `vue-tsc` 0; `vitest` 941 OK. Toàn bộ test cũ xanh (regression).
 
@@ -515,9 +515,9 @@ File BE: class `TestLabelWriteCapability` + `TestRegenerateQrToken` (`assetcore/
 
 ### III.6.0e-TRANSITIONAUTHZ — Vòng 39 / CR-WF-00-TRANSITION-AUTHZ: gate `asset.write` + IDOR tầng endpoint cho `transition_status` (BR-00-57 / FR-00-108)
 
-File BE: class MỚI `TestTransitionStatusAuthz` (`assetcore/tests/test_imm00.py`). **Template parity:** mirror get_asset cap-gate tests (`test_imm00.py:6139+` — `rbac.require('asset.read')` ĐẦU TIÊN, no existence-oracle) + write-cap+IDOR pattern (`:6856+`). Đo QUA layer `require`/`assert_vendor_can_access` với **user THẬT** (cấp/không-cấp DocPerm write trên AC Asset qua Role/Custom DocPerm + `frappe.set_user`). **KHÔNG** `monkeypatch rbac.require`/`frappe.has_permission` (chống false-green). RED-first: viết test TRƯỚC khi thêm gate (assert đổi được trạng thái = RED), thêm gate → GREEN.
+File BE: class MỚI `TestTransitionStatusAuthz` (`assetcore/tests/imm00/test_imm00.py`). **Template parity:** mirror get_asset cap-gate tests (`test_imm00.py:6139+` — `rbac.require('asset.read')` ĐẦU TIÊN, no existence-oracle) + write-cap+IDOR pattern (`:6856+`). Đo QUA layer `require`/`assert_vendor_can_access` với **user THẬT** (cấp/không-cấp DocPerm write trên AC Asset qua Role/Custom DocPerm + `frappe.set_user`). **KHÔNG** `monkeypatch rbac.require`/`frappe.has_permission` (chống false-green). RED-first: viết test TRƯỚC khi thêm gate (assert đổi được trạng thái = RED), thêm gate → GREEN.
 
-**Acceptance — `bench --site miyano run-tests --module assetcore.tests.test_imm00` (authz) + `test_imm08`/`test_imm09` (regression) `Ran N OK` THẬT** (đọc số thật, KHÔNG marker-trust). `CAP_SET_VERSION` GIỮ (0 cap mới). ⚠️ `api/imm00.py` reload-gated (gunicorn --preload) — HTTP-live BLOCKED (HARD-STOP user); gate hợp lệ = `bench run-tests` fresh-import + code-audit thứ-tự-lớp.
+**Acceptance — `bench --site miyano run-tests --module assetcore.tests.imm00.test_imm00` (authz) + `test_imm08`/`test_imm09` (regression) `Ran N OK` THẬT** (đọc số thật, KHÔNG marker-trust). `CAP_SET_VERSION` GIỮ (0 cap mới). ⚠️ `api/imm00.py` reload-gated (gunicorn --preload) — HTTP-live BLOCKED (HARD-STOP user); gate hợp lệ = `bench run-tests` fresh-import + code-audit thứ-tự-lớp.
 
 | TC (BE) | Kịch bản (user THẬT, qua layer thật) | Verify | AC |
 |---|---|---|---|
@@ -534,7 +534,7 @@ File BE: class MỚI `TestTransitionStatusAuthz` (`assetcore/tests/test_imm00.py
 
 ### III.6.0c — Vòng 22 / B-6: Cap batch nhãn QR — 413 payload-DoS (ADR-001 D3/D4, BR-00-33)
 
-File BE: cập nhật class `TestAssetLabelData` (`assetcore/tests/test_imm00.py`) — **THÊM** test cap (RED-first: assert 413 trước khi impl). Đo QUA layer thật (user có `asset.write`, gọi endpoint với `len(names)` ở các biên). KHÔNG mock `require`/`has_permission` (chống false-green). FE: cập nhật `AssetListView.test.ts` + `AssetLabelPrintView.test.ts` (hoặc suite label tương ứng).
+File BE: cập nhật class `TestAssetLabelData` (`assetcore/tests/imm00/test_imm00.py`) — **THÊM** test cap (RED-first: assert 413 trước khi impl). Đo QUA layer thật (user có `asset.write`, gọi endpoint với `len(names)` ở các biên). KHÔNG mock `require`/`has_permission` (chống false-green). FE: cập nhật `AssetListView.test.ts` + `AssetLabelPrintView.test.ts` (hoặc suite label tương ứng).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (class `TestAssetLabelData` + test cap mới) GREEN; `bench migrate` sạch (cap-set GIỮ `v95.3388ee5629c1`); `vue-tsc` 0; `vitest` (label suites) GREEN. Toàn bộ test cũ vẫn xanh (regression — thứ tự output batch, `AC-E001` index, no-N+1, all-or-nothing, IDOR 403-toàn-call).
 
@@ -563,7 +563,7 @@ File BE: cập nhật class `TestAssetLabelData` (`assetcore/tests/test_imm00.py
 
 ### III.6.0 — V10: Coerce an toàn tham số `assets` (3 endpoint nhãn) — `TestLabelCoerceAssets` (ADR-IMM00-LABEL-PDF D17)
 
-File BE: class MỚI `TestLabelCoerceAssets` trong `assetcore/tests/test_imm00.py` (cạnh `TestAssetLabelData`). **Guard Python thuần tier API/service** → fresh-import qua `run-tests`, KHÔNG cần reload gunicorn/migrate.
+File BE: class MỚI `TestLabelCoerceAssets` trong `assetcore/tests/imm00/test_imm00.py` (cạnh `TestAssetLabelData`). **Guard Python thuần tier API/service** → fresh-import qua `run-tests`, KHÔNG cần reload gunicorn/migrate.
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` GREEN (288+ baseline 0 regression + TC mới). **RED-first chứng minh:** trước fix `assets='AC-2026-00001'` FAIL (raise `JSONDecodeError`/500) → sau fix GREEN. KHÔNG cần `vue-tsc`/`vitest` (BE-only). Toàn bộ test nhãn cũ (`TestAssetLabelData`, `TestLabelPdfPipeline`, cap-tests) GIỮ xanh.
 
@@ -586,7 +586,7 @@ File BE: class MỚI `TestLabelCoerceAssets` trong `assetcore/tests/test_imm00.p
 
 ### III.6.0-DEDUP — V15: Khử trùng-lặp asset TRONG-CALL ở SSoT `_coerce_asset_names` — `TestLabelCoerceDedup` (ADR-IMM00-LABEL-PDF D19 / BR-00-47 / FR-00-98)
 
-File BE: class MỚI `TestLabelCoerceDedup` trong `assetcore/tests/test_imm00.py` (cạnh `TestLabelCoerceAssets`). **Guard Python thuần tier API** → fresh-import qua `run-tests`, KHÔNG cần reload gunicorn/migrate. **RED-first:** `_coerce_asset_names(['AC-1','AC-1','AC-2','AC-1'])` → 4 phần tử (FAIL) TRƯỚC fix → `['AC-1','AC-2']` (GREEN) sau khi thêm `list(dict.fromkeys(...))`.
+File BE: class MỚI `TestLabelCoerceDedup` trong `assetcore/tests/imm00/test_imm00.py` (cạnh `TestLabelCoerceAssets`). **Guard Python thuần tier API** → fresh-import qua `run-tests`, KHÔNG cần reload gunicorn/migrate. **RED-first:** `_coerce_asset_names(['AC-1','AC-1','AC-2','AC-1'])` → 4 phần tử (FAIL) TRƯỚC fix → `['AC-1','AC-2']` (GREEN) sau khi thêm `list(dict.fromkeys(...))`.
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` GREEN (baseline 0 regression + 7 TC mới). Bộ test nhãn cũ (`TestAssetLabelData`/`TestLabelPdfPipeline`/`TestLabelCoerceAssets`/cap-tests) + **`test_mark_label_printed_idempotent_count` (`:4342`)** GIỮ XANH. FE: vitest baseline 135 file 0 regression (validNames đã unique — KHÔNG sửa FE, KHÔNG cần `vue-tsc`).
 
@@ -604,7 +604,7 @@ File BE: class MỚI `TestLabelCoerceDedup` trong `assetcore/tests/test_imm00.py
 
 ### III.6.k-LABELQREMPTY — Guard render-tier `qr_url` rỗng/whitespace → ô-QR-lỗi an toàn ở tem PDF (Vòng 30 — BR-00-49 / FR-00-100 / ADR §D20)
 
-File BE: class MỚI `TestLabelQrEmpty` trong `assetcore/tests/test_imm00.py` (cạnh `TestLabelPdfPipeline`). **Guard Python thuần render-tier (`services/imm00.py::_label_block`/`render_asset_labels_pdf`)** → fresh-import qua `run-tests`, KHÔNG reload gunicorn/migrate. **RED-first:** `_label_block({...,"qr_url":""},...)` chứa `<svg>` QR-rác rỗng (FAIL) TRƯỚC fix → ô-QR-lỗi VI `Không tạo được mã QR` KHÔNG `<svg>` (GREEN) sau guard. FE: revert-proof vitest `AssetQrLabel` (xoá guard `:73`→ĐỎ, khôi phục→XANH). **pypdf** đo TẦNG PDF THẬT (page-count + extract_text + MediaBox; KHÔNG đếm `<svg>` ở HTML trung gian — đo bytes PDF cuối).
+File BE: class MỚI `TestLabelQrEmpty` trong `assetcore/tests/imm00/test_imm00.py` (cạnh `TestLabelPdfPipeline`). **Guard Python thuần render-tier (`services/imm00.py::_label_block`/`render_asset_labels_pdf`)** → fresh-import qua `run-tests`, KHÔNG reload gunicorn/migrate. **RED-first:** `_label_block({...,"qr_url":""},...)` chứa `<svg>` QR-rác rỗng (FAIL) TRƯỚC fix → ô-QR-lỗi VI `Không tạo được mã QR` KHÔNG `<svg>` (GREEN) sau guard. FE: revert-proof vitest `AssetQrLabel` (xoá guard `:73`→ĐỎ, khôi phục→XANH). **pypdf** đo TẦNG PDF THẬT (page-count + extract_text + MediaBox; KHÔNG đếm `<svg>` ở HTML trung gian — đo bytes PDF cuối).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` GREEN (baseline 0 regression + 6 TC mới). Bộ test nhãn cũ (`TestAssetLabelData`/`TestLabelPdfPipeline`/`TestLabelCoerceAssets`/`TestLabelCoerceDedup`/cap/AC-E001) GIỮ XANH. FE: `AssetQrLabel.*.test.ts` GREEN + revert-proof guard.
 
@@ -621,7 +621,7 @@ File BE: class MỚI `TestLabelQrEmpty` trong `assetcore/tests/test_imm00.py` (c
 
 ### III.6.a — A6: `get_asset_scan_info` — màn info mobile-first khi quét QR (ADR-001 V7)
 
-File BE: thêm class `TestGetAssetScanInfo` vào `assetcore/tests/test_imm00.py` (cạnh `TestResolveQrToken` A2 — line ~2045). FE: `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (NEW) + cập nhật `QrResolveView.test.ts` (regression).
+File BE: thêm class `TestGetAssetScanInfo` vào `assetcore/tests/imm00/test_imm00.py` (cạnh `TestResolveQrToken` A2 — line ~2045). FE: `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (NEW) + cập nhật `QrResolveView.test.ts` (regression).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests` (BE A6) + `bench migrate` sạch + `vue-tsc` 0 lỗi + `vitest` (view mới + regression).
 
@@ -649,7 +649,7 @@ File BE: thêm class `TestGetAssetScanInfo` vào `assetcore/tests/test_imm00.py`
 
 #### III.6.a-PMOVERDUE — A6-hardening (Vòng 27 B): cờ `pm_overdue` server-side — BR-00-36 / FR-00-85
 
-File BE: thêm class `TestAssetScanInfoPmOverdue` vào `assetcore/tests/test_imm00.py` (cạnh `TestGetAssetScanInfo`). FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC badge). **RED-first:** class/TC chưa tồn tại → fail → impl `_is_pm_overdue` + thêm field payload → GREEN. Đo QUA `build_asset_scan_info` (KHÔNG mock `getdate`/`nowdate` — set `next_pm_date` thật quanh `nowdate()` để check ranh giới strict `<`).
+File BE: thêm class `TestAssetScanInfoPmOverdue` vào `assetcore/tests/imm00/test_imm00.py` (cạnh `TestGetAssetScanInfo`). FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC badge). **RED-first:** class/TC chưa tồn tại → fail → impl `_is_pm_overdue` + thêm field payload → GREEN. Đo QUA `build_asset_scan_info` (KHÔNG mock `getdate`/`nowdate` — set `next_pm_date` thật quanh `nowdate()` để check ranh giới strict `<`).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestAssetScanInfo` baseline + `TestAssetScanInfoPmOverdue` mới) + `bench migrate` exit 0 + `vue-tsc` 0 lỗi + `vitest AssetScanInfoView.test.ts` GREEN. `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`.
 
@@ -676,7 +676,7 @@ File BE: thêm class `TestAssetScanInfoPmOverdue` vào `assetcore/tests/test_imm
 
 #### III.6.b-CALOVERDUE — A6-hardening (Vòng 28 B): cờ `calibration_overdue` + `next_calibration_date` server-side — BR-00-37 / FR-00-86
 
-File BE: thêm class `TestAssetScanInfoCalibrationOverdue` vào `assetcore/tests/test_imm00.py` (cạnh `TestAssetScanInfoPmOverdue`). FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC badge hiệu chuẩn). **RED-first BẮT BUỘC:** class/TC chưa tồn tại → fail → impl `_is_calibration_overdue` + thêm `next_calibration_date` vào fields-list + 2 field payload → GREEN. Đo QUA `build_asset_scan_info` (KHÔNG mock `getdate`/`nowdate` — set `next_calibration_date` thật quanh `nowdate()` để check ranh giới strict `<`). **DISTINCT với III.6.a-PMOVERDUE** (chiều hiệu chuẩn, field+signal khác).
+File BE: thêm class `TestAssetScanInfoCalibrationOverdue` vào `assetcore/tests/imm00/test_imm00.py` (cạnh `TestAssetScanInfoPmOverdue`). FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC badge hiệu chuẩn). **RED-first BẮT BUỘC:** class/TC chưa tồn tại → fail → impl `_is_calibration_overdue` + thêm `next_calibration_date` vào fields-list + 2 field payload → GREEN. Đo QUA `build_asset_scan_info` (KHÔNG mock `getdate`/`nowdate` — set `next_calibration_date` thật quanh `nowdate()` để check ranh giới strict `<`). **DISTINCT với III.6.a-PMOVERDUE** (chiều hiệu chuẩn, field+signal khác).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestAssetScanInfo` baseline + `TestAssetScanInfoPmOverdue` + `TestAssetScanInfoCalibrationOverdue` mới) + `bench migrate` exit 0 + `vue-tsc` 0 lỗi + `vitest AssetScanInfoView.test.ts` GREEN. `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`.
 
@@ -705,7 +705,7 @@ File BE: thêm class `TestAssetScanInfoCalibrationOverdue` vào `assetcore/tests
 
 #### III.6.f-PMDATESTR — A6-hardening (Vòng 11): `next_pm_date` → `str\|None` (parity `next_calibration_date`) — FR-00-86
 
-File BE: thêm **đúng 1 TC** `test_scan_info_next_pm_date_is_str_or_none` vào class `TestAssetScanInfoPmOverdue` (cùng `assetcore/tests/test_imm00.py`) — mirror chính xác `test_payload_has_calibration_fields_9_fields_intact` (vốn assert `next_calibration_date` là `str|None`). FE: **KHÔNG đổi** (`scheduleLabel('next_pm_date')` đã chịu được str/null/absent — `vitest` GIỮ XANH). **RED-first BẮT BUỘC:** TC chưa tồn tại + `build_asset_scan_info` còn emit `row.get("next_pm_date") or None` (date object thô) → assert `isinstance(str)` + `== getdate(...).strftime('%Y-%m-%d')` FAIL → đổi 1 dòng sang `_date_str_or_none(row.get("next_pm_date"))` → GREEN. Đo QUA `build_asset_scan_info`/`get_asset_scan_info` THẬT (KHÔNG mock — tạo asset thật, set `next_pm_date` thật).
+File BE: thêm **đúng 1 TC** `test_scan_info_next_pm_date_is_str_or_none` vào class `TestAssetScanInfoPmOverdue` (cùng `assetcore/tests/imm00/test_imm00.py`) — mirror chính xác `test_payload_has_calibration_fields_9_fields_intact` (vốn assert `next_calibration_date` là `str|None`). FE: **KHÔNG đổi** (`scheduleLabel('next_pm_date')` đã chịu được str/null/absent — `vitest` GIỮ XANH). **RED-first BẮT BUỘC:** TC chưa tồn tại + `build_asset_scan_info` còn emit `row.get("next_pm_date") or None` (date object thô) → assert `isinstance(str)` + `== getdate(...).strftime('%Y-%m-%d')` FAIL → đổi 1 dòng sang `_date_str_or_none(row.get("next_pm_date"))` → GREEN. Đo QUA `build_asset_scan_info`/`get_asset_scan_info` THẬT (KHÔNG mock — tạo asset thật, set `next_pm_date` thật).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestAssetScanInfo` + `TestAssetScanInfoPmOverdue` + `TestAssetScanInfoCalibrationOverdue` GIỮ baseline + TC mới). KHÔNG `bench migrate` (zero schema), KHÔNG reload gunicorn. `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`.
 
@@ -718,7 +718,7 @@ File BE: thêm **đúng 1 TC** `test_scan_info_next_pm_date_is_str_or_none` vào
 
 #### III.6.c-TOKENNORM — factory vòng 6: chuẩn hoá whitespace `qr_token` ở SSoT resolve — BR-00-40 / FR-00-90/91 / ADR §D8
 
-File BE: thêm class `TestResolveQrTokenWhitespace` vào `assetcore/tests/test_imm00.py` (cạnh `TestResolveQrToken` A2 + `TestGetAssetScanInfo`). FE: **KHÔNG đổi** (BE-only — FE `QrResolveView.vue:34`/`QRScanView.vue:45` trim đã có làm defense-in-depth lớp 1, `vitest` GIỮ XANH). **RED-first BẮT BUỘC:** class/TC chưa tồn tại + `resolve_qr_token` chưa strip → TC token-kèm-`\n`/space FAIL (false-404) → thêm `token = token.strip()` đầu hàm `services/imm00.py::resolve_qr_token` → GREEN. Đo QUA `resolve_qr_token`/`get_asset_scan_info` THẬT (KHÔNG mock `frappe.db.get_value` — tạo asset thật, tra token thật).
+File BE: thêm class `TestResolveQrTokenWhitespace` vào `assetcore/tests/imm00/test_imm00.py` (cạnh `TestResolveQrToken` A2 + `TestGetAssetScanInfo`). FE: **KHÔNG đổi** (BE-only — FE `QrResolveView.vue:34`/`QRScanView.vue:45` trim đã có làm defense-in-depth lớp 1, `vitest` GIỮ XANH). **RED-first BẮT BUỘC:** class/TC chưa tồn tại + `resolve_qr_token` chưa strip → TC token-kèm-`\n`/space FAIL (false-404) → thêm `token = token.strip()` đầu hàm `services/imm00.py::resolve_qr_token` → GREEN. Đo QUA `resolve_qr_token`/`get_asset_scan_info` THẬT (KHÔNG mock `frappe.db.get_value` — tạo asset thật, tra token thật).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestResolveQrToken` + `TestAssetScanInfo` baseline + `TestResolveQrTokenWhitespace` mới + label-pdf suite) GREEN — 0 regression. `bench migrate` KHÔNG cần (0 schema/patch). `CAP_SET_VERSION` GIỮ NGUYÊN. **Logic-level fresh-import — KHÔNG tuyên bố verify HTTP/Playwright live** (endpoint live HTTP cần USER reload gunicorn — STATE 🔴#1; round này doc+test introspection/logic-level).
 
@@ -743,7 +743,7 @@ File BE: thêm class `TestResolveQrTokenWhitespace` vào `assetcore/tests/test_i
 
 #### III.6.l-NAMENORM — Vòng 31: chuẩn hoá whitespace tham số `name` ở `get_asset_scan_info` (parity nhánh token) — FR-00-101 / BR-00-50 / ADR §D12
 
-File BE: **bổ sung** class `TestAssetScanInfoNameWhitespace` (`assetcore/tests/test_imm00.py` — cạnh `TestAssetScanInfo`). **RED-first BẮT BUỘC:** TC `name='  <name>  '` assert `http_status==200` + payload A6 đúng asset ĐỎ trước fix (hiện `db.exists("  A-042  ")` = False → 404) → thêm `name = name.strip()` trong `get_asset_scan_info` (sau coerce-str, TRƯỚC nhánh `elif name and frappe.db.exists`) → GREEN. Đo QUA `get_asset_scan_info` THẬT (Administrator có mọi DocPerm — KHÔNG mock; tạo 1 AC Asset thật rồi gọi với biến thể whitespace). Spec: [`04 §II.1.8a-NAMENORM`](./04_Backend_Design.md) + [`05 §get_asset_scan_info case-table`](./05_API_Specification.md) + [`02 §IV.26 / BR-00-50`](./02_Analysis_Design.md) + [ADR §D12](./ADR-IMM00-QR-SCAN-ACTION.md).
+File BE: **bổ sung** class `TestAssetScanInfoNameWhitespace` (`assetcore/tests/imm00/test_imm00.py` — cạnh `TestAssetScanInfo`). **RED-first BẮT BUỘC:** TC `name='  <name>  '` assert `http_status==200` + payload A6 đúng asset ĐỎ trước fix (hiện `db.exists("  A-042  ")` = False → 404) → thêm `name = name.strip()` trong `get_asset_scan_info` (sau coerce-str, TRƯỚC nhánh `elif name and frappe.db.exists`) → GREEN. Đo QUA `get_asset_scan_info` THẬT (Administrator có mọi DocPerm — KHÔNG mock; tạo 1 AC Asset thật rồi gọi với biến thể whitespace). Spec: [`04 §II.1.8a-NAMENORM`](./04_Backend_Design.md) + [`05 §get_asset_scan_info case-table`](./05_API_Specification.md) + [`02 §IV.26 / BR-00-50`](./02_Analysis_Design.md) + [ADR §D12](./ADR-IMM00-QR-SCAN-ACTION.md).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestAssetScanInfoNameWhitespace` mới + `TestAssetScanInfo`/`TestResolveQrToken`/`TestResolveQrTokenWhitespace` baseline + label-pdf suite) GREEN — 0 regression. `bench migrate` KHÔNG cần (0 schema/patch). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. **Logic-level fresh-import (sửa `api/imm00.py` live ở run-tests) — KHÔNG tuyên bố verify HTTP/Playwright live** (endpoint live HTTP cần USER reload gunicorn --preload → backlog [BLOCKED reload]; STATE 🔴#1).
 
@@ -764,7 +764,7 @@ File BE: **bổ sung** class `TestAssetScanInfoNameWhitespace` (`assetcore/tests
 
 #### III.6.m-SCANSN — Vòng 37: `manufacturer_sn` (Số serial NSX) vào payload `build_asset_scan_info` + FE `serialText` fallback `'Chưa rõ'` — FR-00-103 / BR-00-52 / ADR §D13
 
-File BE: **bổ sung** class `TestScanInfoManufacturerSn` (`assetcore/tests/test_imm00.py` — cạnh `TestAssetScanInfo`). File FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC dòng "Số serial NSX" + empty-fallback). **RED-first BẮT BUỘC:** TC `assert 'manufacturer_sn' in payload` + `== <giá-trị-thật>` ĐỎ trước fix (key absent → KeyError/None) → thêm `"manufacturer_sn"` vào fields-list `db.get_value` + key payload `row.get("manufacturer_sn") or ""` → GREEN; TC FE `serialText==='Chưa rõ'` khi rỗng ĐỎ trước thêm computed → GREEN. Đo QUA `build_asset_scan_info` THẬT (Administrator có mọi DocPerm — KHÔNG mock; tạo AC Asset thật, set `manufacturer_sn` thật + biến thể rỗng). Spec: [`04 §II.1.8d-SCANSN`](./04_Backend_Design.md) + [`05 §get_asset_scan_info payload 12-field`](./05_API_Specification.md) + [`02 §IV.28 / BR-00-52`](./02_Analysis_Design.md) + [`06 §II.3d-SERIALSN`](./06_Frontend_Design.md) + [ADR §D13](./ADR-IMM00-QR-SCAN-ACTION.md).
+File BE: **bổ sung** class `TestScanInfoManufacturerSn` (`assetcore/tests/imm00/test_imm00.py` — cạnh `TestAssetScanInfo`). File FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC dòng "Số serial NSX" + empty-fallback). **RED-first BẮT BUỘC:** TC `assert 'manufacturer_sn' in payload` + `== <giá-trị-thật>` ĐỎ trước fix (key absent → KeyError/None) → thêm `"manufacturer_sn"` vào fields-list `db.get_value` + key payload `row.get("manufacturer_sn") or ""` → GREEN; TC FE `serialText==='Chưa rõ'` khi rỗng ĐỎ trước thêm computed → GREEN. Đo QUA `build_asset_scan_info` THẬT (Administrator có mọi DocPerm — KHÔNG mock; tạo AC Asset thật, set `manufacturer_sn` thật + biến thể rỗng). Spec: [`04 §II.1.8d-SCANSN`](./04_Backend_Design.md) + [`05 §get_asset_scan_info payload 12-field`](./05_API_Specification.md) + [`02 §IV.28 / BR-00-52`](./02_Analysis_Design.md) + [`06 §II.3d-SERIALSN`](./06_Frontend_Design.md) + [ADR §D13](./ADR-IMM00-QR-SCAN-ACTION.md).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestScanInfoManufacturerSn` mới + `TestAssetScanInfo`/`…PmOverdue`/`…CalibrationOverdue`/`…AvailableActions`/`TestResolveQrToken` baseline + label-pdf suite) GREEN — 0 regression. `bench migrate` KHÔNG cần (0 schema/patch — `manufacturer_sn` đã là field AC Asset). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. FE: `vitest AssetScanInfoView.test.ts` GREEN + `vue-tsc` 0 + full asset-domain vitest no-regression. **Logic-level fresh-import (BE) + vitest (FE render — KHÔNG cần reload) — KHÔNG tuyên bố verify HTTP/Playwright/quét-QR-thật live** (endpoint live HTTP cần USER reload gunicorn --preload → backlog [BLOCKED reload]; STATE 🔴#1).
 
@@ -834,9 +834,9 @@ File FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.risk.tes
 
 #### III.6.q-SAFEDATE — Vòng 50: crash-safe `getdate` ở 4 hàm xử-lý-ngày của `build_asset_scan_info` (`_is_warranty_expired`/`_is_pm_overdue`/`_is_calibration_overdue`/`_date_str_or_none`) degrade graceful ngày drift → `None`/`False`, bịt HTTP-500 traceback-leak — FR-00-107 / BR-00-56 / ADR §D17 — **NEW (BE-only)**
 
-File BE: **bổ sung** vào `assetcore/tests/test_imm00.py` — mở rộng `TestWarrantyExpiredHelper` (BE-WAR-EDGE-1..3 helper parse-fail) + `TestWarrantyInScanInfo` (BE-WAR-EDGE-4 integration degrade) HOẶC class mới `TestScanDateCrashSafe`. **KHÔNG file FE** (BE-only — payload type `str|None`/`bool` GIỮ; FE đọc cờ server như cũ). **RED-first BẮT BUỘC:** TC `_is_warranty_expired('not-a-date')` assert `is False` ĐỎ trước fix (`getdate` raise `frappe.exceptions.ValidationError` → test fail vì exception, KHÔNG return) → thêm helper SSoT `_safe_getdate` + đổi 4 hàm dùng nó (vế giá-trị-DB) → GREEN; TC integration `build_asset_scan_info` trên asset 1-field-ngày-drift assert no-raise + payload 16-key ĐỎ trước fix (build raise) → GREEN. Đo QUA helper + `build_asset_scan_info` THẬT (Administrator; tạo AC Asset thật rồi inject chuỗi drift qua `frappe.db.sql UPDATE` raw — KHÔNG `get_doc().insert()` vì Frappe chặn Date-validate — HOẶC monkeypatch `frappe.db.get_value` trả row có chuỗi xấu). Spec: [`04 §II.1.8e-SAFEDATE`](./04_Backend_Design.md) + [`02 §IV.32 / FR-00-107 / BR-00-56`](./02_Analysis_Design.md) + [ADR §D17](./ADR-IMM00-QR-SCAN-ACTION.md). Parity FE `formatIsoDateLabel` ISO-strict (vòng 18-19 — nay đối xứng ở BE).
+File BE: **bổ sung** vào `assetcore/tests/imm00/test_imm00.py` — mở rộng `TestWarrantyExpiredHelper` (BE-WAR-EDGE-1..3 helper parse-fail) + `TestWarrantyInScanInfo` (BE-WAR-EDGE-4 integration degrade) HOẶC class mới `TestScanDateCrashSafe`. **KHÔNG file FE** (BE-only — payload type `str|None`/`bool` GIỮ; FE đọc cờ server như cũ). **RED-first BẮT BUỘC:** TC `_is_warranty_expired('not-a-date')` assert `is False` ĐỎ trước fix (`getdate` raise `frappe.exceptions.ValidationError` → test fail vì exception, KHÔNG return) → thêm helper SSoT `_safe_getdate` + đổi 4 hàm dùng nó (vế giá-trị-DB) → GREEN; TC integration `build_asset_scan_info` trên asset 1-field-ngày-drift assert no-raise + payload 16-key ĐỎ trước fix (build raise) → GREEN. Đo QUA helper + `build_asset_scan_info` THẬT (Administrator; tạo AC Asset thật rồi inject chuỗi drift qua `frappe.db.sql UPDATE` raw — KHÔNG `get_doc().insert()` vì Frappe chặn Date-validate — HOẶC monkeypatch `frappe.db.get_value` trả row có chuỗi xấu). Spec: [`04 §II.1.8e-SAFEDATE`](./04_Backend_Design.md) + [`02 §IV.32 / FR-00-107 / BR-00-56`](./02_Analysis_Design.md) + [ADR §D17](./ADR-IMM00-QR-SCAN-ACTION.md). Parity FE `formatIsoDateLabel` ISO-strict (vòng 18-19 — nay đối xứng ở BE).
 
-**Acceptance — chạy XANH:** `bench --site miyano run-tests --module assetcore.tests.test_imm00` GREEN (fresh-import, KHÔNG reload — service `.py`, test import trực tiếp; KHÁC `api/imm00.py` reload-gated) gồm BE-WAR-EDGE-1..6 mới + `TestWarrantyExpiredHelper` BE-WAR-1..5 + `TestWarrantyInScanInfo` BE-WAR-6..8 + `TestAssetScanInfo`(+`…PmOverdue`/`…CalibrationOverdue`/`…AvailableActions`) baseline — 0 regression. `bench migrate` KHÔNG cần (0 schema/patch). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. **KHÔNG marker-trust — đọc OK count THẬT.** **Verify HTTP/Playwright/quét-QR-thật BLOCKED reload gunicorn --preload (HARD-STOP USER) → `bench run-tests` + code-audit là gate hợp lệ; KHÔNG tuyên bố DONE live.**
+**Acceptance — chạy XANH:** `bench --site miyano run-tests --module assetcore.tests.imm00.test_imm00` GREEN (fresh-import, KHÔNG reload — service `.py`, test import trực tiếp; KHÁC `api/imm00.py` reload-gated) gồm BE-WAR-EDGE-1..6 mới + `TestWarrantyExpiredHelper` BE-WAR-1..5 + `TestWarrantyInScanInfo` BE-WAR-6..8 + `TestAssetScanInfo`(+`…PmOverdue`/`…CalibrationOverdue`/`…AvailableActions`) baseline — 0 regression. `bench migrate` KHÔNG cần (0 schema/patch). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. **KHÔNG marker-trust — đọc OK count THẬT.** **Verify HTTP/Playwright/quét-QR-thật BLOCKED reload gunicorn --preload (HARD-STOP USER) → `bench run-tests` + code-audit là gate hợp lệ; KHÔNG tuyên bố DONE live.**
 
 | TC (BE) | Kịch bản | Verify | Kỹ thuật |
 |---|---|---|---|
@@ -853,7 +853,7 @@ File BE: **bổ sung** vào `assetcore/tests/test_imm00.py` — mở rộng `Tes
 
 #### III.6.d-REASONNONEMPTY — factory vòng 7: action disabled LUÔN kèm `reason` VI — bịt lỗ status rỗng/lạ — FR-00-92 / BR-00-41 / ADR §D9
 
-File BE: **bổ sung** class `TestScanInfoAvailableActions` (`assetcore/tests/test_imm00.py:3463` — ĐÃ tồn tại từ vòng QR-SCAN-ACTION) + **SIẾT** `test_unknown_status_safe_default` (`:3719`). File FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC reason non-rỗng + non-dangling aria-describedby). **RED-first BẮT BUỘC:** TC unknown/empty-status assert `reason == _LIFECYCLE_REASON_UNKNOWN` + bất biến `enabled=False ⟹ reason!=""` ĐỎ trước fix (hiện `reason==""` cho status rỗng/lạ + Admin) → thêm hằng `_LIFECYCLE_REASON_UNKNOWN` + bậc-3 `or` ở `_build_available_actions` → GREEN. Đo QUA `build_asset_scan_info` THẬT (Administrator có mọi DocPerm = nhánh lifecycle thuần; monkeypatch `svc.rbac.can` ép thiếu cap — KHÔNG mock `getdate`/`nowdate`). Spec: [`04 §II.1.8f`](./04_Backend_Design.md) + [`05 §III.1 available_actions`](./05_API_Specification.md) + [`02 §IV.18 / BR-00-41`](./02_Analysis_Design.md) + [`06 §reason-render`](./06_Frontend_Design.md) + [ADR §D9](./ADR-IMM00-QR-SCAN-ACTION.md).
+File BE: **bổ sung** class `TestScanInfoAvailableActions` (`assetcore/tests/imm00/test_imm00.py:3463` — ĐÃ tồn tại từ vòng QR-SCAN-ACTION) + **SIẾT** `test_unknown_status_safe_default` (`:3719`). File FE: cập nhật `frontend/src/views/asset/tests/AssetScanInfoView.test.ts` (thêm TC reason non-rỗng + non-dangling aria-describedby). **RED-first BẮT BUỘC:** TC unknown/empty-status assert `reason == _LIFECYCLE_REASON_UNKNOWN` + bất biến `enabled=False ⟹ reason!=""` ĐỎ trước fix (hiện `reason==""` cho status rỗng/lạ + Admin) → thêm hằng `_LIFECYCLE_REASON_UNKNOWN` + bậc-3 `or` ở `_build_available_actions` → GREEN. Đo QUA `build_asset_scan_info` THẬT (Administrator có mọi DocPerm = nhánh lifecycle thuần; monkeypatch `svc.rbac.can` ép thiếu cap — KHÔNG mock `getdate`/`nowdate`). Spec: [`04 §II.1.8f`](./04_Backend_Design.md) + [`05 §III.1 available_actions`](./05_API_Specification.md) + [`02 §IV.18 / BR-00-41`](./02_Analysis_Design.md) + [`06 §reason-render`](./06_Frontend_Design.md) + [ADR §D9](./ADR-IMM00-QR-SCAN-ACTION.md).
 
 **Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestScanInfoAvailableActions` mở rộng + baseline) GREEN + `vitest AssetScanInfoView` GREEN. `bench migrate` KHÔNG cần (0 schema/patch). `CAP_SET_VERSION` GIỮ NGUYÊN. **Logic-level / vitest — KHÔNG tuyên bố verify HTTP/Playwright live** (endpoint live cần USER reload — STATE 🔴#1).
 
@@ -907,7 +907,7 @@ File BE: **bổ sung** class `TestScanInfoAvailableActions` (`assetcore/tests/te
 
 ### III.6.b — B item 2: `regenerate_asset_qr_token` — rotate QR token (ADR-001 D1/D3/D4)
 
-File BE: thêm class `TestRegenerateAssetQrToken` vào `assetcore/tests/test_imm00.py` (cạnh `TestAssetLabelData` / `TestGetAssetScanInfo`). FE: `frontend/src/views/asset/tests/AssetDetailView.qrRegenerate.test.ts` (NEW) + cập nhật `routeAccess.test.ts` (không route mới — gate ở nút). **RED-first BẮT BUỘC** (class chưa tồn tại → ImportError/AttributeError → impl → GREEN). Đo QUA layer `require` với **user THẬT** có/không `asset.write` (KHÔNG mock `require`/`has_permission` — chống false-green; baseline 116 test giữ xanh).
+File BE: thêm class `TestRegenerateAssetQrToken` vào `assetcore/tests/imm00/test_imm00.py` (cạnh `TestAssetLabelData` / `TestGetAssetScanInfo`). FE: `frontend/src/views/asset/tests/AssetDetailView.qrRegenerate.test.ts` (NEW) + cập nhật `routeAccess.test.ts` (không route mới — gate ở nút). **RED-first BẮT BUỘC** (class chưa tồn tại → ImportError/AttributeError → impl → GREEN). Đo QUA layer `require` với **user THẬT** có/không `asset.write` (KHÔNG mock `require`/`has_permission` — chống false-green; baseline 116 test giữ xanh).
 
 | TC (BE) | Kịch bản | Expect | Kỹ thuật |
 |---|---|---|---|
@@ -938,7 +938,7 @@ File BE: thêm class `TestRegenerateAssetQrToken` vào `assetcore/tests/test_imm
 
 ### III.6.c — Vòng 12 B: Rate-limit 2 endpoint QR deep-link resolve (BR-00-29) — **NEW**
 
-File BE: thêm class `TestQrResolveRateLimit` vào `assetcore/tests/test_imm00.py` (cạnh `TestQrWhitelistHttpLayer` ~:3060). **BE-only** — FE KHÔNG đổi (vue-tsc/vitest baseline GIỮ NGUYÊN). Spec contract: [`05 §I.7a`](./05_API_Specification.md) + [`04 §II.1.8a-RL`](./04_Backend_Design.md) + [`02 BR-00-29`](./02_Analysis_Design.md).
+File BE: thêm class `TestQrResolveRateLimit` vào `assetcore/tests/imm00/test_imm00.py` (cạnh `TestQrWhitelistHttpLayer` ~:3060). **BE-only** — FE KHÔNG đổi (vue-tsc/vitest baseline GIỮ NGUYÊN). Spec contract: [`05 §I.7a`](./05_API_Specification.md) + [`04 §II.1.8a-RL`](./04_Backend_Design.md) + [`02 BR-00-29`](./02_Analysis_Design.md).
 
 **Cốt lõi hạ tầng test (BẮT BUỘC — nếu sai → test false-green):** `frappe.rate_limiter.rate_limit` có `if not frappe.request: return fn(...)` → gọi hàm TRỰC TIẾP (như `TestResolveQrToken`) **KHÔNG** trip limiter. Để chạm 429 phải mô phỏng HTTP context:
 ```python
@@ -967,7 +967,7 @@ def _http_ctx(self, cmd):
 
 ### III.6.d-ROTATERL — Vòng 27 B: Rate-limit rotate `regenerate_asset_qr_token` (BR-00-38) — **NEW**
 
-File BE: thêm class `TestQrRegenerateRateLimit` vào `assetcore/tests/test_imm00.py` (cạnh `TestQrResolveRateLimit` ~:4396, tái dùng pattern `_http_call`/`_drain`/IP-uniq/teardown `rl:`). **BE-only test** (cặp FE riêng dưới — §III.6.d-FE429). Spec contract: [`05 §III.1 regenerate_asset_qr_token` + §I.7b](./05_API_Specification.md) + [`04 §II.1.8d`](./04_Backend_Design.md) + [`02 BR-00-38`](./02_Analysis_Design.md).
+File BE: thêm class `TestQrRegenerateRateLimit` vào `assetcore/tests/imm00/test_imm00.py` (cạnh `TestQrResolveRateLimit` ~:4396, tái dùng pattern `_http_call`/`_drain`/IP-uniq/teardown `rl:`). **BE-only test** (cặp FE riêng dưới — §III.6.d-FE429). Spec contract: [`05 §III.1 regenerate_asset_qr_token` + §I.7b](./05_API_Specification.md) + [`04 §II.1.8d`](./04_Backend_Design.md) + [`02 BR-00-38`](./02_Analysis_Design.md).
 
 **Hạ tầng test (BẮT BUỘC):** mô phỏng HTTP context (`frappe.local.request` truthy + `request_ip` per-test-uniq + `frappe.form_dict.cmd = "assetcore.api.imm00.regenerate_asset_qr_token"`); user `asset.write` (Administrator). Teardown xoá `rl:*`. Bypass test cũ (`TestRegenerateQrToken` gọi trực tiếp, không HTTP ctx) KHÔNG regress.
 
@@ -1000,7 +1000,7 @@ File FE: `frontend/src/api/tests/errors.test.ts` (httpStatusToCode) + `frontend/
 
 ### III.6.i-LABELRL — Vòng 14: Rate-limit `mark_label_printed` (write-audit-amplification) + `get_asset_label_data_batch` (read) (BR-00-45 / BR-00-46 / FR-00-96/97) — **NEW** (Self-Correction, mirror rotate)
 
-File BE: thêm class `TestLabelMarkBatchRateLimit` vào `assetcore/tests/test_imm00.py` (cạnh `TestQrRegenerateRateLimit`, **tái dùng pattern** `_http_call`/`_drain`/IP-uniq/teardown `rl:`). **BE-only test** (FE 429→RATE_LIMITED+VI ĐÃ CÓ từ §III.6.d-FE429 / FR-00-87/88 — KHÔNG cần TC FE mới). Spec contract: [`05 §I.7c` + `§III.1 mark_label_printed`/`get_asset_label_data_batch`](./05_API_Specification.md) + [`04 §II.1.8b-LABELRL`](./04_Backend_Design.md) + [`02 BR-00-45/46`](./02_Analysis_Design.md) + [ADR-IMM00-LABEL-PDF §D18](./ADR-IMM00-LABEL-PDF.md).
+File BE: thêm class `TestLabelMarkBatchRateLimit` vào `assetcore/tests/imm00/test_imm00.py` (cạnh `TestQrRegenerateRateLimit`, **tái dùng pattern** `_http_call`/`_drain`/IP-uniq/teardown `rl:`). **BE-only test** (FE 429→RATE_LIMITED+VI ĐÃ CÓ từ §III.6.d-FE429 / FR-00-87/88 — KHÔNG cần TC FE mới). Spec contract: [`05 §I.7c` + `§III.1 mark_label_printed`/`get_asset_label_data_batch`](./05_API_Specification.md) + [`04 §II.1.8b-LABELRL`](./04_Backend_Design.md) + [`02 BR-00-45/46`](./02_Analysis_Design.md) + [ADR-IMM00-LABEL-PDF §D18](./ADR-IMM00-LABEL-PDF.md).
 
 **Hạ tầng test (BẮT BUỘC — sai → false-green):** mô phỏng HTTP context (`frappe.local.request` truthy + `request_ip` per-test-uniq + `frappe.form_dict.cmd` = đúng path mỗi endpoint); user `asset.print` (DocPerm print=1 — Administrator hoặc role vận hành). Teardown xoá `rl:*`. Bypass test cũ (`TestMarkLabelPrinted`/batch suite gọi trực tiếp, không HTTP ctx) KHÔNG regress.
 
@@ -1032,7 +1032,7 @@ File BE: thêm class `TestLabelMarkBatchRateLimit` vào `assetcore/tests/test_im
 
 ### III.6.d — Vòng 14 B: Base-URL deep-link QR công khai cấu hình được (BR-00-30) — **NEW**
 
-File BE: thêm class `TestBuildQrUrl` vào `assetcore/tests/test_imm00.py` (cạnh `TestResolveQrToken`). **BE-only** — FE KHÔNG đổi (vue-tsc/vitest baseline GIỮ NGUYÊN). Spec contract: [`04 §II.1.8-QRBASE`](./04_Backend_Design.md) + [`02 BR-00-30`](./02_Analysis_Design.md) + [`../imm-04/ADR-001-asset-qr.md`](../imm-04/ADR-001-asset-qr.md) §D2.1.
+File BE: thêm class `TestBuildQrUrl` vào `assetcore/tests/imm00/test_imm00.py` (cạnh `TestResolveQrToken`). **BE-only** — FE KHÔNG đổi (vue-tsc/vitest baseline GIỮ NGUYÊN). Spec contract: [`04 §II.1.8-QRBASE`](./04_Backend_Design.md) + [`02 BR-00-30`](./02_Analysis_Design.md) + [`../imm-04/ADR-001-asset-qr.md`](../imm-04/ADR-001-asset-qr.md) §D2.1.
 
 **Cốt lõi hạ tầng test:** đổi `assetcore_qr_base_url` per-test qua `frappe.conf` (vd `frappe.local.conf["assetcore_qr_base_url"] = "..."`); teardown PHẢI khôi phục/xoá key (tránh rò sang test khác). Token thật eval: `AanTF-3HT9K3dFyWyaZLNw`.
 
@@ -1054,7 +1054,7 @@ File BE: thêm class `TestBuildQrUrl` vào `assetcore/tests/test_imm00.py` (cạ
 
 ### III.6.e — Vòng 17 B: SSoT sinh `qr_token` chống va chạm UNIQUE (BR-00-31 / FR-00-76..79) — **NEW**
 
-File BE: class `TestGenerateUniqueQrToken` trong `assetcore/tests/test_imm00.py` (cạnh `TestAssetQRToken` ~:1772, ngay sau `test_backfill_patch_idempotent`). **BE-only** — FE KHÔNG đổi (vue-tsc/vitest baseline GIỮ NGUYÊN). Spec contract: [`04 §II.1.8-COLL`](./04_Backend_Design.md) + [`02 BR-00-31`](./02_Analysis_Design.md) + [`../imm-04/ADR-001-asset-qr.md`](../imm-04/ADR-001-asset-qr.md) §D1.1. **RED-first** (helper chưa tồn tại → AttributeError → impl → GREEN; đã chứng minh: RED `AttributeError: no attribute 'generate_unique_qr_token'`).
+File BE: class `TestGenerateUniqueQrToken` trong `assetcore/tests/imm00/test_imm00.py` (cạnh `TestAssetQRToken` ~:1772, ngay sau `test_backfill_patch_idempotent`). **BE-only** — FE KHÔNG đổi (vue-tsc/vitest baseline GIỮ NGUYÊN). Spec contract: [`04 §II.1.8-COLL`](./04_Backend_Design.md) + [`02 BR-00-31`](./02_Analysis_Design.md) + [`../imm-04/ADR-001-asset-qr.md`](../imm-04/ADR-001-asset-qr.md) §D1.1. **RED-first** (helper chưa tồn tại → AttributeError → impl → GREEN; đã chứng minh: RED `AttributeError: no attribute 'generate_unique_qr_token'`).
 
 **Cốt lõi hạ tầng test (BẮT BUỘC — nếu sai → test false-green):** mô phỏng va chạm bằng monkeypatch (`svc.generate_qr_token = _fake`) lên `assetcore.services.imm00.generate_qr_token` (KHÔNG patch `generate_unique_qr_token` — nó là cái-đang-test) trả side-effect = [token-đã-tồn-tại-ở-DB, token-mới-unique] → chứng minh helper retry. Token-đã-tồn-tại là `qr_token` của 1 asset SEED THẬT trong DB. Teardown: `frappe.db.rollback()` + `_purge_asset` từng asset + commit. KHÔNG patch `frappe.db.exists` (đo qua DB thật — chống false-green).
 
@@ -1096,7 +1096,7 @@ File FE: helper `frontend/src/utils/navigation.ts::isSafeInternalRedirect` (NEW 
 
 ### III.6.g — Vòng 24 B: No-raw-token parity trên đường ĐỌC AC Asset (BR-00-34 / ADR-001 §D4.1) — **NEW** {#guard-no-raw-token}
 
-File BE: thêm class `TestAssetReadNoRawToken` vào `assetcore/tests/test_imm00.py` (cạnh `TestAssetQRToken`/`TestResolveQrToken` — nhóm QR). **BE-only** — FE KHÔNG đổi (vue-tsc/vitest baseline GIỮ NGUYÊN; 0 FE đọc field `data.qr_token` từ payload đọc-asset). Spec contract: [`04 §II.1.8-NORAWTOKEN`](./04_Backend_Design.md) + [`05 §get_asset`](./05_API_Specification.md) + [`02 BR-00-34`](./02_Analysis_Design.md) + [`../imm-04/ADR-001-asset-qr.md`](../imm-04/ADR-001-asset-qr.md) §D4.1. **RED-first BẮT BUỘC** (assert `'qr_token' not in data` ĐỎ trước khi strip → impl `doc.pop("qr_token", None)` → GREEN).
+File BE: thêm class `TestAssetReadNoRawToken` vào `assetcore/tests/imm00/test_imm00.py` (cạnh `TestAssetQRToken`/`TestResolveQrToken` — nhóm QR). **BE-only** — FE KHÔNG đổi (vue-tsc/vitest baseline GIỮ NGUYÊN; 0 FE đọc field `data.qr_token` từ payload đọc-asset). Spec contract: [`04 §II.1.8-NORAWTOKEN`](./04_Backend_Design.md) + [`05 §get_asset`](./05_API_Specification.md) + [`02 BR-00-34`](./02_Analysis_Design.md) + [`../imm-04/ADR-001-asset-qr.md`](../imm-04/ADR-001-asset-qr.md) §D4.1. **RED-first BẮT BUỘC** (assert `'qr_token' not in data` ĐỎ trước khi strip → impl `doc.pop("qr_token", None)` → GREEN).
 
 **Cốt lõi hạ tầng test (BẮT BUỘC — nếu sai → test false-green):** seed 1 AC Asset THẬT (có `qr_token` đã sinh qua `before_insert`/`ensure_asset_qr_token`) → gọi endpoint QUA layer thật (user có `asset.read`; KHÔNG mock `frappe.get_doc`/`require`/`has_permission`) → đọc `res["data"]` từ envelope → assert key `qr_token`/`token` vắng + các field nghiệp vụ CÒN đủ. Teardown: `_purge_asset` + `frappe.db.rollback()`. Guard test (TC cuối) đọc AST của `assetcore/api/imm00.py` (và `api/*.py`) bằng `ast.parse` → walk tìm vi phạm — KHÔNG cần DB/HTTP.
 
@@ -1114,7 +1114,7 @@ File BE: thêm class `TestAssetReadNoRawToken` vào `assetcore/tests/test_imm00.
 
 ### III.6.h — Vòng 25 B: Reserved test-prefix exclusion ở `list_assets` + count SSoT (BR-00-35 / FR-00-80..83) — **NEW** {#guard-test-prefix}
 
-File BE: thêm class `TestReservedTestPrefixExclusion` vào `assetcore/tests/test_imm00.py` (cạnh `TestListAssetsGmdnFilter` — nhóm list/count). **BE-only** — FE list/count tự hưởng lợi, KHÔNG đổi component (vue-tsc/vitest baseline GIỮ NGUYÊN). Spec contract: [`04 §II.1.13-TESTPREFIX`](./04_Backend_Design.md) + [`05 §list_assets`](./05_API_Specification.md) + [`02 BR-00-35 / FR-00-80..83`](./02_Analysis_Design.md). **RED-first BẮT BUỘC** (seed `_Test*`/`SI-*` → assert chúng VẮNG khỏi `items` + `total` ĐỎ trước khi áp predicate → impl → GREEN).
+File BE: thêm class `TestReservedTestPrefixExclusion` vào `assetcore/tests/imm00/test_imm00.py` (cạnh `TestListAssetsGmdnFilter` — nhóm list/count). **BE-only** — FE list/count tự hưởng lợi, KHÔNG đổi component (vue-tsc/vitest baseline GIỮ NGUYÊN). Spec contract: [`04 §II.1.13-TESTPREFIX`](./04_Backend_Design.md) + [`05 §list_assets`](./05_API_Specification.md) + [`02 BR-00-35 / FR-00-80..83`](./02_Analysis_Design.md). **RED-first BẮT BUỘC** (seed `_Test*`/`SI-*` → assert chúng VẮNG khỏi `items` + `total` ĐỎ trước khi áp predicate → impl → GREEN).
 
 **Cốt lõi hạ tầng test (BẮT BUỘC — nếu sai → test false-green):** seed dataset HỖN HỢP record THẬT trong cùng transaction: (a) **phải-ẩn**: ≥1 asset `asset_name='_Test Máy thở'`, ≥1 `asset_name='_Probe X'`, ≥1 có `name` series `SI-…` (set name tường minh để khớp `'SI-%'`); (b) **phải-giữ**: `asset_name='Máy thở'`, `asset_name='Model_X'` (`_` ở GIỮA — false-positive guard), `name` kiểu `TS-2025-USG-001`/`AC-ASSET-…`. Gọi endpoint QUA layer thật (KHÔNG mock `get_list`/`db.count`/`db.sql`). Teardown qua `tests/_asset_cleanup.py` + `frappe.db.rollback()`. **Đo INVARIANT trên CÙNG data** (không mock count) để bắt lệch list↔count.
 
@@ -1131,7 +1131,7 @@ File BE: thêm class `TestReservedTestPrefixExclusion` vào `assetcore/tests/tes
 
 #### III.6.h-VENDORCLOBBER — Vòng 26 B: vendor-scope KHÔNG bị reserved-exclusion clobber (RC-LIST-VENDORCLOBBER / FR-00-84 / BR-00-35 mục 6) — **NEW (ƯU TIÊN)**
 
-File BE: thêm class `TestListAssetsVendorScopeReserved` vào `assetcore/tests/test_imm00.py` (HOẶC vào `tests/test_imm00_reserved_prefix.py` cạnh `_SeedMixin`). **RED-first BẮT BUỘC:** trên code hiện tại (`filters.update(reserved_prefix_filter())` clobber) — `test_vendor_sees_only_assigned_minus_reserved` PHẢI ĐỎ (vendor thấy asset ngoài-scope) trước khi fix → fix điểm merge (filter-list form) → GREEN. Spec contract: [`04 §II.1.13-TESTPREFIX RC-LIST-VENDORCLOBBER`](./04_Backend_Design.md) + [`02 FR-00-84 / BR-00-35`](./02_Analysis_Design.md) + [`05 §list_assets`](./05_API_Specification.md).
+File BE: thêm class `TestListAssetsVendorScopeReserved` vào `assetcore/tests/imm00/test_imm00.py` (HOẶC vào `tests/test_imm00_reserved_prefix.py` cạnh `_SeedMixin`). **RED-first BẮT BUỘC:** trên code hiện tại (`filters.update(reserved_prefix_filter())` clobber) — `test_vendor_sees_only_assigned_minus_reserved` PHẢI ĐỎ (vendor thấy asset ngoài-scope) trước khi fix → fix điểm merge (filter-list form) → GREEN. Spec contract: [`04 §II.1.13-TESTPREFIX RC-LIST-VENDORCLOBBER`](./04_Backend_Design.md) + [`02 FR-00-84 / BR-00-35`](./02_Analysis_Design.md) + [`05 §list_assets`](./05_API_Specification.md).
 
 **Hạ tầng test (BẮT BUỘC — giả-lập Vendor Engineer mà KHÔNG cần login/DocPerm phức tạp):**
 - **Mock `frappe.get_roles`** trả `["Vendor Engineer"]` (KHÔNG kèm bypass-role `AssetCore Super Admin`/`Auditor`/`System Manager`) cho user test → `apply_vendor_scope` đi nhánh vendor (chèn `name in assigned`). Dùng `unittest.mock.patch("frappe.get_roles", ...)` HOẶC monkeypatch `frappe.session.user` sang user có đúng role Vendor Engineer (KHÔNG bypass). Vì `reserved_prefix_filter` query DB bằng `ignore_permissions` nội bộ helper → mock role là đủ để kích `apply_vendor_scope`.
@@ -1156,7 +1156,7 @@ File BE: thêm class `TestListAssetsVendorScopeReserved` vào `assetcore/tests/t
 
 #### III.6.h-SEARCHESCAPE — Vòng 13: Escape LIKE-metachar trong `search` của `list_assets` (ADR-IMM00-SEARCH-ESCAPE / BR-00-44) — **NEW**
 
-File BE: thêm class `TestListAssetsSearchEscape` vào `assetcore/tests/test_imm00_list_assets.py` (cạnh `TestListAssetsGmdnFilter`) HOẶC `tests/test_imm00_reserved_prefix.py` (tái dùng `_SeedMixin`). **RED-first BẮT BUỘC:** trên code hiện tại (`like = f"%{search}%"` trần) — `test_search_underscore_is_literal_not_wildcard` PHẢI ĐỎ (search='_' trả gần-như-mọi-row) TRƯỚC khi thêm `escape_like_term` → GREEN. **Guard Python thuần tier API/service** → fresh-import qua `run-tests`, KHÔNG cần reload gunicorn/migrate. Spec contract: [`ADR-IMM00-SEARCH-ESCAPE.md`](./ADR-IMM00-SEARCH-ESCAPE.md) §6 + [`04 §II.1.13-SEARCHESCAPE`](./04_Backend_Design.md) + [`05 §list_assets search`](./05_API_Specification.md).
+File BE: thêm class `TestListAssetsSearchEscape` vào `assetcore/tests/imm00/test_imm00_list_assets.py` (cạnh `TestListAssetsGmdnFilter`) HOẶC `tests/test_imm00_reserved_prefix.py` (tái dùng `_SeedMixin`). **RED-first BẮT BUỘC:** trên code hiện tại (`like = f"%{search}%"` trần) — `test_search_underscore_is_literal_not_wildcard` PHẢI ĐỎ (search='_' trả gần-như-mọi-row) TRƯỚC khi thêm `escape_like_term` → GREEN. **Guard Python thuần tier API/service** → fresh-import qua `run-tests`, KHÔNG cần reload gunicorn/migrate. Spec contract: [`ADR-IMM00-SEARCH-ESCAPE.md`](./ADR-IMM00-SEARCH-ESCAPE.md) §6 + [`04 §II.1.13-SEARCHESCAPE`](./04_Backend_Design.md) + [`05 §list_assets search`](./05_API_Specification.md).
 
 > **Seed bắt buộc (để test có ý nghĩa, KHÔNG phụ thuộc data prod):** seed ≥3 asset có metachar LITERAL trong cột searchable + ≥1 không-metachar:
 > - `_SE_underscore_a` (asset_name chứa `_` literal) · `_SE_percent_%a` (chứa `%`) · `_SE_back\slash` (chứa `\`) · `_SE_ventil` (không metachar, control).
@@ -1237,11 +1237,11 @@ Backend test fixture dùng prefix `_Test` / `AC-...-TEST-` — xem `assetcore-te
 
 ```bash
 # Module test
-bench --site <site> run-tests --app assetcore --module assetcore.tests.test_imm00
-bench --site <site> run-tests --app assetcore --module assetcore.tests.test_imm00_smoke
-bench --site <site> run-tests --app assetcore --module assetcore.tests.test_imm00_list_assets
+bench --site <site> run-tests --app assetcore --module assetcore.tests.imm00.test_imm00
+bench --site <site> run-tests --app assetcore --module assetcore.tests.imm00.test_imm00_smoke
+bench --site <site> run-tests --app assetcore --module assetcore.tests.imm00.test_imm00_list_assets
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm00 && coverage report
+coverage run -m unittest assetcore.tests.imm00.test_imm00 && coverage report
 ```
 
 | Layer | Target coverage | Đo |
@@ -1596,7 +1596,7 @@ Logging convention (mọi service function): `[function_name] key=value ... DONE
 - [ ] Audit chain test (intact ✅ + tampered ⬜) — case tamper chưa viết
 - [ ] API test ≥ 60% coverage + permission matrix — mới có GMDN filter test, coverage chưa đo
 - [x] Performance target xác định (NFR-00-01..03)
-- [x] CI command chạy clean (`bench run-tests --module assetcore.tests.test_imm00*`)
+- [x] CI command chạy clean (`bench run-tests --module assetcore.tests.imm00.test_imm00*`)
 - [ ] **SonarQube Quality Gate pass** + **Lighthouse score** — chưa chạy/đính kèm
 
 ## IV. Traceability
@@ -1630,7 +1630,7 @@ Logging convention (mọi service function): `[function_name] key=value ... DONE
 
 ## XII. INVARIANT — Reconcile lifecycle map ⇄ workflow (CR-WF-00-LIFECYCLE, Vòng 32)
 
-> **File:** `assetcore/tests/test_imm00.py`. Spec đầy đủ: [`04_Backend_Design.md §II.1.7-RECON`](./04_Backend_Design.md) + **ADR-IMM00-LIFECYCLE-SM**. Chạy: `bench --site miyano run-tests --module assetcore.tests.test_imm00`. Guard bất-biến chống drift SSoT `_VALID_ASSET_TRANSITIONS` ⇄ `ac_asset_lifecycle_workflow.json` ⇄ `fixtures/workflow.json`.
+> **File:** `assetcore/tests/imm00/test_imm00.py`. Spec đầy đủ: [`04_Backend_Design.md §II.1.7-RECON`](./04_Backend_Design.md) + **ADR-IMM00-LIFECYCLE-SM**. Chạy: `bench --site miyano run-tests --module assetcore.tests.imm00.test_imm00`. Guard bất-biến chống drift SSoT `_VALID_ASSET_TRANSITIONS` ⇄ `ac_asset_lifecycle_workflow.json` ⇄ `fixtures/workflow.json`.
 
 **SSoT khai trong test (đối xứng precedent `test_imm06.py::_SESSION_EXCEPTION_EDGES`):**
 ```python
@@ -1691,7 +1691,7 @@ Source JSON (`assetcore/assetcore/workflow/ac_asset_lifecycle_workflow.json`) �
 
 ## XIII. TRANSFER-AUTHZ — gate `confirm_receipt` + server-driven CTA flags (CR-WF-00-TRANSFER-AUTHZ, Vòng 48 / FR-00-TRF-02 / BR-00-TRF-02)
 
-> Spec: 04 §II.1.13-TRANSFERAUTHZ / ADR-IMM00-TRANSFER-AUTHZ · 05 §III.12-AUTHZ · 06 §II.3a-TRANSFERAUTHZ. Test file: `assetcore/tests/test_imm00.py` (BE) + `AssetTransferDetailView` vitest (FE).
+> Spec: 04 §II.1.13-TRANSFERAUTHZ / ADR-IMM00-TRANSFER-AUTHZ · 05 §III.12-AUTHZ · 06 §II.3a-TRANSFERAUTHZ. Test file: `assetcore/tests/imm00/test_imm00.py` (BE) + `AssetTransferDetailView` vitest (FE).
 
 ### TC-00-TRF-AUTHZ-01 — RED-first: base user KHÔNG có cap receive → `confirm_receipt` raise PermissionError (đóng lỗ P1)
 - **Setup**: phiếu `Asset Transfer` status `Approved`; `frappe.set_user(<base AssetCore System User, KHÔNG Commissioning role>)`.
@@ -1721,7 +1721,7 @@ Source JSON (`assetcore/assetcore/workflow/ac_asset_lifecycle_workflow.json`) �
 
 ## XIV. TRANSFER-CANCEL-AUTHZ — gate `cancel_transfer_request` + audit-on-cancel + flag `can_cancel` (CR-WF-00-CANCEL-AUTHZ, Vòng 41 / FR-00-TRF-03 / BR-00-TRF-03)
 
-> Spec: 04 §II.1.13-CANCELAUTHZ / ADR-IMM00-CANCEL-AUTHZ · 05 §III.12-CANCELAUTHZ · 06 §II.3a-CANCELAUTHZ. Test file: `assetcore/tests/test_imm00.py` (BE — class MỚI `TestTransferCancelAuthz`, mirror `TestTransferReceiveAuthzAndFlags` `:690`) + `AssetTransferDetailView.ctaGate.test.ts` (FE). Helper tái dùng `_mk_transfer(status)` / `_mk_user(email, roles)` từ class receive.
+> Spec: 04 §II.1.13-CANCELAUTHZ / ADR-IMM00-CANCEL-AUTHZ · 05 §III.12-CANCELAUTHZ · 06 §II.3a-CANCELAUTHZ. Test file: `assetcore/tests/imm00/test_imm00.py` (BE — class MỚI `TestTransferCancelAuthz`, mirror `TestTransferReceiveAuthzAndFlags` `:690`) + `AssetTransferDetailView.ctaGate.test.ts` (FE). Helper tái dùng `_mk_transfer(status)` / `_mk_user(email, roles)` từ class receive.
 
 ### TC-00-TRF-CANCEL-01 — RED-first: base user KHÔNG có cap → `cancel_transfer_request` raise PermissionError (đóng lỗ P1 missing-authz)
 - **Setup**: phiếu `Asset Transfer` status `Pending Approval`; `frappe.set_user(<base AssetCore System User, KHÔNG Commissioning role>)`.
@@ -1751,7 +1751,7 @@ Source JSON (`assetcore/assetcore/workflow/ac_asset_lifecycle_workflow.json`) �
 
 ## XIV-EDIT. TRANSFER-EDIT-AUTHZ — gate `update_transfer` (endpoint-level) + flag `can_edit` (CR-WF-00-EDIT-AUTHZ, Vòng 46 / FR-00-TRF-04 / BR-00-TRF-04)
 
-> Spec: 04 §II.1.13-EDITAUTHZ / ADR-IMM00-EDIT-AUTHZ · 05 §III.12-EDITAUTHZ · 06 §II.3a-EDITAUTHZ. Test file: `assetcore/tests/test_imm00.py` (BE — class MỚI `TestTransferEditAuthz`, mirror `TestTransferReceiveAuthzAndFlags` / `TestTransferCancelAuthz`) + vitest `AssetTransferDetailView`. Helper tái dùng `_mk_transfer(status)` / `_mk_user(email, roles)`.
+> Spec: 04 §II.1.13-EDITAUTHZ / ADR-IMM00-EDIT-AUTHZ · 05 §III.12-EDITAUTHZ · 06 §II.3a-EDITAUTHZ. Test file: `assetcore/tests/imm00/test_imm00.py` (BE — class MỚI `TestTransferEditAuthz`, mirror `TestTransferReceiveAuthzAndFlags` / `TestTransferCancelAuthz`) + vitest `AssetTransferDetailView`. Helper tái dùng `_mk_transfer(status)` / `_mk_user(email, roles)`.
 >
 > **⚠️ Testing detail:** `update_transfer` là ENDPOINT đọc payload sửa từ `frappe.local.form_dict` (qua `_generic_update`). Test set `frappe.local.form_dict = frappe._dict({"reason": "...", "to_department": "...", ...})` TRƯỚC khi gọi `update_transfer(name)`. Cap-fail → `rbac.require` **raise** `frappe.PermissionError` (propagate, KHÔNG try/except) ⇒ `assertRaises`. Status-fail/not-found → **return dict envelope** `{success:False, http_status:422|404}` (HTTP-200 wire) ⇒ assert `resp["http_status"]`.
 
@@ -1784,7 +1784,7 @@ Source JSON (`assetcore/assetcore/workflow/ac_asset_lifecycle_workflow.json`) �
 
 ## XV. FIXTURE-SRC-RECONCILE — bất-biến 2-chiều `fixtures/workflow.json` ⇄ 22 source `workflow/*.json` cho MỌI workflow (CR-WF-00-FXSRC-RECONCILE, Vòng 43 / FR-00-FXSRC / BR-00-FXSRC)
 
-> Spec thiết kế: [`04_Backend_Design.md §II.1.8-FXSRC + ADR-IMM00-WF-FXSRC-RECONCILE`](./04_Backend_Design.md). File test MỚI: `assetcore/tests/test_workflow_fixture_source_reconcile.py`. **0 file runtime `.py` đổi** (test-only) → 0 gunicorn reload, 0 `bench migrate`, KHÔNG commit.
+> Spec thiết kế: [`04_Backend_Design.md §II.1.8-FXSRC + ADR-IMM00-WF-FXSRC-RECONCILE`](./04_Backend_Design.md). File test MỚI: `assetcore/tests/guards/test_workflow_fixture_source_reconcile.py`. **0 file runtime `.py` đổi** (test-only) → 0 gunicorn reload, 0 `bench migrate`, KHÔNG commit.
 
 ### Bối cảnh (đóng lỗ seed-drift 2-đường-cài-đặt)
 AssetCore có **2 đường seed workflow lệch nguồn** — drift 1-phía tái sinh **CÂM** bug "QTV không duyệt được" ở site cài mới:
@@ -1815,7 +1815,7 @@ Module có helper thuần trả `list[str]` drift cho từng lát + 1 hàm top-l
 | TC-00-FXSRC-07 | `test_reconcile_raises_on_fixture_phantom_edge` (INV-FXSRC-5b) | `deepcopy(fixture_map)`; append 1 phantom transition `(state,action,next_state,allowed)` mới vào 1 workflow → `with self.assertRaises(AssertionError): reconcile(source_map, mutated_fixture)`. Chứng minh edge-parity guard **cắn** 1-phía. KHÔNG persist. | Mutation / RED-proof |
 
 ### DoD (FIXTURE-SRC-RECONCILE)
-- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_workflow_fixture_source_reconcile` → **`Ran N OK` THẬT** (đọc dòng cuối), **N ≥ 5** (spec 7 method). GREEN trên trạng thái hiện tại (đã verify BA: name-set 22=22, states 0 drift, edges 0 drift, header check-field 0 drift sau normalize).
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.guards.test_workflow_fixture_source_reconcile` → **`Ran N OK` THẬT** (đọc dòng cuối), **N ≥ 5** (spec 7 method). GREEN trên trạng thái hiện tại (đã verify BA: name-set 22=22, states 0 drift, edges 0 drift, header check-field 0 drift sau normalize).
 - **RED-before (BẮT BUỘC demo THẬT)**: chạy TC-00-FXSRC-06/07 trên `reconcile()` CHƯA gom đủ lát (vd bỏ helper admin-override) → `assertRaises` FAIL (guard no-op) → thêm lát → GREEN. Chứng minh guard có răng, không nhận suông.
 - **Regression GREEN (không đỏ)**: `test_workflows` (INV-A/B/C), `test_workflow_admin_override`, `test_workflow_admin_override_livedb` — module MỚI là **ADDITIVE**, TUYỆT ĐỐI KHÔNG xoá/làm yếu guard cũ.
 - **0 file runtime `.py` đổi** → 0 gunicorn reload, 0 `bench migrate`, 0 CAP_SET_VERSION. **KHÔNG** `git commit/push`. Working tree để user review.
@@ -1824,7 +1824,7 @@ Module có helper thuần trả `list[str]` drift cho từng lát + 1 hàm top-l
 
 ## XVI. ROWSCOPE-INVARIANT — `BaseRepository.list(scope=…)`: rows permission-aware KHỚP count (INV-ROWSCOPE, 2026-07-25)
 
-> **SSoT quyết định:** [`ADR-IMM00-LIST-SCOPE.md` §8](./ADR-IMM00-LIST-SCOPE.md) (D4–D7 + §8.9 bảng bất biến). Module test MỚI: `assetcore/tests/test_rowscope_invariant.py`.
+> **SSoT quyết định:** [`ADR-IMM00-LIST-SCOPE.md` §8](./ADR-IMM00-LIST-SCOPE.md) (D4–D7 + §8.9 bảng bất biến). Module test MỚI: `assetcore/tests/integration/test_rowscope_invariant.py`.
 
 ### Bối cảnh (finding CRITICAL vòng trước)
 
@@ -1857,11 +1857,11 @@ Fixture rỗng ⇒ `0 == 0` XANH vacuous. Mỗi TC row-scope phải **seed ≥ 2
 ### Fixture contract
 
 - User test: `_rowscope_ktv_a@assetcore.test` (role `Repair User` + `PM User`), `_rowscope_ktv_b@assetcore.test`, `_rowscope_mgr@assetcore.test` (`Repair Manager` + `PM Manager`). Prefix `_` ⇒ nằm trong reserved-prefix exclusion, KHÔNG lẫn data thật.
-- Teardown BẮT BUỘC: xoá phiếu + asset + user seed (reuse `assetcore/tests/_asset_cleanup.py`), `addCleanup(frappe.set_user, "Administrator")`. Fixture-leak = nguồn "full BE suite đỏ" giả.
+- Teardown BẮT BUỘC: xoá phiếu + asset + user seed (reuse `assetcore/tests/_helpers/_asset_cleanup.py`), `addCleanup(frappe.set_user, "Administrator")`. Fixture-leak = nguồn "full BE suite đỏ" giả.
 
 ### DoD (ROWSCOPE-INVARIANT)
 
-- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rowscope_invariant` → **`Ran N OK` THẬT** (đọc dòng cuối), N ≥ 10.
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_rowscope_invariant` → **`Ran N OK` THẬT** (đọc dòng cuối), N ≥ 10.
 - **RED-before (BẮT BUỘC demo THẬT)**: chạy TC-00-RS-04/05 trên `base.py` CHƯA có `scope` (rows = `frappe.get_all`) → **ĐỎ**; thêm `scope="user"` → XANH. Guard không có răng = không nhận.
 - Regression XANH: `test_imm09`, `test_imm08`, `test_imm11`, `test_imm05`, `test_imm00`, `test_rbac`, `test_list_search_filter`. FE: `npm run test` + `vue-tsc` xanh.
 - **Call site đỏ vì `get_list` strip field `permlevel > 0`** → chuyển ĐÚNG site đó sang `scope="system"` + comment `# [ROWSCOPE-FALLBACK]` + ghi backlog. **TUYỆT ĐỐI KHÔNG nới DocPerm** (ADR §8.7).
@@ -1873,7 +1873,7 @@ Fixture rỗng ⇒ `0 == 0` XANH vacuous. Mỗi TC row-scope phải **seed ≥ 2
 ## XVII. AC-CR-80 — Picker "người nhận việc": capability-SSoT + hết cắt IM LẶNG (INV-ASSIGN-1..8)
 
 > Spec: [`05_API_Specification.md` §III.23](./05_API_Specification.md) · ADR: [`ADR-IMM00-TRUNCATION-SSOT.md` §7](./ADR-IMM00-TRUNCATION-SSOT.md) · code-shape: [`04_Backend_Design.md` §V.6](./04_Backend_Design.md).
-> Module test: `assetcore/tests/test_imm00_base_role.py` (class `TestListAssignableUsers` — **đã tồn tại**, mở rộng) + guard contract `assetcore/tests/test_mobile_oas.py` (`TestMobileAssignableUsersContract`, **đã LANDED ở Bước-2**).
+> Module test: `assetcore/tests/imm00/test_imm00_base_role.py` (class `TestListAssignableUsers` — **đã tồn tại**, mở rộng) + guard contract `assetcore/tests/guards/test_mobile_oas.py` (`TestMobileAssignableUsersContract`, **đã LANDED ở Bước-2**).
 
 ### XVII.1 TC backend (BE Bước-4)
 
@@ -1930,7 +1930,7 @@ Fixture rỗng ⇒ `0 == 0` XANH vacuous. Mỗi TC row-scope phải **seed ≥ 2
 ## XVIII. AC-CR-87 — «Bản ghi liên quan» là CÂY DỮ LIỆU THẬT (INV-CONN-1..17 · §XVIII.4 FE vòng 2 · §XVIII.5 FE vòng 3 · §XVIII.6 BE+FE vòng 4 · **§XVIII.7 FE vòng 5 — deep-link «Xem tất cả» CÓ LỌC** · §XVIII.8 AC-CR-93 chỉ render ô CÓ dữ liệu · **§XVIII.9 AC-CR-94 — deep-link ĐẾN ĐÍCH 2 màn LỊCH + `count == drill` cross-endpoint** · **§XVIII.10 AC-CR-95 — thăng hạng 4 màn đích còn lại, `LIST_TARGET_NO_FILTER` 9→5** · **§XVIII.11 AC-CR-92 — ô 12→9 khoá, `capped: bool`→`total_capped: int`, RATIFY cổng I/O**)
 
 > Spec: [`05 §III.24`](./05_API_Specification.md) · ADR: [`ADR-IMM00-CONNECTIONS-TREE.md`](./ADR-IMM00-CONNECTIONS-TREE.md) · code shape: [`04 §V.7`](./04_Backend_Design.md).
-> **File test MỚI**: `assetcore/tests/test_connections_tree.py`. **`test_connections.py` (11 TC) và `test_doctype_connectivity.py` KHÔNG được sửa một dòng nào** — chúng chính là oracle "không phá FE hiện tại".
+> **File test MỚI**: `assetcore/tests/connections/test_connections_tree.py`. **`test_connections.py` (11 TC) và `test_doctype_connectivity.py` KHÔNG được sửa một dòng nào** — chúng chính là oracle "không phá FE hiện tại".
 
 ### XVIII.1 Fixture tối thiểu (dùng lại khuôn `test_connections.py`)
 
@@ -1967,11 +1967,11 @@ Fixture rỗng ⇒ `0 == 0` XANH vacuous. Mỗi TC row-scope phải **seed ≥ 2
 
 ### XVIII.3 DoD vòng (chấm ĐỎ nếu thiếu bất kỳ mục nào)
 
-- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections` **XANH** (11 TC, **0 assert bị sửa**).
-- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_tree` **XANH**.
-- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_doctype_connectivity` **XANH** (không sửa file).
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.connections.test_connections` **XANH** (11 TC, **0 assert bị sửa**).
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.connections.test_connections_tree` **XANH**.
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.guards.test_doctype_connectivity` **XANH** (không sửa file).
 - `npx vitest run src/components/common/tests/RelatedRecords.test.ts src/api` **XANH**; `npx vue-tsc --noEmit` 0 lỗi.
-- `git diff --name-only` **chỉ** chứa: `assetcore/api/connections.py` · `assetcore/services/connections.py` · `assetcore/services/shared/connection_meta.py` · `assetcore/tests/test_connections_tree.py` · `frontend/src/api/connections.ts` · (nếu suite thật lệch) file guard count · docs vòng này.
+- `git diff --name-only` **chỉ** chứa: `assetcore/api/connections.py` · `assetcore/services/connections.py` · `assetcore/services/shared/connection_meta.py` · `assetcore/tests/connections/test_connections_tree.py` · `frontend/src/api/connections.ts` · (nếu suite thật lệch) file guard count · docs vòng này.
 - Guard count (`_EXPECTED_TEST_COUNT` @`tests/test_mobile_oas.py:212` · `_GUARD_SUITE_SUM` @`tests/test_mobile_docset.py:956`): cập theo **DELTA**, đọc số **trên đĩa** ngay trước khi sửa — số trong spec/STATE luôn có thể stale (đọc 2026-07-27: `1024` / `1167`). Endpoint này **không** có mirror OAS ⇒ nếu file test mới không thuộc guard-suite thì **KHÔNG** đụng 3 hằng.
 - ⏱ Mọi lệnh `bench run-tests` đặt timeout tool **≥ 600000ms** — kill giữa chừng = `tearDownClass` không chạy = **nhiễm DB**, KHÔNG phải bug sản phẩm.
 - ⚠️ `--preload`: sửa `api/*.py` **không** có hiệu lực qua HTTP tới khi USER reload ⇒ **chấm bằng `run-tests`, KHÔNG curl** (curl 417/traceback ≠ bug sản phẩm — LL-DEPLOY-07/08).
@@ -2062,7 +2062,7 @@ const DETAIL_VIEWS = [
 ### XVIII.6 AC-CR-90 (vòng 4/5 — BE+FE): `can_create` là GƯƠNG của enforcement + `create_prefill` (INV-CONN4-1..10 · INV-CONNFE4-1..5)
 
 > Hợp đồng: [`05 §III.24.7`](./05_API_Specification.md) · quyết định: [ADR §12](./ADR-IMM00-CONNECTIONS-TREE.md) · code shape BE: [`04 §V.8`](./04_Backend_Design.md) · FE: [`06 §VIII.6`](./06_Frontend_Design.md).
-> **File test BE**: `assetcore/tests/test_connections_tree.py` (**append**) + `assetcore/tests/test_connections_create.py` (**MỚI** — parity 3 điểm + oracle ma trận) + `assetcore/tests/test_imm12.py` (**append** — EC-12-05).
+> **File test BE**: `assetcore/tests/connections/test_connections_tree.py` (**append**) + `assetcore/tests/test_connections_create.py` (**MỚI** — parity 3 điểm + oracle ma trận) + `assetcore/tests/imm12/test_imm12.py` (**append** — EC-12-05).
 > **`test_connections.py` (11 TC) vẫn KHÔNG được sửa một dòng nào.** TC cũ `TC-CONN-T-19` (cổng vòng đời chặn-tất) **PHẢI đổi kỳ vọng** — đây là **breakage đã khai báo trước**, hợp lệ, xem XVIII.6.4.
 
 #### XVIII.6.1 Fixture
@@ -2125,10 +2125,10 @@ const DETAIL_VIEWS = [
 
 #### XVIII.6.5 DoD vòng 4 (chấm ĐỎ nếu thiếu bất kỳ mục nào)
 
-- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections` **XANH** (11 TC, **0 assert bị sửa**).
-- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_tree` **XANH**.
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.connections.test_connections` **XANH** (11 TC, **0 assert bị sửa**).
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.connections.test_connections_tree` **XANH**.
 - `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_create` **XANH** (file MỚI).
-- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm09` **XANH** · `... test_imm12` **XANH**.
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.imm09.test_imm09` **XANH** · `... test_imm12` **XANH**.
 - `cd frontend && npx vitest run` **0 fail**; `npx vue-tsc --noEmit` **0 lỗi**.
 - **Guard count: DELTA = 0.** `_EXPECTED_TEST_COUNT` (`tests/test_mobile_oas.py`) và `_GUARD_SUITE_SUM` (`tests/test_mobile_docset.py`) là counter của **guard-suite MOBILE/OAS 7 module**; vòng này **0 op OAS**, test mới **không** thuộc suite ⇒ **KHÔNG đụng**. Nếu vì lý do nào đó phải đụng: đọc số **trên đĩa** trước (đọc 2026-07-28: `1024` / `1167` / `_MOBILE_OAS_TOTAL 1193`) và chỉ sửa theo delta THẬT.
 - `git diff --name-only` chỉ chứa: `services/shared/connection_meta.py` · `services/connections.py` · `api/imm00.py` · `services/imm12.py` · `utils/messages.py` · 3 file test BE · `frontend/src/api/connections.ts` · `frontend/src/components/common/RelatedRecords.vue` · file test FE · `docs/imm-00/*` · `docs/imm-12/*`.
@@ -2141,7 +2141,7 @@ const DETAIL_VIEWS = [
 
 > Quyết định: [ADR §13](./ADR-IMM00-CONNECTIONS-TREE.md) · spec FE: [`06 §VIII.7`](./06_Frontend_Design.md).
 > **File test FE**: `frontend/src/guards/connectionsListParity.guard.test.ts` (**MỚI** — guard tĩnh) + `api/connectionsApi.guard.test.ts` (**append** + **1 assert sửa**) + `components/common/RelatedRecords.test.ts` (**append**) + test render 2 màn wire.
-> **File test BE**: `assetcore/tests/test_connections_tree.py` (**chỉ append 2 TC**). **Payload BE 0 thay đổi** ⇒ `test_connections.py` (11 TC) **không sửa một dòng nào**.
+> **File test BE**: `assetcore/tests/connections/test_connections_tree.py` (**chỉ append 2 TC**). **Payload BE 0 thay đổi** ⇒ `test_connections.py` (11 TC) **không sửa một dòng nào**.
 
 #### XVIII.7.1 Vì sao 4 vòng test xanh vẫn để lọt 13/16 ô
 
@@ -2217,8 +2217,8 @@ Hai TC này đóng đinh chính hai giả định mà `listTarget` dựa vào. V
 
 - `cd frontend && npx vitest run` **0 fail**. Baseline **trước vòng: 278 file / 2591 test, toàn xanh** (đo 2026-07-28) ⇒ báo cáo **trước → sau**.
 - `npx vue-tsc --noEmit` **0 lỗi**.
-- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_tree` **XANH**. Baseline **trước vòng: 23 TC** (`grep -c '    def test_'`) → **sau: 25**.
-- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections` **XANH** (11 TC, **0 assert bị sửa** — payload BE không đổi).
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.connections.test_connections_tree` **XANH**. Baseline **trước vòng: 23 TC** (`grep -c '    def test_'`) → **sau: 25**.
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.connections.test_connections` **XANH** (11 TC, **0 assert bị sửa** — payload BE không đổi).
 - Đo trên tab của **1 AC Asset** (persona đủ capability): ô «Xem tất cả» **đã lọc** ≥ **8** (dự kiến **9**) · nút mở ra danh sách **KHÔNG lọc** = **0** · 404/route chết = **0**.
 - **Guard count: DELTA = 0.** Vòng này **0 op OAS, 0 endpoint mới** ⇒ **KHÔNG đụng** `_EXPECTED_TEST_COUNT` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL`.
   > 📌 **Giá trị ĐÚNG đọc THẲNG từ đĩa 2026-07-28: `1024` / `1167` / `1193`.** Con số `983 / 1126 / 1152` lưu hành trong prompt/STATE là **STALE** (chụp trước khi AC-CR-80..86 land). Truy nguyên xong ⇒ **không chỉnh số cho khớp bên nào**: vòng này delta 0, cứ để nguyên giá trị trên đĩa. Vòng sau nếu phải sửa counter thì **đọc lại đĩa trước**, đừng tin số trong tài liệu bàn giao.
@@ -2288,8 +2288,8 @@ Fixture 2 ô **không đủ**: acceptance đòi *giảm ≥ 84%* và *số tiêu
 ### XVIII.9 AC-CR-94 (FE + 1 nhánh BE): deep-link **ĐẾN ĐÍCH** 2 màn LỊCH + `count == drill` **cross-endpoint** (INV-CONN-18..22 · INV-CONNFE7-1..8)
 
 > Quyết định: [`ADR-IMM00-CONNECTIONS-TREE.md` §15](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR94-1..9) · FE: [`06 §VIII.9`](./06_Frontend_Design.md) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) FR-00-CONN-05 / BR-00-CONN-42..49 · hợp đồng drill: [`05 §III.24.8`](./05_API_Specification.md).
-> **File test**: `assetcore/tests/test_connections_tree.py` (**append 2 TC + sửa ĐÚNG 1 assert vacuous**, xem §XVIII.9.4) · `frontend/src/guards/connectionsApi.guard.test.ts` (**chỉ append**) · `frontend/src/views/pm/tests/PmScheduleListView.deepLink.test.ts` + `frontend/src/views/calibration/calibrationScheduleListDeepLink.test.ts` (**MỚI** — hoặc append vào 2 file drilldown có sẵn).
-> **CẤM sửa**: `frontend/src/guards/connectionsListParity.guard.test.ts` (guard xanh **là** bằng chứng thăng hạng) · `assetcore/tests/test_connections.py` (11 TC hợp đồng cũ).
+> **File test**: `assetcore/tests/connections/test_connections_tree.py` (**append 2 TC + sửa ĐÚNG 1 assert vacuous**, xem §XVIII.9.4) · `frontend/src/guards/connectionsApi.guard.test.ts` (**chỉ append**) · `frontend/src/views/pm/tests/PmScheduleListView.deepLink.test.ts` + `frontend/src/views/calibration/calibrationScheduleListDeepLink.test.ts` (**MỚI** — hoặc append vào 2 file drilldown có sẵn).
+> **CẤM sửa**: `frontend/src/guards/connectionsListParity.guard.test.ts` (guard xanh **là** bằng chứng thăng hạng) · `assetcore/tests/connections/test_connections.py` (11 TC hợp đồng cũ).
 > **Quy ước số hiệu (tiếp theo §XVIII.8, không sinh hệ thứ ba)**: BE `TC-CONN-T-25/26` · FE render `TC-FE-CONN-31..36` · FE unit `TC-FE-CONN-44/45`.
 
 #### XVIII.9.1 Fixture BE — **ràng buộc schema phải tôn trọng, nếu không cháy 1 vòng**
@@ -2348,8 +2348,8 @@ Thêm **một** asset riêng (`ConnTree Asset Sched`) vào `setUpClass` hiện c
 #### XVIII.9.5 DoD vòng AC-CR-94 (chấm ĐỎ nếu thiếu bất kỳ mục nào)
 
 - **BE, module-isolated, `timeout` tool ≥ 600000ms** (kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ ĐỎ GIẢ):
-  `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_tree` (25 → **27** OK) và `--module assetcore.tests.test_connections` (**11** OK, file **không** sửa).
-- Nếu BE đã đụng `services/imm11.py` ⇒ chạy thêm `--module assetcore.tests.test_imm11` (no-regress cho 3 nhánh `overdue`/`due_soon`/`due_before` + vendor-scope).
+  `bench --site miyano run-tests --app assetcore --module assetcore.tests.connections.test_connections_tree` (25 → **27** OK) và `--module assetcore.tests.connections.test_connections` (**11** OK, file **không** sửa).
+- Nếu BE đã đụng `services/imm11.py` ⇒ chạy thêm `--module assetcore.tests.imm11.test_imm11` (no-regress cho 3 nhánh `overdue`/`due_soon`/`due_before` + vendor-scope).
 - **FE**: `npx vitest run` 0 ĐỎ, delta **≥ +5 test** so với baseline **đọc từ đĩa** (đo 2026-07-28: **280 file / 2660 test**); `npx vue-tsc --noEmit` 0 lỗi; guard `connectionsListParity.guard.test.ts` xanh **không sửa**.
 - **DoD chấm bằng test, KHÔNG curl** — `.py` prod vừa đổi mà gunicorn chạy `--preload` ⇒ mọi kết luận HTTP trước khi USER `bench restart` là **vô nghĩa** (LL-DEPLOY-07/08). Liệt kê file `.py` đã đụng trong bàn giao để USER reload.
 - **3 counter guard: delta 0** — `_EXPECTED_TEST_COUNT` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL` chỉ đếm 7 module guard mobile-OAS (`test_mobile_docset.py:499-809`); `test_connections_tree.py` **không** thuộc tập đó ⇒ **chạm vào là sai**.
@@ -2371,7 +2371,7 @@ Thêm **một** asset riêng (`ConnTree Asset Sched`) vào `setUpClass` hiện c
 File: `assetcore/tests/test_connections_list_promotion.py` (**mới** — **cấm** append vào `test_connections_tree.py`/`test_connections.py`: cả hai đang uncommitted từ vòng trước và là shared-file của phiên song song).
 
 > ⚠️ **DRIFT doc ↔ đĩa (verify 2026-07-30, `ls assetcore/tests/`): file `test_connections_list_promotion.py` KHÔNG TỒN TẠI.** TC-CONN-P-01..08 dưới đây **chưa bao giờ được viết** ⇒ vẫn là **nợ mở**, không phải "đã phủ". Phân hoạch lại từ 2026-07-30:
-> - **TC-CONN-P-04 / P-05 / P-08 → HẤP THU** vào vòng `AC-CR-98`: chuyển thành `TC-IMM04-SCOPE-07/08` + `TC-IMM04-SCOPE-03..06`, đặt trong `assetcore/tests/test_rowscope_invariant.py`, chấm cho **3 persona** thay vì chỉ `Administrator`. Spec: [`../imm-04/07 §VIII`](../imm-04/07_Testing_QA.md) · SSoT: [`ADR-IMM00-LIST-SCOPE §10`](./ADR-IMM00-LIST-SCOPE.md).
+> - **TC-CONN-P-04 / P-05 / P-08 → HẤP THU** vào vòng `AC-CR-98`: chuyển thành `TC-IMM04-SCOPE-07/08` + `TC-IMM04-SCOPE-03..06`, đặt trong `assetcore/tests/integration/test_rowscope_invariant.py`, chấm cho **3 persona** thay vì chỉ `Administrator`. Spec: [`../imm-04/07 §VIII`](../imm-04/07_Testing_QA.md) · SSoT: [`ADR-IMM00-LIST-SCOPE §10`](./ADR-IMM00-LIST-SCOPE.md).
 > - **TC-CONN-P-01 / P-02 / P-03 / P-06 / P-07 → VẪN MỞ** (Firmware CR · Decommission · CAPA · deep-link keys · anti-drift schema). Giữ nguyên đặc tả dưới đây; vòng nào viết thì tạo file theo đúng tên trên.
 > - Câu «test chạy dưới `Administrator` và INV-CONN-27 chưa được phủ» của **TC-CONN-P-08** đã **HẾT hiệu lực** — INV-CONN-27 nay là **enforce** ([`05 §III.24.9`](./05_API_Specification.md)). File mới (nếu viết) phải nêu rõ điều này thay vì lặp lại câu cũ.
 
@@ -2418,7 +2418,7 @@ File: `assetcore/tests/test_connections_list_promotion.py` (**mới** — **cấ
 #### XVIII.10.4 DoD vòng AC-CR-95 (chấm ĐỎ nếu thiếu bất kỳ mục nào)
 
 - **BE, module-isolated, `timeout` tool ≥ 600000ms** (kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ ĐỎ GIẢ):
-  `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_list_promotion` (**8** OK) · `--module assetcore.tests.test_connections_tree` (**27** OK, file **không** sửa) · `--module assetcore.tests.test_connections` (**11** OK, file **không** sửa).
+  `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_list_promotion` (**8** OK) · `--module assetcore.tests.connections.test_connections_tree` (**27** OK, file **không** sửa) · `--module assetcore.tests.connections.test_connections` (**11** OK, file **không** sửa).
 - **`git diff --name-only` phía BE: 0 file `.py` prod** — chỉ 1 file test mới. Có file prod `.py` trong diff ⇒ ra khỏi A-biên ⇒ ĐỎ.
 - **FE**: `npx vitest run` 0 ĐỎ, delta **≥ +8 test** so với baseline **đọc từ đĩa** (**282 file / 2682 test**, đo 2026-07-28); `npx vue-tsc --noEmit` 0 lỗi; guard `connectionsListParity.guard.test.ts` xanh **không sửa**.
 - **Mutation check §XVIII.10.3 chạy thật ít nhất 2 dòng đầu** và **revert** — báo cáo tên test đã ĐỎ (không chỉ nói "guard sống").
@@ -2433,7 +2433,7 @@ File: `assetcore/tests/test_connections_list_promotion.py` (**mới** — **cấ
 > Quyết định: [ADR §17](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR92-1..9) · hợp đồng: [`05 §III.24.10`](./05_API_Specification.md) · BE: [`04 §V.9`](./04_Backend_Design.md) + [`04 §V.7.1` NGOẠI LỆ cổng I/O](./04_Backend_Design.md) · FE: [`06 §VIII.12`](./06_Frontend_Design.md) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) BR-00-CONN-59..66.
 > **BREAKING** ⇒ BE + FE **cùng vòng**. Fixture: **dùng lại** `test_connections_tree.py` (asset 6 phiếu / 3 phiếu / 0 phiếu) — **0 fixture mới** (nhánh chạm trần tiêm `list_fn` giả).
 
-#### XVIII.11.1 TC backend — `assetcore/tests/test_connections_tree.py`
+#### XVIII.11.1 TC backend — `assetcore/tests/connections/test_connections_tree.py`
 
 | TC | Nội dung | Invariant | AC |
 |---|---|---|---|
@@ -2445,7 +2445,7 @@ File: `assetcore/tests/test_connections_list_promotion.py` (**mới** — **cấ
 | **`t04`** (không đổi) | 1 lời gọi `list_fn`/ô ∧ **0** truy vấn COUNT xuống DB | INV-CONN-6 | A5 |
 | **`t02`/`t03`/`t06`/`t15`/`t15b`/`t22`/`t23`/`t25`/`t26`** (dời khoá) | `item["count"]` → `item["total"]`; `item["filters"]` → `item["deep_link_filters"]`; xoá assert `item["label"] == frappe._(doctype)`. Nội dung nghiệp vụ **không đổi** | INV-CONN-2/6/16/17/18..28 | A5/A6 |
 
-#### XVIII.11.2 TC backend — `assetcore/tests/test_connections.py` (hợp đồng cũ)
+#### XVIII.11.2 TC backend — `assetcore/tests/connections/test_connections.py` (hợp đồng cũ)
 
 | Ràng buộc | Chi tiết |
 |---|---|
@@ -2482,7 +2482,7 @@ File: `assetcore/tests/test_connections_list_promotion.py` (**mới** — **cấ
 
 #### XVIII.11.5 DoD vòng AC-CR-92 (chấm ĐỎ nếu thiếu bất kỳ mục nào)
 
-- **BE, module-isolated, `timeout` tool ≥ 600000ms** (kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ **ĐỎ GIẢ**): `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections` **XANH** (đúng **11** TC) **và** `--module assetcore.tests.test_connections_tree` **XANH**.
+- **BE, module-isolated, `timeout` tool ≥ 600000ms** (kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ **ĐỎ GIẢ**): `bench --site miyano run-tests --app assetcore --module assetcore.tests.connections.test_connections` **XANH** (đúng **11** TC) **và** `--module assetcore.tests.connections.test_connections_tree` **XANH**.
 - **FE**: `npx vue-tsc --noEmit` **0 lỗi** · `npm run test:unit` **0 ĐỎ**. **Đọc baseline TỪ ĐĨA trước khi chấm** (số **2591** trong đề mục là baseline cuối run-3, **đã stale** — ADR §13.9 ghi 2649 sau vòng 5, còn AC-CR-93/94/95 bồi thêm) ⇒ chấm **delta ≥ 0** so với số đo trên đĩa, **không** so với 2591.
 - **3 counter guard: delta 0** — `_EXPECTED_TEST_COUNT` **1024** (`tests/test_mobile_oas.py:212`) · `_GUARD_SUITE_SUM` **1167** (`tests/test_mobile_docset.py:956`) · `_MOBILE_OAS_TOTAL` **1193** (`:1145`). Lý do đo được: `test_connections*.py` **không** thuộc `_GUARD_SUITE_EXPECTED` (0 hit `test_connections` trong `test_mobile_docset.py`) và `get_connections` có **0 hit** trong `docs/mobile/openapi/assetcore-mobile.openapi.yaml`. ⇒ QA **không** được chấm vòng này bằng counter, và **không ai** được "cập nhật" counter cho khớp.
 - `git diff --name-only`: BE **4** file (`services/connections.py`, `api/connections.py` — chỉ docstring, 2 file test) · FE **9** file (`api/connections.ts` + 7 fixture test + 1 guard mới). File khác ⇒ ra khỏi biên ⇒ ĐỎ.
@@ -2496,7 +2496,7 @@ File: `assetcore/tests/test_connections_list_promotion.py` (**mới** — **cấ
 
 > **CR**: `AC-CR-100` (đề mục PM gọi «AC-CR-96» — số đã bị chiếm; bảng đối chiếu [ADR §8.0](./ADR-IMM00-TRUNCATION-SSOT.md)). Quyết định: **ADR-IMM00-TRUNCATION-SSOT §8**. FR-00-TL-01 / BR-00-TL-01..09: [02 §IV.40](./02_Analysis_Design.md). API: [05 §III.25](./05_API_Specification.md). FE: [06 §VIII.11](./06_Frontend_Design.md).
 >
-> **Biên test**: **1 file FE mới** `frontend/src/views/asset/assetDetailTimelinePagination.test.ts` + **1 class BE mới** trong `assetcore/tests/test_imm00.py`. **KHÔNG** sửa guard cũ (`relatedRecordsTabParity.guard.test.ts`, `assetDetail*.test.ts`, `test_mobile_oas`, `test_mobile_docset`). 3 counter guard mobile: **delta 0**.
+> **Biên test**: **1 file FE mới** `frontend/src/views/asset/assetDetailTimelinePagination.test.ts` + **1 class BE mới** trong `assetcore/tests/imm00/test_imm00.py`. **KHÔNG** sửa guard cũ (`relatedRecordsTabParity.guard.test.ts`, `assetDetail*.test.ts`, `test_mobile_oas`, `test_mobile_docset`). 3 counter guard mobile: **delta 0**.
 
 ### XIX.1 Fixture tối thiểu (BE)
 
@@ -2550,10 +2550,10 @@ Khuôn: `frontend/src/views/asset/tests/AssetDetailView.transitionAuthz.test.ts`
 
 ### XIX.4 DoD vòng AC-CR-100 (chấm ĐỎ nếu thiếu bất kỳ mục nào)
 
-- **BE, module-isolated, `timeout` tool ≥ 600000ms** (kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ **ĐỎ GIẢ**): `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm00` **XANH** (baseline + class `TestAssetTimelinePaginationContract` mới, TC-TL-B1..B9).
+- **BE, module-isolated, `timeout` tool ≥ 600000ms** (kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ **ĐỎ GIẢ**): `bench --site miyano run-tests --app assetcore --module assetcore.tests.imm00.test_imm00` **XANH** (baseline + class `TestAssetTimelinePaginationContract` mới, TC-TL-B1..B9).
 - **FE**: `npx vitest run` 0 ĐỎ + `npx vue-tsc --noEmit` 0 lỗi. **Đọc baseline TỪ ĐĨA trước khi chấm** (đo lúc chốt spec 2026-07-28: **283 file** `*.test.ts`; các số 2591/2682 trong đề mục & STATE **đều có thể stale**) ⇒ chấm theo **delta ≥ +10 test** (bộ TC có **15** ca ⇒ ≥15 nếu viết 1 `it` mỗi TC).
 - **3 counter guard: delta 0** — `_EXPECTED_TEST_COUNT` (**1024**, `tests/test_mobile_oas.py:212`) · `_GUARD_SUITE_SUM` (**1167**, `tests/test_mobile_docset.py:956`) · `_MOBILE_OAS_TOTAL` (**1193**, `:1145`). Đọc lại **từ đĩa** trước khi kết luận; **chạm vào là sai** (vòng này 0 OAS delta, file test mới không thuộc 7 module guard mobile).
-- `git diff --name-only`: phía BE **đúng 2** file (`assetcore/api/imm00.py` — **chỉ 1 dòng hằng**, `assetcore/tests/test_imm00.py`); phía FE **đúng 2** file (`AssetDetailView.vue`, test mới). File khác trong diff ⇒ ra khỏi biên ⇒ **ĐỎ**.
+- `git diff --name-only`: phía BE **đúng 2** file (`assetcore/api/imm00.py` — **chỉ 1 dòng hằng**, `assetcore/tests/imm00/test_imm00.py`); phía FE **đúng 2** file (`AssetDetailView.vue`, test mới). File khác trong diff ⇒ ra khỏi biên ⇒ **ĐỎ**.
 - **Blocker mới phải khai**: vòng này **đụng `.py` prod** ⇒ **1 blocker `bench restart`** (thuộc USER, `gunicorn --preload`). QA **KHÔNG** chấm bằng curl/HTTP (LL-DEPLOY-07/08) và **KHÔNG** gán nợ restart của vòng trước cho vòng này.
 - **A9 (out-of-scope, đo được)**: **0** file ngoài 4 file trên bị sửa; **KHÔNG** render 3 nhánh lịch sử PM/CM/Sự cố lên màn Chi tiết tài sản (nợ có tên `AC-CR-102`, ADR §8.7) — QA chấm việc **không làm** là **PASS**. ⚠️ **HẾT HIỆU LỰC từ `AC-CR-102` (2026-07-30)**: A9 chỉ áp cho **vòng `AC-CR-100`**. Từ `AC-CR-102`, 3 nhánh **PHẢI** render trong tab «Bản ghi liên quan» — QA chấm theo **`§XX` (INV-OPH-1..18)** + [`ADR-IMM00-ASSET-OP-HISTORY §2`](./ADR-IMM00-ASSET-OP-HISTORY.md); **đừng** dùng A9 để chấm vòng sau FAIL.
 - ⛔ **KHÔNG** `git commit/push/merge` · **KHÔNG** `bench migrate` · **KHÔNG** `bench restart` · **KHÔNG** `npm run build` · **KHÔNG** reset DB.
@@ -2619,7 +2619,7 @@ Khuôn: `frontend/src/views/asset/tests/AssetDetailView.transitionAuthz.test.ts`
 | R3 | `listRouteForAsset` trả `null` khi doctype ngoài bảng / `assetName` rỗng / `queryKey` không neo `AC Asset`; `encodeURIComponent` áp cho mã có ký tự đặc biệt | 8,9 |
 | R4 | Static-read file component ⇒ 0 URL literal | 10 |
 
-**BE — `assetcore/tests/test_asset_operational_history_contract.py`** (TC-OPH-B1..B6, **chỉ đọc, 0 dòng prod đổi**)
+**BE — `assetcore/tests/integration/test_asset_operational_history_contract.py`** (TC-OPH-B1..B6, **chỉ đọc, 0 dòng prod đổi**)
 
 | TC | Nội dung | INV |
 |---|---|---|
@@ -2634,7 +2634,7 @@ Khuôn: `frontend/src/views/asset/tests/AssetDetailView.transitionAuthz.test.ts`
 
 ### XX.3 DoD vòng AC-CR-102 (QA chấm — đọc baseline TỪ ĐĨA)
 
-- **BE, module-isolated, `timeout` tool ≥ 600000ms**: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_asset_operational_history_contract` **XANH**. (Không bắt buộc chạy full suite; nếu chạy, ĐỎ do nhiễm fixture phiên khác **không** tính cho vòng này — LL-TEST-30.)
+- **BE, module-isolated, `timeout` tool ≥ 600000ms**: `bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_asset_operational_history_contract` **XANH**. (Không bắt buộc chạy full suite; nếu chạy, ĐỎ do nhiễm fixture phiên khác **không** tính cho vòng này — LL-TEST-30.)
 - **FE**: `npx vitest run` **0 ĐỎ** + `npx vue-tsc --noEmit` **0 lỗi**; số file `*.test.ts` **284 → ≥286** (đo lúc chốt spec 2026-07-30 = **284**) ⇒ chấm **delta**.
 - **3 counter guard delta 0**: `_EXPECTED_TEST_COUNT` **1024** (`tests/test_mobile_oas.py:212`) · `_GUARD_SUITE_SUM` **1167** (`tests/test_mobile_docset.py:956`) · `_MOBILE_OAS_TOTAL` **1193** (`:1145`).
 - **`git diff --name-only`**: phía FE **đúng 8** file sản phẩm + **2** test mới; phía BE **đúng 1** file (`assetcore/tests/…`, thêm mới). Ngoại lệ duy nhất được phép: `stores/assetHistoryTruncation.test.ts` (guard cache) — phải khai.
@@ -2647,8 +2647,8 @@ Khuôn: `frontend/src/views/asset/tests/AssetDetailView.transitionAuthz.test.ts`
 ## XXI. AC-CR-105 — «Tạo từ ngữ cảnh cha» hết là nút chết: `create_prefill` LIVE + token `CREATE_CAPABILITY` + chip cho ô 0 bản ghi (INV-CONN105-1..4 · INV-CONN4-1/2/3/7/10)
 
 > Quyết định: [ADR §18](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR105-1..9) · hợp đồng API: [`05 §III.24.11`](./05_API_Specification.md) · code shape BE: [`04 §V.10`](./04_Backend_Design.md) · FE: [`06 §VIII.14`](./06_Frontend_Design.md) · nghiệp vụ: [`02 §IV.42`](./02_Analysis_Design.md) FR-00-CONN-06 / BR-00-CONN-67..76.
-> **File test**: `assetcore/tests/test_connections_tree.py` (**append 6 TC** `t29..t34` + **2** TC hiện có sửa **đã khai trước**) · `frontend/src/components/common/tests/RelatedRecords.test.ts` (**append** + **2 dòng** breakage `:772-773`) · `frontend/src/guards/connectionsApi.guard.test.ts` (**chỉ append**) · `frontend/src/guards/connectionsLegacyKeys.guard.test.ts` (**9→10** + tập optional **rỗng**).
-> **CẤM sửa**: `assetcore/tests/test_connections.py` (11 TC hợp đồng cũ) · `frontend/src/guards/connectionsListParity.guard.test.ts` · `frontend/src/guards/connectionsCreateParity.guard.test.ts` · `TC-FE-CONN-24/25/27/28/29/30` · **7 assert in-summary của TC-FE-CONN-26** (`RelatedRecords.test.ts:764-770`) và **hàng TC-FE-CONN-26 ở §XVIII.8.2 — không sửa một chữ**.
+> **File test**: `assetcore/tests/connections/test_connections_tree.py` (**append 6 TC** `t29..t34` + **2** TC hiện có sửa **đã khai trước**) · `frontend/src/components/common/tests/RelatedRecords.test.ts` (**append** + **2 dòng** breakage `:772-773`) · `frontend/src/guards/connectionsApi.guard.test.ts` (**chỉ append**) · `frontend/src/guards/connectionsLegacyKeys.guard.test.ts` (**9→10** + tập optional **rỗng**).
+> **CẤM sửa**: `assetcore/tests/connections/test_connections.py` (11 TC hợp đồng cũ) · `frontend/src/guards/connectionsListParity.guard.test.ts` · `frontend/src/guards/connectionsCreateParity.guard.test.ts` · `TC-FE-CONN-24/25/27/28/29/30` · **7 assert in-summary của TC-FE-CONN-26** (`RelatedRecords.test.ts:764-770`) và **hàng TC-FE-CONN-26 ở §XVIII.8.2 — không sửa một chữ**.
 > **Quy ước số hiệu**: BE `t29..t34` (tiếp theo `t28`, tổng **29 → 35** TC). FE render **TC-FE-CONN-60..64**, FE unit **TC-FE-CONN-70..72** — nhảy khoảng cố ý: dải 31..45 đã bị AC-CR-94/95 dùng ở cả doc lẫn mã, chọn dải mới để **không** phải tra chéo khi đọc lỗi đỏ.
 
 ### XXI.1 Fixture BE — **tái dùng tối đa**, thêm đúng 1 asset + 1 sự cố
@@ -2704,8 +2704,8 @@ Khuôn: `frontend/src/views/asset/tests/AssetDetailView.transitionAuthz.test.ts`
 
 ### XXI.5 DoD vòng AC-CR-105 (QA chấm — đọc baseline TỪ ĐĨA, **KHÔNG curl**)
 
-- **BE, module-isolated, `timeout` tool ≥ 600000ms**: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_tree` **XANH** với **≥ 35 TC** (baseline **29** đo từ đĩa 2026-07-30: `grep -c '    def test_' assetcore/tests/test_connections_tree.py` ⇒ chấm **delta ≥ +6**).
-- **BE hồi quy tối thiểu**: `--module assetcore.tests.test_connections` **XANH** (**11 TC, 0 assert sửa** — payload chỉ **thêm** khoá) và `--module assetcore.tests.test_connections_list_filter_parity` **XANH** (11 TC). ĐỎ do nhiễm fixture phiên khác **không** tính (LL-TEST-30) — chờ quiescence rồi chạy lại.
+- **BE, module-isolated, `timeout` tool ≥ 600000ms**: `bench --site miyano run-tests --app assetcore --module assetcore.tests.connections.test_connections_tree` **XANH** với **≥ 35 TC** (baseline **29** đo từ đĩa 2026-07-30: `grep -c '    def test_' assetcore/tests/connections/test_connections_tree.py` ⇒ chấm **delta ≥ +6**).
+- **BE hồi quy tối thiểu**: `--module assetcore.tests.connections.test_connections` **XANH** (**11 TC, 0 assert sửa** — payload chỉ **thêm** khoá) và `--module assetcore.tests.connections.test_connections_list_filter_parity` **XANH** (11 TC). ĐỎ do nhiễm fixture phiên khác **không** tính (LL-TEST-30) — chờ quiescence rồi chạy lại.
 - **FE**: `cd frontend && npx vitest run` **0 ĐỎ** + `npx vue-tsc --noEmit` **0 lỗi**. **`personaDashboards.test.ts` ĐỎ 1 TC là PRE-EXISTING** (đã chứng minh ở vòng 1 run-5 bằng revert) ⇒ **KHÔNG** tính vào DoD, và **KHÔNG** ai được "sửa cho xanh" trong vòng này.
 - **0 DocType mới ⇒ 0 `bench migrate`**; 3 counter guard **delta 0**: `_EXPECTED_TEST_COUNT` **1024** (`tests/test_mobile_oas.py:212`) · `_GUARD_SUITE_SUM` **1167** · `_MOBILE_OAS_TOTAL` **1193**; OAS **0 op đụng** (`grep -c connections docs/mobile/openapi/*.yaml` = **0**).
 - **`git diff --name-only`**: BE **đúng 4** path (`services/shared/connection_meta.py` · `services/connections.py` · `api/connections.py` **chỉ docstring** · `tests/test_connections_tree.py`); FE **đúng 5** path (`06 §VIII.14.1`). Path thứ 6 ở mỗi phía = **scope creep**, phải giải thích hoặc revert.
@@ -2764,7 +2764,7 @@ Khuôn: `frontend/src/views/asset/tests/AssetDetailView.transitionAuthz.test.ts`
 | **TC-FE-OPH-19** | Vào tab ⇒ thứ tự DOM `[asset-op-history]` **trước** `[related-records]` (so bằng `querySelectorAll`, không bằng `indexOf(html())`) | 24 | AC6 |
 | **TC-FE-OPH-20** | **Đúng 2** `[related-block-heading]`, text đúng thứ tự + **0 acronym EN chưa dịch** (regex `/\b(PM|CM|WO|SLA|KPI|CAPA|RCA)\b/` ⇒ 0 match trên 2 chuỗi tiêu đề) | 24 | AC6 |
 
-**BE — `assetcore/tests/test_asset_operational_history_contract.py`** (**thêm** `TC-OPH-B7..B10` vào file đã có, **0 dòng prod đổi**)
+**BE — `assetcore/tests/integration/test_asset_operational_history_contract.py`** (**thêm** `TC-OPH-B7..B10` vào file đã có, **0 dòng prod đổi**)
 
 | TC | Nội dung | INV |
 |---|---|---|
@@ -2778,8 +2778,8 @@ Khuôn: `frontend/src/views/asset/tests/AssetDetailView.transitionAuthz.test.ts`
 ### XXII.3 DoD vòng AC-CR-115 (QA chấm — đọc baseline TỪ ĐĨA, chấm DELTA)
 
 - **FE**: `cd frontend && npx vitest run` **0 ĐỎ** (trừ `personaDashboards.test.ts` — **1 TC ĐỎ PRE-EXISTING**, không tính, **không** sửa cho xanh) với **delta ≥ +8 test case mới** ∧ **0 test cũ chuyển đỏ** *(ngoại lệ duy nhất được phép: `TC-FE-OPH-09` bị **sửa** theo `D-OPH-20` — có văn bản, không tính là đỏ)*; `npx vue-tsc --noEmit` **0 lỗi**. Số file `*.test.ts` = **287** đo TỪ ĐĨA 2026-07-30 (số 284/286 ở `§XX.3`/`06 §VIII.14` là snapshot cũ) ⇒ **đo lại, chấm delta**.
-- **BE, module-isolated, `timeout` tool ≥ 600000ms**: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_asset_operational_history_contract` **XANH** với **≥3 invariant mới** (spec 4: `INV-OPH-27..30`). Không bắt buộc full suite; nếu chạy, ĐỎ do nhiễm fixture phiên khác **không** tính (LL-TEST-30).
-- **`git diff --name-only`**: phía FE **đúng 2** file sản phẩm (`components/asset/AssetOperationalHistory.vue` · `views/asset/AssetDetailView.vue`) + **≤3** file test; phía BE **đúng 1** path (`assetcore/tests/test_asset_operational_history_contract.py`). **`git diff --stat -- 'assetcore/api/*.py' 'assetcore/services/**/*.py'` ⇒ 0 path** ⇒ **0 blocker reload mới** (blocker #1 BLOCKED-RELOAD **không bị chạm**).
+- **BE, module-isolated, `timeout` tool ≥ 600000ms**: `bench --site miyano run-tests --app assetcore --module assetcore.tests.integration.test_asset_operational_history_contract` **XANH** với **≥3 invariant mới** (spec 4: `INV-OPH-27..30`). Không bắt buộc full suite; nếu chạy, ĐỎ do nhiễm fixture phiên khác **không** tính (LL-TEST-30).
+- **`git diff --name-only`**: phía FE **đúng 2** file sản phẩm (`components/asset/AssetOperationalHistory.vue` · `views/asset/AssetDetailView.vue`) + **≤3** file test; phía BE **đúng 1** path (`assetcore/tests/integration/test_asset_operational_history_contract.py`). **`git diff --stat -- 'assetcore/api/*.py' 'assetcore/services/**/*.py'` ⇒ 0 path** ⇒ **0 blocker reload mới** (blocker #1 BLOCKED-RELOAD **không bị chạm**).
 - **3 counter guard delta 0**: `_EXPECTED_TEST_COUNT` **1024** · `_GUARD_SUITE_SUM` **1167** · `_MOBILE_OAS_TOTAL` **1193** (đọc lại từ đĩa) · OAS `docs/mobile/openapi/*.yaml` **0 đổi**.
 - **Cite-drift đóng CÙNG VÒNG (AC11)** — QA grep xác nhận **7 chỗ** ở [ADR §10.7](./ADR-IMM00-ASSET-OP-HISTORY.md): 4 chỗ doc đã supersede (`D-OPH-12` · ADR §7 hàng «VÒNG 5» · ADR §5.3 3 hàng testid · `ADR-IMM00-TRUNCATION-SSOT §8.7` hàng [P2 — fe]) + `06 §VIII.13.2` + `07 §XX` (INV-OPH-1/8/11 + dòng «Ngoài biên» §XX.3) + **mã**: `grep -n 'vòng sau' frontend/src/components/asset/AssetOperationalHistory.vue` ⇒ **0 hit**.
 - **Mutation-check** (5 đột biến ⇒ 5 lần đỏ): xem `06 §VIII.15.5`. Nếu đột biến nào **không** làm đỏ ⇒ test là template, chấm **FAIL**.
@@ -2817,7 +2817,7 @@ Khuôn: `frontend/src/views/asset/tests/AssetDetailView.transitionAuthz.test.ts`
 | **INV-OPH-41** | **Không over-block.** Lỗi **không** 403 (`new Error('lỗi mạng')` · `ApiError code INTERNAL_ERROR httpStatus 500`) ⇒ **1** `[op-history-error]` ∧ **đúng 1** `[op-history-retry]` ∧ **0** `[op-history-locked]`; bấm «Thử lại» ⇒ spy +**1** lần, thành công ⇒ render `[op-history-row]`. | idem |
 | **INV-OPH-42** | **`capState` ⟺ `can`, và version khớp BE.** (a) ∀ cap, ∀ trạng thái store (`{}` · `{cap:false}` · `{cap:true}` · admin): `can(cap) === (capState(cap) === 'granted')`; (b) `capState` trả `'unknown'` **⟺** khoá vắng ∧ không admin; (c) `frontend/src/stores/auth.ts::CAP_SET_VERSION` **khớp byte** giá trị `rbac.CAP_SET_VERSION` đo từ BE. | `auth.capabilities.test.ts` + đối chiếu tay (c) |
 
-### XXIII.3 Test case BE — module MỚI `assetcore/tests/test_asset_op_history_acl.py`
+### XXIII.3 Test case BE — module MỚI `assetcore/tests/integration/test_asset_op_history_acl.py`
 
 | TC | Loại | Nội dung |
 |---|---|---|
@@ -2853,10 +2853,10 @@ Khuôn: `frontend/src/views/asset/tests/AssetDetailView.transitionAuthz.test.ts`
 
 ### XXIII.5 Test hiện có phải giữ XANH **không sửa** (nếu đỏ ⇒ ra ngoài biên)
 
-- `assetcore/tests/test_asset_operational_history_contract.py` — parity `fields` @source ⇄ `05 §III.26.3`: vòng này **0** đổi `fields`/`filters`/`order_by`/`page_size`/khoá response ⇒ **phải xanh không sửa**. Đỏ = có người đổi hợp đồng đọc ⇒ **ĐỎ VÒNG**.
+- `assetcore/tests/integration/test_asset_operational_history_contract.py` — parity `fields` @source ⇄ `05 §III.26.3`: vòng này **0** đổi `fields`/`filters`/`order_by`/`page_size`/khoá response ⇒ **phải xanh không sửa**. Đỏ = có người đổi hợp đồng đọc ⇒ **ĐỎ VÒNG**.
 - `frontend/src/stores/tests/assetHistoryTruncation.test.ts` — 3 store chỉ **thêm** 1 ref, **không** đổi logic total/truncated ⇒ phải xanh; sửa nó = dấu hiệu đụng ngoài biên.
-- `assetcore/tests/test_rowscope_scope_guard.py` · `test_rowscope_docperm_gate.py` — thêm gate tường minh ở `imm08.get_asset_history` là **cộng** thêm gate, không gỡ ⇒ phải xanh.
-- `assetcore/tests/test_connections_tree.py` — `connection_meta.py` chỉ **thêm** 1 bảng, **0** đổi `LABEL_VI`/`PREVIEW_FIELDS`/`CREATE_CAPABILITY` ⇒ phải xanh.
+- `assetcore/tests/guards/test_rowscope_scope_guard.py` · `test_rowscope_docperm_gate.py` — thêm gate tường minh ở `imm08.get_asset_history` là **cộng** thêm gate, không gỡ ⇒ phải xanh.
+- `assetcore/tests/connections/test_connections_tree.py` — `connection_meta.py` chỉ **thêm** 1 bảng, **0** đổi `LABEL_VI`/`PREVIEW_FIELDS`/`CREATE_CAPABILITY` ⇒ phải xanh.
 
 ### XXIII.6 Danh sách **ĐỎ dự kiến** khai TRƯỚC (ngoài danh sách này = scope creep)
 
@@ -2873,7 +2873,7 @@ Thêm 1 cap ⇒ `len(CAPABILITY_MAP)` **104 → 105** ⇒ `CAP_SET_VERSION` **`v
 
 ### XXIII.7 DoD vòng `AC-CR-119`
 
-1. `bench --site miyano run-tests` **module-isolated** (timeout tool **≥600000ms** mỗi module) XANH: `assetcore.tests.test_asset_op_history_acl` (**MỚI**) · `test_mobile_capability_map` · `test_imm00` · `test_purchase` · `test_imm08` · `test_imm09` · `test_imm12` · `test_rbac` · `test_connections_tree` · `test_rowscope_scope_guard` · `test_asset_operational_history_contract`.
+1. `bench --site miyano run-tests` **module-isolated** (timeout tool **≥600000ms** mỗi module) XANH: `assetcore.tests.integration.test_asset_op_history_acl` (**MỚI**) · `test_mobile_capability_map` · `test_imm00` · `test_purchase` · `test_imm08` · `test_imm09` · `test_imm12` · `test_rbac` · `test_connections_tree` · `test_rowscope_scope_guard` · `test_asset_operational_history_contract`.
 2. `npx vitest run` XANH **toàn bộ**; `npx vue-tsc --noEmit` **0 lỗi**.
 3. Cap-set version **ĐO** bằng `bench --site miyano execute assetcore.services.shared.rbac._compute_cap_set_version` — **cùng một** giá trị ở BE test **và** `frontend/src/stores/auth.ts`. **KHÔNG** gõ hash tay.
 4. **Biên file `.py` prod — chấm bằng DELTA so với ĐẦU VÒNG** (working tree đã DIRTY từ các vòng trước ⇒ `git diff` tuyệt đối **không** dùng được làm ngưỡng): tập path `assetcore/api/*.py` **KHÔNG TĂNG** thêm path nào; tập path `assetcore/services/**/*.py` tăng **đúng 3** path và đúng 3 path đó là `shared/rbac.py` · `shared/connection_meta.py` · `imm08.py`. Cách chấm: chụp `git diff --name-only -- 'assetcore/api/*.py' 'assetcore/services/**/*.py' | sort` **trước** khi code, so `diff` với ảnh chụp **sau** khi code. Nội dung 3 file: `rbac.py` +**1** cặp khoá-giá-trị · `connection_meta.py` +**1** bảng (+docstring) · `imm08.py` +**1** hằng +**1** lời gọi gate — **0** đổi `fields`/`filters`/`order_by`/`page_size`/khoá response.

@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | ADR-MOBILE-001 (g — envelope list-read 2 rows-key) · C-LISTREAD (`04-api-contract.md §6.1/§6.2/§8.4`) · Core Doc IMM-12 `05_API_Specification.md §2 #3` + `ADR-IMM12-05` |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm12.py`, `assetcore/services/imm12.py`, `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_imm12.py`, `assetcore/tests/test_mobile_docset.py`). Contract: [`04-api-contract.md`](./04-api-contract.md). Core Doc IMM-12: `docs/imm-12/05_API_Specification.md §2 #3 (list_incidents — filter mine)` + `ADR-IMM12-05`.
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm12.py`, `assetcore/services/imm12.py`, `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/imm12/test_imm12.py`, `assetcore/tests/guards/test_mobile_docset.py`). Contract: [`04-api-contract.md`](./04-api-contract.md). Core Doc IMM-12: `docs/imm-12/05_API_Specification.md §2 #3 (list_incidents — filter mine)` + `ADR-IMM12-05`.
 
 ---
 

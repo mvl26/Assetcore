@@ -308,11 +308,11 @@ UAT data phải **thực tế** (tên bệnh viện VN, mã NCC chuẩn). Backen
 
 ```bash
 # Module test (sau scaffold)
-bench --site <site> run-tests --app assetcore --module assetcore.tests.test_imm14
+bench --site <site> run-tests --app assetcore --module assetcore.tests.imm14.test_imm14
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm14 && coverage report
+coverage run -m unittest assetcore.tests.imm14.test_imm14 && coverage report
 # Workflow smoke
-bench --site <site> run-tests --module assetcore.tests.test_workflows
+bench --site <site> run-tests --module assetcore.tests.guards.test_workflows
 ```
 
 | Layer | Target coverage | Đo |
@@ -707,7 +707,7 @@ Mirror `DocumentDetailView.ctaGating.test.ts`. Matrix (mock `getDecommission`):
 ## VIII.4. Run commands
 
 ```bash
-bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm14   # BE → "Ran N OK"
+bench --site miyano run-tests --app assetcore --module assetcore.tests.imm14.test_imm14   # BE → "Ran N OK"
 cd frontend && npx vitest run src/views/eol/tests/DecommissionDetailView.ctaGate.test.ts       # FE gate
 cd frontend && npm run typecheck                                                     # prod tsc 0 error
 ```

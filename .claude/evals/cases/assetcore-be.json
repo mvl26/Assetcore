@@ -1,0 +1,11 @@
+{ "skill_name": "assetcore-be",
+  "trigger": {
+    "positive": [
+      { "prompt": "thêm endpoint tạo phiếu hiệu chuẩn cho IMM-11", "top_k": 2 },
+      { "prompt": "tạo DocType mới cho hợp đồng bảo trì và thêm state vào workflow", "top_k": 2 },
+      { "prompt": "viết service tính khấu hao theo danh mục tài sản", "top_k": 3 }
+    ],
+    "negative": [
+      { "prompt": "trang danh sách tài sản load lâu quá, tối ưu đi", "owner": "assetcore-perf" },
+      { "prompt": "chuẩn hoá tài liệu module IMM-11 theo template", "owner": "assetcore-doc" }
+    ] } }

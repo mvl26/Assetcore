@@ -3,13 +3,15 @@ name: assetcore-import
 description: >
   Phát triển tính năng import dữ liệu hàng loạt cho AssetCore — bao gồm
   BE validation layer (pre-validation + post-processing), API endpoints import,
-  và FE Import Wizard (Vue 3, 4-bước). Dùng khi user nói "import dữ liệu",
-  "bulk import", "upload excel", "import tài sản", "import NCC", "import model",
-  "import user", "import phụ tùng", "import kho", "wizard import",
-  "template import", "validation import", "pre-validate", "post-process import",
-  "ImportWizardView", "useImport", "import_validators", "import_postprocess",
-  "api/import_data", "tính năng import", "nhập dữ liệu hàng loạt".
-  LUÔN dùng skill này khi task liên quan đến bất kỳ phần nào của import pipeline.
+  và FE Import Wizard (Vue 3, 4-bước). Dùng khi user nói "import", "nhập hàng loạt",
+  "nhập từ file excel", "upload excel", "bulk import", "wizard import",
+  "template import", "file mẫu để nhập", "xuất ra rồi nhập lại", "validation import",
+  "pre-validate", "post-process import", "ImportWizardView", "useImport",
+  "import_validators", "import_postprocess", "api/import_data", "bỏ qua dòng lỗi",
+  "báo lỗi đúng hàng cột".
+  Điều kiện kích hoạt là **luồng nhập hàng loạt qua file**, không phải loại dữ liệu được
+  nhập — tạo màn danh sách/chi tiết cho cùng thực thể đó là assetcore-fe, viết service
+  cho nó là assetcore-be.
 ---
 
 # AssetCore Import Feature — Development Guide
@@ -184,6 +186,13 @@ Tổng hợp từ "Phần 3 — Anti-patterns". Chi tiết đầy đủ giữ tr
 
 ## Verification
 
+> **Mốc DoD của dự án** (áp cho MỌI thay đổi, bổ sung chứ không thay thế checklist dưới đây):
+> [`../_shared/definition-of-done.md`](../_shared/definition-of-done.md)
+
+> **Hợp đồng BE↔FE** (envelope · 3 bẫy status-line · grep symbol phía kia khi chạy song song):
+> [`../_shared/contracts.md`](../_shared/contracts.md)
+
+
 Tổng hợp từ "Phần 7 — Checklist trước khi xong". Trước khi khai báo import "xong":
 
 **BE**
@@ -201,10 +210,10 @@ Tổng hợp từ "Phần 7 — Checklist trước khi xong". Trước khi khai 
 - [ ] (LL-IMP-5) banner template + vùng dropdown + `FIRST_DATA_ROW` cùng chỉ hàng 6.
 - [ ] (LL-IMP-6) DocType cha+bảng con: khai đủ `child_table`/`group_key_fields`/`parent_fields`/`child_fields`; khoá nhóm chuẩn hoá TRƯỚC khi gộp; tạo bản ghi qua service layer; trả `groups_created`; export trải phẳng cùng bố cục.
 - [ ] (LL-IMP-7) cột Select khai ở `ENUM_DISPLAY_BY_DOCTYPE`, nhãn khớp SSoT FE; template/export in nhãn VI, import nhận cả nhãn VI lẫn giá trị gốc.
-- [ ] (LL-IMP-7) `bench --site <site> run-tests --app assetcore --module assetcore.tests.test_import_enum_labels` **XANH** — 4 tầng: phủ-kín · không-khoá-rác · parity FE · dropdown trong `.xlsx` thật.
+- [ ] (LL-IMP-7) `bench --site <site> run-tests --app assetcore --module assetcore.tests.guards.test_import_enum_labels` **XANH** — 4 tầng: phủ-kín · không-khoá-rác · parity FE · dropdown trong `.xlsx` thật.
 - [ ] (LL-IMP-8) validator KHÔNG còn tập `_VALID_*` hardcode tiếng Anh cho cột Select (dùng `_check_enum`); đường insert phẳng có `_restore_enum_values`; đã sinh lại TOÀN BỘ template.
-- [ ] (LL-IMP-9) `export_ref_data` ghi khung 5 hàng có banner `TEMPLATE_BANNER_PREFIX`; `_parse_excel`/`_parse_csv` gọi `detect_first_data_row` (giữ nhánh file xuất cũ = hàng 3); `bench --site <site> run-tests --app assetcore --module assetcore.tests.test_import_file_layout` **XANH**.
-- [ ] (LL-IMP-11) Mọi doctype nhập được có validator + khoá trong `UPDATE_KEY_BY_DOCTYPE` (mã trước tên sau); `find_existing_by_key` gom theo lô; `_update_flat_record` bỏ ô trống + bỏ cột khoá; preview trả `will_create`/`will_update`/`existing_rows`, import trả `updated`; `bench --site <site> run-tests --app assetcore --module assetcore.tests.test_import_update_existing` **XANH**.
+- [ ] (LL-IMP-9) `export_ref_data` ghi khung 5 hàng có banner `TEMPLATE_BANNER_PREFIX`; `_parse_excel`/`_parse_csv` gọi `detect_first_data_row` (giữ nhánh file xuất cũ = hàng 3); `bench --site <site> run-tests --app assetcore --module assetcore.tests.import_data.test_import_file_layout` **XANH**.
+- [ ] (LL-IMP-11) Mọi doctype nhập được có validator + khoá trong `UPDATE_KEY_BY_DOCTYPE` (mã trước tên sau); `find_existing_by_key` gom theo lô; `_update_flat_record` bỏ ô trống + bỏ cột khoá; preview trả `will_create`/`will_update`/`existing_rows`, import trả `updated`; `bench --site <site> run-tests --app assetcore --module assetcore.tests.integration.test_import_update_existing` **XANH**.
 - [ ] (LL-IMP-10) DocType nhóm: file mẫu có sheet ví dụ ≥2 nhóm + khai `_SHEET_NAME_MAP` + `wb.active = 0`; `preview` trả `groups[]` (action `create|update|blocked`, `existing_items`, `first_source_row`); `update_existing` opt-in xuyên preview→import, ghi qua service `update_template`, trả `groups_updated`; cờ HTTP ép bằng `_as_bool`.
 - [ ] `import_ref_data()`: param `skip_invalid: bool = False`, default `False`; `_cascade_skip_for_tree()` walk-pass cho cascade nhiều cấp.
 - [ ] Response include `skipped` (int) + `skipped_rows` (list[{row, reason, field, message}]); `preview_ref_data` include `cascade_count` cho Tree DocType; edge 100% invalid raise ServiceError, không commit rỗng.
@@ -234,8 +243,6 @@ Tổng hợp từ "Phần 7 — Checklist trước khi xong". Trước khi khai 
 
 ---
 
-## 🔗 Session context — bàn giao phiên (assetcore-session)
+## 🔗 Session context
 
-- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE + file phiên mới nhất (curated; cần truy gốc chi tiết → đọc mục 🪞 Mirror của file phiên) — "đang dở ở đâu"; dữ liệu trong `.claude/contexts/` — gitignored; file phiên ở `sessions/<ngày>/`). Main session: hook tự nạp mỗi prompt + tự **mirror TOÀN BỘ lượt** (prompt+phản hồi+tool) vào file phiên qua hook `Stop`; subagent phải TỰ chạy lệnh này.
-- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY: `STATE.md`(ghi đè) + bồi **semantic** vào file phiên (`session-log.sh current` → path; **KHÔNG còn LOG.md**). Hook `Stop` đã mirror nguyên văn → bạn CHỈ cần tóm Làm/Quyết-định/Để-lại. KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
-- **Ranh giới:** state-tạm-sẽ-hết → `.claude/contexts/` (STATE.md + sessions/<ngày>/); fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.
+Đọc trước / checkpoint sau + ranh giới `contexts/` vs `memory/`: [`../_shared/session-protocol.md`](../_shared/session-protocol.md)

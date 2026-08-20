@@ -1,9 +1,12 @@
 export const meta = {
   name: 'assetcore-factory',
-  description: 'AssetCore Software Factory — canonical engine. Chạy N vòng tự động (pm→ba→[be‖fe]→qa→user), mỗi vòng đóng 1 đề mục. args {rounds 1–50, mode improve|audit, focus?, seed?, site?}. Carry-over STATE đầu run + Handoff cuối run. KHÔNG commit (HARD-STOP user).',
+  description: '[ENGINE — không gọi trực tiếp] Bộ máy của lệnh /factory. Từ 1 yêu cầu sơ khai: chốt GOAL đo được → sinh TASKS trên đĩa → mỗi vòng CHỈ gọi vai mà task cần → dừng khi đạt mục tiêu HOẶC hết vòng. args {rounds 1–50, mode improve|audit, goal?, focus?, seed?, site?}. KHÔNG commit (HARD-STOP user).',
+  whenToUse: 'Được khởi chạy bởi lệnh `/factory`. Đừng gọi workflow này trực tiếp — dùng `/factory "<yêu cầu>" [số vòng]`.',
   phases: [
     { title: 'Carry-over', detail: 'Đọc .claude/contexts/STATE.md — nối tiếp backlog' },
-    { title: 'Ideation', detail: '[PM] chọn đúng 1 đề mục/vòng (không lặp lại)' },
+    { title: 'Intake', detail: 'Yêu cầu sơ khai → GOAL.md có acceptance ĐO ĐƯỢC' },
+    { title: 'Plan', detail: 'GOAL → TASKS.md, mỗi task khai roles[] cần dùng' },
+    { title: 'Ideation', detail: '[PM] chọn task pending kế tiếp (không lặp lại)' },
     { title: 'Core Doc', detail: '[BA] cập nhật docs/imm-XX (gate trước code)' },
     { title: 'Dev', detail: '[BE] ‖ [FE] theo Core Doc, TDD' },
     { title: 'QA', detail: '[QA] chạy bench run-tests THẬT' },
@@ -48,16 +51,18 @@ const FOCUS = A.focus || (MODE === 'audit' ? FOCUS_AUDIT : FOCUS_IMPROVE)
 // ── Schemas (ràng buộc output agent con) ─────────────────────────────────────
 const ITEM_SCHEMA = {
   type: 'object', additionalProperties: false,
-  required: ['module', 'title', 'actor', 'acceptance', 'needs_core_doc', 'be_tasks', 'fe_tasks', 'test_cases'],
+  required: ['module', 'title', 'actor', 'acceptance', 'needs_core_doc', 'be_tasks', 'fe_tasks', 'test_cases', 'needs_ux_review', 'goal_met'],
   properties: {
     module: { type: 'string', description: 'IMM-XX hoặc khu vực (vd "Auth / LoginView")' },
     title: { type: 'string', description: 'Đề mục DUY NHẤT của vòng — KHÔNG trùng các title đã làm' },
     actor: { type: 'string' },
     acceptance: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria đo được' },
     needs_core_doc: { type: 'boolean', description: 'true nếu cần [BA] sửa/khởi tạo Core Doc trước khi code' },
-    be_tasks: { type: 'array', items: { type: 'string' } },
-    fe_tasks: { type: 'array', items: { type: 'string' } },
+    be_tasks: { type: 'array', items: { type: 'string' }, description: 'RỖNG nếu vòng này không có việc backend — engine sẽ KHÔNG spawn [BE]' },
+    fe_tasks: { type: 'array', items: { type: 'string' }, description: 'RỖNG nếu vòng này không có việc giao diện — engine sẽ KHÔNG spawn [FE]' },
     test_cases: { type: 'array', items: { type: 'string' }, description: 'Test viết TRƯỚC (TDD)' },
+    needs_ux_review: { type: 'boolean', description: 'true chỉ khi vòng này đổi thứ NGƯỜI DÙNG NHÌN THẤY — engine chỉ spawn [USER] khi true' },
+    goal_met: { type: 'boolean', description: 'true khi MỌI task trong TASKS.md đã done và acceptance của GOAL.md đã verify xanh ⇒ engine DỪNG SỚM' },
   },
 }
 const BA_SCHEMA = {
@@ -109,6 +114,23 @@ const EVAL_SCHEMA = {
   properties: { ux_findings: { type: 'array', items: { type: 'string' } }, backlog_next: { type: 'array', items: { type: 'string' } }, verdict: { type: 'string', enum: ['ship', 'rework', 'partial'] } },
 }
 const CARRY_SCHEMA = { type: 'object', additionalProperties: false, required: ['carryover'], properties: { carryover: { type: 'string' } } }
+const INTAKE_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['goal_ready', 'goal', 'acceptance', 'open_questions'],
+  properties: {
+    goal_ready: { type: 'boolean', description: 'true CHỈ KHI mọi acceptance kiểm được bằng một lệnh cụ thể' },
+    goal: { type: 'string' },
+    acceptance: { type: 'array', items: { type: 'string' } },
+    open_questions: { type: 'array', items: { type: 'string' }, description: 'Câu hỏi CHẶN — rỗng khi goal_ready=true' },
+  },
+}
+const PLAN_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['task_count', 'task_ids', 'summary'],
+  properties: {
+    task_count: { type: 'integer' },
+    task_ids: { type: 'array', items: { type: 'string' } },
+    summary: { type: 'string' },
+  },
+}
 
 log(`AssetCore Factory — ${ROUNDS} vòng, mode=${MODE}, site=${SITE}${A.focus ? ' (custom focus)' : ''}`)
 
@@ -127,6 +149,93 @@ try {
 const CARRY = (carry && carry.carryover) || '(không đọc được STATE)'
 log(`Carry-over: ${CARRY.slice(0, 220)}`)
 
+// ── Bộ nhớ của run sống trên ĐĨA, không sống trong context orchestrator ───────
+// Lý do: mọi hình thức "tóm tắt vòng trước rồi nhồi vào vòng sau" vừa mất thông
+// tin vừa trả tiền cho phần giữ lại (anti-pattern "orchestrator paraphrase").
+// Engine chỉ truyền CON TRỎ; agent tự đọc đúng phần nó cần.
+const FDIR = '/home/miyano/frappe-bench/apps/assetcore/.claude/contexts/factory/current'
+const GOAL_MD = `${FDIR}/GOAL.md`
+const TASKS_MD = `${FDIR}/TASKS.md`
+const NO_STATE_READ =
+  'Bạn đang chạy TRONG factory: KHÔNG chạy `session-log.sh show` và KHÔNG đọc STATE.md — ' +
+  'orchestrator đã đọc một lần và truyền phần cần thiết vào prompt này. Đọc lại là nạp trùng.'
+
+// ── Intake: yêu cầu sơ khai → mục tiêu ĐO ĐƯỢC ────────────────────────────────
+// Mô phỏng gate "require a spec" của /build auto: không chốt được acceptance đo
+// được thì DỪNG, không bịa yêu cầu rồi chạy 50 vòng sai hướng.
+const RAW_GOAL = A.goal || A.focus || ''
+let goalOk = true
+if (RAW_GOAL) {
+  try {
+    const intake = await agent(
+      `[INTAKE] Yêu cầu sơ khai của USER cho run factory này:\n"""${RAW_GOAL}"""\n` +
+      `Bối cảnh đang treo (từ STATE): ${CARRY.slice(0, 1200)}\n\n` +
+      `Việc: chuyển yêu cầu đó thành MỤC TIÊU ĐO ĐƯỢC rồi GHI RA ĐĨA \`${GOAL_MD}\` (tạo thư mục nếu chưa có), gồm:\n` +
+      `  - Mục tiêu 1 câu (viết theo góc nhìn người dùng, không theo góc nhìn kỹ thuật)\n` +
+      `  - Acceptance: mỗi dòng PHẢI kiểm được bằng MỘT lệnh cụ thể (grep/test/đếm). "Đẹp hơn" không phải acceptance.\n` +
+      `  - Trong phạm vi / ngoài phạm vi\n` +
+      `  - Baseline đo TỪ ĐĨA hôm nay: \`git status --porcelain | wc -l\`, số test hiện tại, thứ liên quan tới yêu cầu\n` +
+      `  - HARD-STOP đã biết (việc phải xin phép USER) và giả định bạn đang dùng\n` +
+      `Nếu yêu cầu mơ hồ tới mức KHÔNG chốt được acceptance đo được: vẫn ghi file, đặt \`goal_ready: false\` ` +
+      `và liệt kê ĐÚNG câu hỏi cần USER trả lời. KHÔNG bịa yêu cầu. ${NO_STATE_READ} ${NO_COMMIT}`,
+      { phase: 'Intake', label: 'intake-goal', schema: INTAKE_SCHEMA }
+    )
+    goalOk = !!(intake && intake.goal_ready)
+    log(goalOk
+      ? `GOAL chốt: ${String(intake.goal || '').slice(0, 160)} (${(intake.acceptance || []).length} acceptance) → ${GOAL_MD}`
+      : `⛔ GOAL CHƯA chốt được — cần USER trả lời: ${JSON.stringify((intake && intake.open_questions) || []).slice(0, 400)}`)
+  } catch (e) {
+    log(`Intake lỗi (${String((e && e.message) || e).slice(0, 120)}) → chạy theo focus thô, không có acceptance đo được`)
+  }
+}
+
+// ── Plan: GOAL → TASKS.md (mỗi task khai roles[] — QUYẾT ĐỊNH vai nào được spawn) ──
+let planned = null
+if (RAW_GOAL && goalOk) {
+  try {
+    planned = await agent(
+      `[PLAN] Đọc \`${GOAL_MD}\`. Chia mục tiêu thành các task nhỏ, ghi ra \`${TASKS_MD}\` dạng bảng markdown, mỗi task:\n` +
+      `  \`id\` (T01…) · \`title\` · \`module\` · \`roles\` · \`acceptance\` (kiểm được) · \`deps\` · \`status\` (pending) · \`evidence\` (để trống)\n` +
+      `\`roles\` chọn trong {doc, be, fe, test, audit} — CHỈ ghi vai THẬT SỰ cần. Đây là thứ quyết định vòng sau spawn agent nào; ` +
+      `thừa một vai là thừa một agent chạy không việc. Ví dụ: sửa nhãn tiếng Việt = \`fe,test\`; bug service = \`be,test\`; ` +
+      `rà soát module = \`audit\`; viết tài liệu = \`doc\`.\n` +
+      `Sắp theo thứ tự phụ thuộc. Số task ≤ ${ROUNDS * 2}. ${NO_STATE_READ} ${NO_COMMIT}`,
+      { phase: 'Plan', label: 'plan-tasks', schema: PLAN_SCHEMA }
+    )
+    log(`TASKS: ${(planned && planned.task_count) || 0} task → ${TASKS_MD}`)
+  } catch (e) {
+    log(`Plan lỗi (${String((e && e.message) || e).slice(0, 120)}) → PM tự chọn đề mục từng vòng như trước`)
+  }
+}
+const HAS_PLAN = !!(planned && planned.task_count > 0)
+
+// ── Cổng duyệt DUY NHẤT — mô hình `/build` vs `/build auto` ──────────────────
+// Workflow chạy headless, không hỏi giữa chừng được. Nên "cổng duyệt" hiện thực
+// bằng cách DỪNG SAU KHI lập kế hoạch và trả kế hoạch về cho USER; USER duyệt thì
+// chạy lại với `auto: true`. TASKS.md nằm trên đĩa nên không mất gì khi dừng.
+const AUTO = A.auto === true || A.auto === 'true' || A.auto === 'auto'
+if (HAS_PLAN && !AUTO) {
+  log(`⏸ CỔNG DUYỆT — đã lập ${planned.task_count} task. Dừng để USER xem trước khi chạy.`)
+  return {
+    stopped_for_approval: true,
+    goal_file: GOAL_MD,
+    tasks_file: TASKS_MD,
+    task_count: planned.task_count,
+    task_ids: planned.task_ids || [],
+    plan_summary: planned.summary || '',
+    rounds_requested: ROUNDS,
+    mode: MODE,
+    next_step:
+      `USER đọc ${GOAL_MD} và ${TASKS_MD}. Duyệt rồi chạy lại CÙNG args + \`auto: true\` ` +
+      `để thi hành (kế hoạch đã nằm trên đĩa, không phải lập lại). Muốn bỏ cổng duyệt ngay từ đầu: \`/factory auto "<yêu cầu>"\`.`,
+    commit_status: 'KHÔNG commit — chưa chạy vòng nào.',
+  }
+}
+const PLAN_PTR = HAS_PLAN
+  ? `\nKẾ HOẠCH RUN nằm trên ĐĨA: \`${TASKS_MD}\` (mục tiêu: \`${GOAL_MD}\`). ĐỌC file đó để lấy task pending kế tiếp — ` +
+    `đừng dựa vào tóm tắt trong prompt, đĩa mới là sự thật.`
+  : ''
+
 // ── Master loop — N vòng tuần tự, KHÔNG dừng giữa vòng ────────────────────────
 const history = []
 const plannedItems = []    // PM đã CHỌN (kể cả vòng hỏng) — chống lặp đề mục
@@ -137,9 +246,12 @@ let dryStreak = 0          // số vòng liên tiếp không-thay-đổi & test 
 
 for (let r = 1; r <= ROUNDS; r++) {
   log(`════ VÒNG ${r}/${ROUNDS} (${MODE}) ════`)
+  // Vòng trước KHÔNG được tóm tắt-rồi-cắt-chuỗi (mất thông tin + trả tiền cho phần giữ).
+  // Truyền TIÊU ĐỀ (ngắn, đủ để không chọn trùng) + CON TRỎ tới đĩa cho phần chi tiết.
   const prev = history.length
-    ? `Tóm tắt vòng trước: ${JSON.stringify(history[history.length - 1]).slice(0, 1100)}`
-    : `(vòng đầu)${SEED ? ' SEED phiên này: ' + SEED : ''}\nCarry-over STATE trước: ${CARRY}`
+    ? `Vòng trước: ${history[history.length - 1].item || '(bỏ vòng)'} — ` +
+      `${history[history.length - 1].delivered ? 'ĐÃ GIAO' : 'CHƯA XONG'}. Chi tiết ở ${TASKS_MD} và working tree.`
+    : `(vòng đầu)${SEED ? ' SEED phiên này: ' + SEED : ''}\nBối cảnh đang treo: ${CARRY.slice(0, 1200)}`
   const avoid = deliveredItems.length
     ? `\nĐÃ GIAO XONG (KHÔNG chọn lại, KHÔNG biến thể nhỏ): ${deliveredItems.map((t, i) => `${i + 1}.${t}`).join(' | ')}`
     : ''
@@ -153,25 +265,61 @@ for (let r = 1; r <= ROUNDS; r++) {
   try {
   // 1 — [PM] Ideation (+ anti gate-churn: ưu tiên task [AUTO], hết AUTO → đề mục mới/khu vực mới)
   const item = await agent(
-    `[PM] Vòng ${r}/${ROUNDS}, AssetCore Software Factory (${MODE}-mode).\n${FOCUS}\n${prev}${avoid}${unfinished}\n` +
-    `Chọn ĐÚNG 1 đề mục đáng làm nhất (scope nhỏ, đóng kín, acceptance đo được), KHÁC mọi đề mục ĐÃ GIAO XONG. ` +
+    `[PM] Vòng ${r}/${ROUNDS}, AssetCore Software Factory (${MODE}-mode).\n${FOCUS}${PLAN_PTR}\n${prev}${avoid}${unfinished}\n` +
+    (HAS_PLAN
+      ? `ĐỌC \`${TASKS_MD}\`, lấy task **pending** đầu tiên đã thoả deps, và trả về CHÍNH task đó (không tự nghĩ đề mục khác). ` +
+        `Trường \`roles\` của task quyết định \`be_tasks\`/\`fe_tasks\`/\`needs_core_doc\`/\`needs_ux_review\` — vai không có trong roles thì để RỖNG/false. ` +
+        `Nếu MỌI task đã done VÀ acceptance trong \`${GOAL_MD}\` verify xanh trên đĩa ⇒ đặt \`goal_met: true\` (engine sẽ dừng sớm, không chạy nốt vòng thừa). `
+      : `Chọn ĐÚNG 1 đề mục đáng làm nhất (scope nhỏ, đóng kín, acceptance đo được), KHÁC mọi đề mục ĐÃ GIAO XONG. `) +
     `Ưu tiên task [AUTO] chưa làm; nếu backlog chỉ còn [HARD-STOP USER] → chọn khu vực/module MỚI, KHÔNG re-verify gate đã GREEN. ` +
     `Mọi con số baseline trong prompt/STATE (test count, guard counter, số path OAS, số file) ĐỀU CÓ THỂ STALE do phiên khác land — ĐO LẠI TỪ ĐĨA và chấm theo DELTA, KHÔNG dừng vì lệch số. ` +
     `Cấp số hiệu CR (AC-CR-NN) phải \`grep -rn "AC-CR-" docs/ | tail\` TRƯỚC để không trùng sổ với phiên song song. ` +
-    `Chia sẵn task BE/FE + test-case TDD. KHÔNG ôm nhiều việc. ${NO_COMMIT}`,
+    `Chia sẵn task BE/FE + test-case TDD. KHÔNG ôm nhiều việc. ${NO_STATE_READ} ${NO_COMMIT}`,
     { phase: 'Ideation', agentType: 'assetcore-pm', schema: ITEM_SCHEMA, label: `R${r}·PM` }
   )
   if (!item) { log(`R${r}: PM không trả được đề mục → bỏ vòng`); history.push({ round: r, skipped: 'no_item' }); continue }
+
+  // ĐIỀU KIỆN DỪNG #1 — ĐẠT MỤC TIÊU. Hết việc thì dừng, không chạy cho đủ số vòng.
+  // CHỈ có nghĩa khi có GOAL/TASKS thật để đối chiếu. Chạy `/factory` trần (không
+  // goal) thì `goal_met` là trường bắt buộc mà PM không có căn cứ để điền — tin nó
+  // sẽ dừng câm ngay vòng 1 và báo "đạt mục tiêu" trong khi chưa có mục tiêu nào.
+  if (item.goal_met && !HAS_PLAN) {
+    log(`R${r}: PM trả goal_met=true nhưng run này KHÔNG có GOAL/TASKS để đối chiếu → BỎ QUA, chạy tiếp`)
+  }
+  if (item.goal_met && HAS_PLAN) {
+    log(`✅ ĐẠT MỤC TIÊU ở vòng ${r}/${ROUNDS} — mọi task done + acceptance GOAL verify xanh. Dừng sớm, không chạy ${ROUNDS - r + 1} vòng còn lại.`)
+    history.push({ round: r, stopped: 'goal_met' })
+    break
+  }
+
   const itemLabel = `[${item.module}] ${item.title}`
   plannedItems.push(itemLabel)
-  log(`R${r} đề mục: ${item.module} — ${item.title}`)
 
-  // 2 — [BA] Core Doc gate (chỉ khi cần) — SSoT: chưa ready → KHÔNG code
-  if (item.needs_core_doc) {
+  // ── ĐỊNH TUYẾN VAI — chỉ spawn vai mà task THẬT SỰ cần ─────────────────────
+  // Đây là chỗ tiết kiệm lớn nhất: chạy cứng 6 vai cho một việc sửa nhãn i18n
+  // tốn gấp ~4 lần so với chạy đúng [FE]+[QA].
+  const roles = {
+    ba: !!item.needs_core_doc,
+    be: (item.be_tasks || []).length > 0,
+    fe: (item.fe_tasks || []).length > 0,
+    user: !!item.needs_ux_review,
+  }
+  roles.qa = roles.be || roles.fe          // không có code mới thì không có gì để chạy test
+  const roleList = Object.entries(roles).filter(([, v]) => v).map(([k]) => k.toUpperCase())
+  log(`R${r} đề mục: ${item.module} — ${item.title}  ·  vai: ${roleList.join('+') || '(không có)'} (bỏ qua: ${Object.entries(roles).filter(([, v]) => !v).map(([k]) => k.toUpperCase()).join(',') || '—'})`)
+  if (!roles.be && !roles.fe) {
+    log(`R${r}: PM không giao việc cho BE lẫn FE → vòng rỗng, chuyển sang Closure-first`)
+    unfinishedItems.push(`${itemLabel} — CHƯA XONG (PM không chia được việc cho BE/FE)`)
+    history.push({ round: r, item: item.title, skipped: 'no_dev_task' })
+    continue
+  }
+
+  // 2 — [BA] Core Doc gate (chỉ khi roles.ba) — SSoT: chưa ready → KHÔNG code
+  if (roles.ba) {
     const ba = await agent(
       `[BA] Đề mục vòng ${r}: ${item.module} — ${item.title}.\nAcceptance: ${item.acceptance.join('; ')}\n` +
       `Cập nhật/khởi tạo Core Doc docs/imm-XX/ (Scope, DocType schema, API endpoints, UI/UX flow, business rules) ĐỦ để BE/FE code. ` +
-      `Lỗi do thiết kế gốc → sửa Core Doc trước (Self-Correction). ${NO_COMMIT}`,
+      `Lỗi do thiết kế gốc → sửa Core Doc trước (Self-Correction). ${NO_STATE_READ} ${NO_COMMIT}`,
       { phase: 'Core Doc', agentType: 'assetcore-ba', schema: BA_SCHEMA, label: `R${r}·BA` }
     )
     if (!(ba && ba.core_doc_ready)) {
@@ -192,20 +340,21 @@ for (let r = 1; r <= ROUNDS; r++) {
     `Trước khi bind/gọi bất kỳ khoá-payload, endpoint, hằng số nào của phía kia: \`grep -rn "<symbol>" <thư mục phía kia>\`. ` +
     `Grep 0 hit ⇒ (a) code FAIL-SAFE (thiếu khoá không vỡ UI/luồng), (b) liệt kê symbol đó vào \`contract_unverified\`, (c) KHÔNG tuyên bố acceptance đó đã đạt. ` +
     `\`landed_symbols\` chỉ ghi thứ CHÍNH MÌNH vừa grep lại thấy trên đĩa sau khi sửa (format "symbol → file:line") — KHÔNG ghi dự định.`
+  const SKIPPED = { did_work: false, files_changed: [], summary: '(vai không được định tuyến cho vòng này)', open_issues: [], landed_symbols: [], contract_unverified: [], _skipped: true }
   const [be, fe] = await parallel([
-    () => agent(
+    () => (roles.be ? agent(
       `[BE] ${ctx}\nTask BE: ${item.be_tasks.join('; ') || '(PM chưa nêu — tự xác định nếu có)'}\n` +
       `Frappe-first, 3-tier (API→Service→Repository), TEST TRƯỚC. Khớp 100% Core Doc + naming contract với FE. Tránh N+1 (skill assetcore-perf). Sửa ROOT CAUSE. ` +
       `Khoá nào Core Doc/OAS hứa mà mình KHÔNG emit trong vòng này ⇒ nói thẳng ở open_issues (đừng để FE tiêu thụ hợp đồng chết).` + PARALLEL_CONTRACT + `\n` +
-      `Không có việc BE → did_work=false. ${NO_COMMIT}`,
+      `Không có việc BE → did_work=false. ${NO_STATE_READ} ${NO_COMMIT}`,
       { phase: 'Dev', agentType: 'assetcore-be-dev', schema: DEV_SCHEMA, label: `R${r}·BE` }
-    ),
-    () => agent(
+    ) : Promise.resolve(SKIPPED)),
+    () => (roles.fe ? agent(
       `[FE] ${ctx}\nTask FE: ${item.fe_tasks.join('; ') || '(PM chưa nêu — tự xác định nếu có)'}\n` +
       `Vue3+TS+Pinia+TanStack Query theo Core Doc. Tránh status/raw-code/email leak; BaseModal thay window.confirm; capability thay role hardcode; param FE KHỚP signature BE; i18n VI qua SSoT formatters; a11y WCAG 2.1 AA.` + PARALLEL_CONTRACT + `\n` +
-      `Không có việc FE → did_work=false. ${NO_COMMIT}`,
+      `Không có việc FE → did_work=false. ${NO_STATE_READ} ${NO_COMMIT}`,
       { phase: 'Dev', agentType: 'assetcore-fe-dev', schema: DEV_SCHEMA, label: `R${r}·FE` }
-    ),
+    ) : Promise.resolve(SKIPPED)),
   ])
 
   // ── Agent CHẾT (parallel trả null khi thunk throw) — TUYỆT ĐỐI không nuốt câm ──
@@ -227,7 +376,7 @@ for (let r = 1; r <= ROUNDS; r++) {
     `1) VERIFY TRÊN ĐĨA TRƯỚC (bắt buộc, điền \`disk_verified\`): mỗi acceptance + mỗi symbol BE/FE khai đã land ⇒ tự \`grep\`/\`py_compile\` lại. ` +
     `Lời khai của dev là GIẢ THUYẾT — 0 hit ⇒ ghi "CHƯA LAND", KHÔNG chấm đạt. ` +
     `2) CHẠY THẬT \`bench --site ${SITE} run-tests\` module-isolated (timeout ≥600000ms; kill giữa chừng = nhiễm DB, không phải bug) + \`npx vitest run\` nếu đụng FE. ` +
-    `tests_ran=true CHỈ KHI đã chạy thật và đọc output (Prove-it). ` +
+    `tests_ran=true CHỈ KHI đã chạy thật và đọc output (Prove-it). ${NO_STATE_READ} ` +
     `3) TRIAGE ĐỎ THEO CHỦ SỞ HỮU trước khi quy cho vòng này: \`git log -S '<symbol>'\` + mtime file + so với module vòng này đụng — đỏ có trước / của phiên song song ⇒ để vào \`pre_existing_failures\`, ĐỪNG sửa hộ, ĐỪNG dừng run. ` +
     `4) Counter/baseline (test count, guard sum, số path OAS) ĐỌC TỪ ĐĨA và chấm DELTA — lệch số so với STATE/prompt KHÔNG phải lỗi. ` +
     `5) Review code + audit security (RBAC/DocPerm/whitelist/vendor isolation/audit trail). ${NO_COMMIT}`,
@@ -245,12 +394,13 @@ for (let r = 1; r <= ROUNDS; r++) {
     )
   }
 
-  // 6 — [USER] soi UX thật + backlog vòng kế
-  const ev = await agent(
+  // 6 — [USER] soi UX thật + backlog vòng kế — CHỈ khi vòng này đổi thứ người dùng NHÌN THẤY.
+  // Bắt persona dùng Playwright để duyệt một thay đổi thuần backend là đốt một agent không đổi được quyết định nào.
+  const ev = roles.user ? await agent(
     `[USER] Đóng vai người dùng khó tính (kỹ thuật viên/điều dưỡng/quản lý thiết bị) cho đề mục vòng ${r}: ${item.title}. ` +
-    `Có FE: thử bằng Playwright tại http://localhost:3000 (dev server). Soi UX, flow nghiệp vụ, lỗi UI; sinh backlog ưu tiên cho vòng kế (lỗi CHƯA sửa). ${NO_COMMIT}`,
+    `Có FE: thử bằng Playwright tại http://localhost:3000 (dev server). Soi UX, flow nghiệp vụ, lỗi UI; sinh backlog ưu tiên cho vòng kế (lỗi CHƯA sửa). ${NO_STATE_READ} ${NO_COMMIT}`,
     { phase: 'Eval', agentType: 'assetcore-user', schema: EVAL_SCHEMA, label: `R${r}·USER` }
-  )
+  ) : { ux_findings: [], backlog_next: [], verdict: 'partial', _skipped: true }
 
   const changed = !!((be && be.did_work) || (fe && fe.did_work))
   const redNow = !!(qa && qa.tests_ran && !qa.tests_green && (qa.failures || []).length)

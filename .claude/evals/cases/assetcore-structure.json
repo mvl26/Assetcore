@@ -1,0 +1,9 @@
+{ "skill_name": "assetcore-structure",
+  "trigger": {
+    "positive": [
+      { "prompt": "file này đặt ở thư mục nào, đặt tên sao cho đúng", "top_k": 2 },
+      { "prompt": "cấu trúc thư mục đang lung tung, cần dọn lại cho chuẩn", "top_k": 2 }
+    ],
+    "negative": [
+      { "prompt": "viết service tính khấu hao cho tài sản", "owner": "assetcore-be" }
+    ] } }

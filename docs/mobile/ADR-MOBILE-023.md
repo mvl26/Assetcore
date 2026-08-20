@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | **ADR-MOBILE-022** (`getAssetRepairHistory` SINGLE-shape device-profile read-history: rows-key `history` + asset-key `asset_ref`, 200 = single `$ref` KHÔNG `oneOf [Env,Error]`) · **ADR-MOBILE-021** (`listTransfers` SINGLE-shape: handler 0 `_err` ⇒ 200 single `$ref`) · **getAssetIncidentHistory (R28)** (FLOW-2 read-history precedent — envelope KHÔNG pagination + element grounded `fields`) · **ADR-MOBILE-008 / Open#1 int-vs-bool** (Frappe Check 0/1 → `integer` KHÔNG `boolean`) · Core Doc IMM-08 [`04_Backend_Design.md`](../imm-08/04_Backend_Design.md) + [`05_API_Specification.md §9`](../imm-08/05_API_Specification.md) |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm08.py:124-126`, `assetcore/services/imm08.py:1012-1021`, `assetcore/assetcore/doctype/pm_task_log/pm_task_log.json`, `assetcore/utils/api_handler.py:33-51`, `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_mobile_docset.py`). Contract narrative: [`04-api-contract.md`](./04-api-contract.md) (FLOW-2 device-profile pm-history). Narrative roadmap: [`13-be-completion-roadmap.md`](./13-be-completion-roadmap.md).
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm08.py:124-126`, `assetcore/services/imm08.py:1012-1021`, `assetcore/assetcore/doctype/pm_task_log/pm_task_log.json`, `assetcore/utils/api_handler.py:33-51`, `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/guards/test_mobile_docset.py`). Contract narrative: [`04-api-contract.md`](./04-api-contract.md) (FLOW-2 device-profile pm-history). Narrative roadmap: [`13-be-completion-roadmap.md`](./13-be-completion-roadmap.md).
 
 ---
 
@@ -87,7 +87,7 @@ Endpoint nguồn **ĐÃ LIVE** (CONTRACT-ONLY): `imm08.get_asset_pm_history` (`a
 
 ## Đã thực thi (Bước-4 ATOMIC — handoff BE/Test)
 
-> CONTRACT-ONLY — KHÔNG đụng `api/*.py`/`services/*.py`. `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` + `test_mobile_docset` GREEN.
+> CONTRACT-ONLY — KHÔNG đụng `api/*.py`/`services/*.py`. `bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas` + `test_mobile_docset` GREEN.
 
 **(1) yaml** (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`):
 - +1 path `/api/method/assetcore.api.imm08.get_asset_pm_history` (GET, opId `getAssetPmHistory`, tag `pm`); 2 param `asset_ref` (req, no-default) + `limit` (opt int default 10, minimum 1); 200 = `$ref AssetPmHistoryEnvelope` SINGLE; slot `{200,401,403}` (`401 Unauthorized401`, `403 Forbidden`).

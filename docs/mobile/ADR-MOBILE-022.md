@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | **ADR-MOBILE-021** (`listTransfers` SINGLE-shape: handler 0 `_err` ⇒ 200 = single `$ref`, KHÔNG `oneOf [Env,Error]`) · **getAssetIncidentHistory (R28)** (FLOW-2 device-profile read-history precedent — envelope KHÔNG pagination + element grounded `frappe.get_all fields`) · **ADR-MOBILE-001 (d)/(f)/(g)** (OpenAPI = hợp đồng máy-đọc) · **Open#1 int-vs-bool** (Frappe Check 0/1 → `integer` KHÔNG `boolean`) · Core Doc IMM-09 [`04_Backend_Design.md`](../imm-09/04_Backend_Design.md) + [`05_API_Specification.md`](../imm-09/05_API_Specification.md) |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm09.py:126-128`, `assetcore/services/imm09.py:1212-1220`, `assetcore/utils/api_handler.py:33-51`, `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_mobile_docset.py`). Contract narrative: [`04-api-contract.md`](./04-api-contract.md) (FLOW-2 device-profile repair-history). Narrative roadmap: [`13-be-completion-roadmap.md`](./13-be-completion-roadmap.md).
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/imm09.py:126-128`, `assetcore/services/imm09.py:1212-1220`, `assetcore/utils/api_handler.py:33-51`, `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/guards/test_mobile_docset.py`). Contract narrative: [`04-api-contract.md`](./04-api-contract.md) (FLOW-2 device-profile repair-history). Narrative roadmap: [`13-be-completion-roadmap.md`](./13-be-completion-roadmap.md).
 
 ---
 
@@ -76,7 +76,7 @@ Endpoint nguồn **ĐÃ LIVE** (CONTRACT-ONLY): `imm09.get_asset_repair_history`
 
 ## Đã thực thi (Bước-4 ATOMIC — round BA này)
 
-> CONTRACT-ONLY — KHÔNG đụng `api/*.py`/`services/*.py`. `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` + `test_mobile_docset` GREEN.
+> CONTRACT-ONLY — KHÔNG đụng `api/*.py`/`services/*.py`. `bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas` + `test_mobile_docset` GREEN.
 
 **(1) yaml** (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`):
 - +1 path `/api/method/assetcore.api.imm09.get_asset_repair_history` (GET, opId `getAssetRepairHistory`, tag `repair`); 2 param `asset_ref` (req) + `limit` (opt int default 10); 200 = `$ref AssetRepairHistoryEnvelope` SINGLE; slot `{200,401,403}` (`401 Unauthorized401`, `403 Forbidden`).

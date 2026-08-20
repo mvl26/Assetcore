@@ -1520,6 +1520,29 @@ def _seed_capa_for_cycle_variance(cyc_doc) -> int:
     return count
 
 
+def get_spare_part_display(spare_part: str) -> dict[str, str | None]:
+    """Tra thông tin hiển thị của một phụ tùng cho màn kiểm tồn.
+
+    Vì sao ở tầng service: tầng ``api/`` chỉ được validate + uỷ quyền (CLAUDE.md §15,
+    SPEC BE §3.7). Trước đây ``api/imm15.py`` gọi thẳng ``frappe.db.get_value`` hai
+    lần cho cùng một bản ghi — vừa vi phạm 3-tier, vừa là 2 vòng truy vấn cho 1 hàng.
+
+    Args:
+        spare_part: mã bản ghi ``AC Spare Part``.
+
+    Returns:
+        ``{"part_name": …, "imm_part_class": …}``. ``part_name`` lùi về chính mã khi
+        bản ghi không có tên, để UI không hiện ô trống.
+    """
+    row = frappe.db.get_value(
+        "AC Spare Part", spare_part, ["part_name", "imm_part_class"], as_dict=True
+    ) or {}
+    return {
+        "part_name": row.get("part_name") or spare_part,
+        "imm_part_class": row.get("imm_part_class"),
+    }
+
+
 def _sum_part_stock(spare_part: str) -> float:
     """Σ tồn KHẢ DỤNG (qty_on_hand − reserved_qty) của 1 phụ tùng qua mọi kho.
 

@@ -156,7 +156,7 @@ Vòng này **curate 1 path POST** `receive_transfer` vào `assetcore-mobile.open
 
 ## Handoff BE/Test (Bước-4 — ĐÃ XONG pure-yaml, ATOMIC)
 
-> **CONTRACT-ONLY — ĐÃ HOÀN TẤT vòng Bước-2 (BA tự code+verify pure-yaml full path-add):** TUYỆT ĐỐI KHÔNG đụng `api/imm00.py`/`services/imm00.py` (`receive_transfer` @2600 / `confirm_receipt` @2677 ĐÃ LIVE byte-identical HEAD↔working). Không reload/migrate/commit. DoD ĐÃ VERIFY: `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` = **'Ran 674 OK' THẬT** (RED-before strip-path → 93 FAIL → restore → GREEN) · `.test_mobile_docset` = **Ran 9 OK** (balance 43==43).
+> **CONTRACT-ONLY — ĐÃ HOÀN TẤT vòng Bước-2 (BA tự code+verify pure-yaml full path-add):** TUYỆT ĐỐI KHÔNG đụng `api/imm00.py`/`services/imm00.py` (`receive_transfer` @2600 / `confirm_receipt` @2677 ĐÃ LIVE byte-identical HEAD↔working). Không reload/migrate/commit. DoD ĐÃ VERIFY: `bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas` = **'Ran 674 OK' THẬT** (RED-before strip-path → 93 FAIL → restore → GREEN) · `.test_mobile_docset` = **Ran 9 OK** (balance 43==43).
 
 **(1) yaml** (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`) — ĐÃ BỒI:
 - +1 path `POST /api/method/assetcore.api.imm00.receive_transfer` (opId `receiveTransfer`, **tag `asset`**); requestBody `required:true` content **2 media-type** `application/json` + `application/x-www-form-urlencoded` (CÙNG `schema.$ref ReceiveTransferRequest`); 200 = `oneOf [ReceiveTransferEnvelope, Error]`; slot `{200,401,403}` (`401 Unauthorized401`, **`403 Forbidden` SINGLE-SHAPE dispatcher-only**). **description path GHI RÕ 422-uniform (KHÔNG 404) + 403 dispatcher-only (0 cap-403).**

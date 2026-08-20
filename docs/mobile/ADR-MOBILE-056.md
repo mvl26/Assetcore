@@ -83,7 +83,7 @@ Handler bare `@frappe.whitelist()` KHÔNG `allow_guest`, KHÔNG `rbac.require` �
 
 ### (f) CONTRACT-ONLY — 0 `.py`/reload/migrate
 
-`get_pm_dashboard_stats` + `get_dashboard_stats` **ĐÃ LIVE** @source ⇒ `git diff` round này = CHỈ `docs/mobile/*` (yaml + ADR + README) + `assetcore/tests/test_mobile_oas.py` (guard). **0** file `.py` runtime, **0** gunicorn reload (KHÔNG HARD-STOP USER — `[AUTO]`), **0** `bench migrate`.
+`get_pm_dashboard_stats` + `get_dashboard_stats` **ĐÃ LIVE** @source ⇒ `git diff` round này = CHỈ `docs/mobile/*` (yaml + ADR + README) + `assetcore/tests/guards/test_mobile_oas.py` (guard). **0** file `.py` runtime, **0** gunicorn reload (KHÔNG HARD-STOP USER — `[AUTO]`), **0** `bench migrate`.
 
 ---
 

@@ -39,7 +39,7 @@ path/opId `90→91` · c5/`_PARITY_BUSINESS_PATHS` `79→80` · `_EXPECTED` += e
 
 ## 4. Hệ quả / Guard
 
-- Runtime BE guard: `assetcore/tests/test_imm00_approvals_inbox.py` (TC-BE-1..5 + BR-00-INBOX-02 invariant + WO-drill route + spoof-kwarg + guest dispatcher-403).
+- Runtime BE guard: `assetcore/tests/imm00/test_imm00_approvals_inbox.py` (TC-BE-1..5 + BR-00-INBOX-02 invariant + WO-drill route + spoof-kwarg + guest dispatcher-403).
 - Contract guard: `TestMobilePendingApprovalsInboxContract` (test_mobile_oas.py) — path/opId/tag-16th, 3-schema-closed, item-10-prop, enum, 0-param + LIVE introspect `**_ignore` + `is_whitelisted` runtime spec-parity, 200-oneOf, symmetry, naming, 0-dangling.
 - FE `/approvals/pending` đổi nguồn sang endpoint gộp (nhãn VI + deep-link `item.route`; duyệt VẪN ở detail view — GATE-8). KPI `pending_commissioning` GIỮ SSoT `count_pending_approvals` (inbox = superset by-design, ADR-IMM00-APPROVAL-INBOX C).
 - ⚠️ **Deploy:** `.py` mới ⇒ live-HTTP cần gunicorn worker reload (HARD-STOP user); 0 DocType ⇒ 0 migrate.

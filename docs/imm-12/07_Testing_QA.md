@@ -9,7 +9,7 @@
 
 > **Mục đích**: Suy ra test case **có hệ thống** từ phân tích (file 02) bằng kỹ thuật black-box + white-box, không liệt kê tự phát. Bao gồm: phân tích đối tượng test → chọn kỹ thuật → viết test → traceability → UAT → security → code quality. Phần này là gate go-live.
 
-> **Trạng thái module**: BE/FE LIVE. `services/imm12.py` (12 public functions), `api/imm12.py` (14 endpoint), DocType `Incident Report` + `IMM RCA Record` + `IMM CAPA Record` + child `IMM RCA Five Why Step` / `IMM RCA Related Incident` / `IMM CAPA Action Step` đã có. Test cốt lõi tại `assetcore/tests/test_imm12.py` (4 test class ✅ Live). UAT/E2E/Pentest còn pending.
+> **Trạng thái module**: BE/FE LIVE. `services/imm12.py` (12 public functions), `api/imm12.py` (14 endpoint), DocType `Incident Report` + `IMM RCA Record` + `IMM CAPA Record` + child `IMM RCA Five Why Step` / `IMM RCA Related Incident` / `IMM CAPA Action Step` đã có. Test cốt lõi tại `assetcore/tests/imm12/test_imm12.py` (4 test class ✅ Live). UAT/E2E/Pentest còn pending.
 
 ---
 
@@ -177,7 +177,7 @@ CLAUDE.md §17 (TDD mandatory).
 
 ## III.2. Unit test — Service Layer
 
-**File:** `assetcore/tests/test_imm12.py`. Test class đã tồn tại được đánh dấu ✅ Live; coverage mở rộng = ⬜ Planned.
+**File:** `assetcore/tests/imm12/test_imm12.py`. Test class đã tồn tại được đánh dấu ✅ Live; coverage mở rộng = ⬜ Planned.
 
 | Test class | Function cover | Kỹ thuật | Cases (happy/negative) | Trạng thái |
 |---|---|---|---|---|
@@ -199,7 +199,7 @@ CLAUDE.md §17 (TDD mandatory).
 
 ## III.3. Integration — DocType lifecycle
 
-**File:** `assetcore/tests/test_imm12.py` (`TestIncidentCreation`, `TestIncidentWorkflow` đã cover validate/submit lifecycle). Cover hook `validate` (`validate_incident_close_gate`).
+**File:** `assetcore/tests/imm12/test_imm12.py` (`TestIncidentCreation`, `TestIncidentWorkflow` đã cover validate/submit lifecycle). Cover hook `validate` (`validate_incident_close_gate`).
 
 | Test | Setup | Action | Assert | Kỹ thuật | Trạng thái |
 |---|---|---|---|---|---|
@@ -213,7 +213,7 @@ Fixture trong `setUp` phải có cleanup — xem `assetcore-test` LL-TEST-17.
 
 ## III.4. Integration — Workflow transitions
 
-**File:** `assetcore/tests/test_imm12.py`. **Bắt buộc** cover 14 transition (10 Incident + 4 RCA). Số liệu xác minh: `python3 -c "import json;print(len(json.load(open('assetcore/assetcore/workflow/imm_12_incident_workflow.json'))['transitions']))"` → 10; RCA → 4.
+**File:** `assetcore/tests/imm12/test_imm12.py`. **Bắt buộc** cover 14 transition (10 Incident + 4 RCA). Số liệu xác minh: `python3 -c "import json;print(len(json.load(open('assetcore/assetcore/workflow/imm_12_incident_workflow.json'))['transitions']))"` → 10; RCA → 4.
 
 ### Incident workflow (`imm_12_incident_workflow.json`)
 | Transition (action) | From → To | Role required | Test pass | Test fail | Trạng thái |
@@ -231,14 +231,14 @@ Fixture trong `setUp` phải có cleanup — xem `assetcore-test` LL-TEST-17.
 
 #### III.4.a. Guard SSoT-divergence Incident `_VALID_TRANSITIONS` ⇄ workflow JSON (CR-WF-12, Round 12) — RED→GREEN
 
-- **File / class:** `assetcore/tests/test_imm12.py::TestIncidentAllowedTransitions` (mirror `TestRCAAllowedTransitions:2739`). Import `_VALID_TRANSITIONS` từ service; load `imm_12_incident_workflow.json`.
+- **File / class:** `assetcore/tests/imm12/test_imm12.py::TestIncidentAllowedTransitions` (mirror `TestRCAAllowedTransitions:2739`). Import `_VALID_TRANSITIONS` từ service; load `imm_12_incident_workflow.json`.
 - **Build:** `WF = {(t["state"], t["next_state"]) for t in workflow["transitions"]}` (dedupe theo cặp, bỏ chiều role); `SVC = {(f, t) for f, tos in _VALID_TRANSITIONS.items() for t in tos}`; `EXCEPTION_EDGES = {("RCA Required", "Closed")}`.
 - **`test_ssot_map_matches_spec`** — assert `_VALID_TRANSITIONS` khớp verbatim đặc tả đã fix: `Open→[Acknowledged,Cancelled]`, `Acknowledged→[In Progress,Cancelled]`, `In Progress→[Resolved,Cancelled]` (**KHÔNG có RCA Required** — drift b), `Resolved→[Closed,RCA Required,In Progress]` (**CÓ In Progress** — drift a fixed).
 - **`test_inv1_service_subset_workflow`** (INV-1) — assert `SVC <= WF`. *RED trước fix: `("In Progress","RCA Required")` ∈ `SVC \ WF`.*
 - **`test_inv2_workflow_subset_service_or_exception`** (INV-2) — assert `WF <= SVC | EXCEPTION_EDGES`. *RED trước fix: `("Resolved","In Progress")` ∈ `WF \ (SVC ∪ EXCEPTION)`.*
 - **`test_codomain_within_canonical_states`** — mọi state trong `SVC` ⊆ 7 state chuẩn.
 - **`test_get_incident_detail_emits_allowed_transitions`** — với incident ở mỗi status, `get_incident_detail(name)["allowed_transitions"] == _VALID_TRANSITIONS.get(status, [])`; đặc biệt status=`Resolved` → chứa `"In Progress"` (reopen surface).
-- **Non-regression:** KHÔNG đụng workflow JSON ⇒ `TestWorkflowAdminOverride` (`test_workflow_admin_override.py`) GIỮ GREEN (Super Admin vẫn phủ mọi transition-group). `bench --site miyano run-tests --module assetcore.tests.test_imm12` + `--module assetcore.tests.test_workflows` in `Ran N OK` THẬT (đọc dòng cuối, không false-green).
+- **Non-regression:** KHÔNG đụng workflow JSON ⇒ `TestWorkflowAdminOverride` (`test_workflow_admin_override.py`) GIỮ GREEN (Super Admin vẫn phủ mọi transition-group). `bench --site miyano run-tests --module assetcore.tests.imm12.test_imm12` + `--module assetcore.tests.guards.test_workflows` in `Ran N OK` THẬT (đọc dòng cuối, không false-green).
 
 **TC reopen behavior (`TestIncidentReopen`, mirror `TestRCAStartTransition`):**
 - `TC-12-REOPEN-01` — Resolved → In Progress OK; return `{name, status:"In Progress"}`; audit IMM Audit Trail 1 record `from="Resolved" to="In Progress"` change_summary chứa "Mở lại điều tra".
@@ -264,7 +264,7 @@ Fixture trong `setUp` phải có cleanup — xem `assetcore-test` LL-TEST-17.
 - **RED-before:** trước fix, `TC-12-RCA-REPLACE-01/03` FAIL (`create_rca`/`request_rca` raise 409 hoặc reuse hồ sơ Cancelled); sau đổi `if _has_live_rca(doc)` → GREEN. `TC-12-RCA-REPLACE-02` (regression) phải GREEN cả trước-lẫn-sau (bất biến idempotent).
 
 > **Invariant / non-regression (BR-12-24):** `request_rca` **KHÔNG đổi `_VALID_TRANSITIONS` / `imm_12_incident_workflow.json`** (state edge `Resolved→RCA Required` đã reconciled Round 12) ⇒ `TestIncidentAllowedTransitions` (§III.4.a, INV-1/INV-2) GIỮ GREEN + `TestWorkflowAdminOverride` **22/22** GREEN. `test_get_incident_detail_emits_allowed_transitions` (§III.4.a) vốn đã assert `Resolved.allowed_transitions ⊇ {'RCA Required'}` — round này bổ **driver THẬT** (endpoint), KHÔNG đổi assert. **RED-before demo (bắt buộc):** TRƯỚC khi thêm `request_rca` (endpoint chưa tồn tại) → `TC-12-REQRCA-01` FAIL (`AttributeError`/404: CTA advertise `'RCA Required'` nhưng gọi `request_rca` fail) → sau khi thêm → GREEN. Cap ⊆ workflow: assert role-set `compliance.submit` (DocPerm submit `IMM CAPA Record`, resolve ĐỘNG qua `rbac.CAPABILITY_MAP`) ⊆ workflow "Yêu cầu RCA" allowed → KHÔNG false-clickable.
-> **DoD:** `bench --site miyano run-tests --module assetcore.tests.test_imm12` → `Ran N OK` THẬT (đọc dòng cuối, KHÔNG false-green) · `--module assetcore.tests.test_workflows` → `Ran N OK` (admin-override 22/22) · FE `vitest` `IncidentDetailView.requestRca.test.ts` xanh (gating server-driven: cap ∧ status ∧ allowed_transitions; dead-control reason==param; required-reason disable) · live: Compliance Manager mở Incident Resolved THẤY + BẤM được "Yêu cầu phân tích RCA" → refetch stepper nhánh RCA Required + badge cập nhật. **KHÔNG git commit/push — working tree để USER duyệt.**
+> **DoD:** `bench --site miyano run-tests --module assetcore.tests.imm12.test_imm12` → `Ran N OK` THẬT (đọc dòng cuối, KHÔNG false-green) · `--module assetcore.tests.guards.test_workflows` → `Ran N OK` (admin-override 22/22) · FE `vitest` `IncidentDetailView.requestRca.test.ts` xanh (gating server-driven: cap ∧ status ∧ allowed_transitions; dead-control reason==param; required-reason disable) · live: Compliance Manager mở Incident Resolved THẤY + BẤM được "Yêu cầu phân tích RCA" → refetch stepper nhánh RCA Required + badge cập nhật. **KHÔNG git commit/push — working tree để USER duyệt.**
 
 ### RCA workflow (`imm_12_rca_workflow.json` / `fixtures/workflow.json` "IMM-12 RCA Workflow") — dual-track với endpoint (Round 9)
 | Transition (action) | From → To | Endpoint | Cap gate | Allowed roles (fixture) | Trạng thái |
@@ -278,13 +278,13 @@ Fixture trong `setUp` phải có cleanup — xem `assetcore-test` LL-TEST-17.
 
 #### III.4.b. Guard desk↔endpoint parity RCA workflow (CR-WF-12-RCA, Round 30) — RED→GREEN
 
-- **File / class:** `assetcore/tests/test_imm12.py::TestRcaWorkflowParity` (mirror `TestIncidentAllowedTransitions` §III.4.a + incident guard `test_imm12.py:3095`). Import `_RCA_VALID_TRANSITIONS` + `rbac` từ service; load `imm_12_rca_workflow.json` + `fixtures/workflow.json` "IMM-12 RCA Workflow".
+- **File / class:** `assetcore/tests/imm12/test_imm12.py::TestRcaWorkflowParity` (mirror `TestIncidentAllowedTransitions` §III.4.a + incident guard `test_imm12.py:3095`). Import `_RCA_VALID_TRANSITIONS` + `rbac` từ service; load `imm_12_rca_workflow.json` + `fixtures/workflow.json` "IMM-12 RCA Workflow".
 - **INV-RCA-PARITY-A** (`test_inv_a_ssot_matches_workflow_codomain`) — build `WF_CODOMAIN = {state: {t["next_state"] for t in tr if t["state"]==state}}` từ workflow-JSON; assert `== {k: set(v) for k,v in _RCA_VALID_TRANSITIONS.items()}` EXACT (`RCA Required→{RCA In Progress,Cancelled}`; `RCA In Progress→{Completed,Cancelled}`; `Completed→∅`; `Cancelled→∅`). *RED nếu map lệch JSON.*
 - **INV-RCA-PARITY-B** (`test_inv_b_desk_role_superset_endpoint_cap`) — resolve `roles_write = frappe.get_all("DocPerm", filters={"parent": rbac.CAPABILITY_MAP["corrective.write"][0], "write": 1}, pluck="role")` (ĐỘNG, KHÔNG hardcode); `required = set(roles_write) | {"AssetCore Super Admin", "System Manager"}`; ∀ action ∈ {Bắt đầu phân tích RCA, Hoàn thành RCA, Hủy RCA}: `allowed_set = {t["allowed"] for t in tr if t["action"]==action}`; assert `required <= allowed_set`. **RED trước fix**: Start/Complete `allowed_set` thiếu `Corrective Manager` → `required - allowed_set == {"Corrective Manager"}` ≠ ∅. **GREEN sau fix.**
 - **INV-RCA-PARITY-C** (`test_inv_c_fixture_equals_source`) — `src = {(t["state"],t["action"],t["next_state"],t["allowed"]) for t in source_json["transitions"]}`; `fx = {…}` từ `fixtures/workflow.json` block "IMM-12 RCA Workflow"; assert `src == fx`.
-- **RED-before demo (bắt buộc trong QA):** gỡ TẠM 1 row `Corrective Manager` (vd "Bắt đầu phân tích RCA") khỏi source+fixture → chạy `bench --site miyano run-tests --module assetcore.tests.test_imm12` → **INV-RCA-PARITY-B FAIL đúng chỗ** (`{'Corrective Manager'}` uncovered cho action Start) → restore → **GREEN**.
+- **RED-before demo (bắt buộc trong QA):** gỡ TẠM 1 row `Corrective Manager` (vd "Bắt đầu phân tích RCA") khỏi source+fixture → chạy `bench --site miyano run-tests --module assetcore.tests.imm12.test_imm12` → **INV-RCA-PARITY-B FAIL đúng chỗ** (`{'Corrective Manager'}` uncovered cho action Start) → restore → **GREEN**.
 - **Non-regression:** chỉ THÊM role vào transition-group đã có (KHÔNG xoá / KHÔNG tạo group mới) ⇒ `test_workflows` admin-override (Super Admin + System Manager, **22/22**) GIỮ GREEN. `_RCA_VALID_TRANSITIONS` (runtime) KHÔNG đổi ⇒ `TestRCAAllowedTransitions` + `RCADetailView.ctaGating.test.ts` KHÔNG regress.
-- **DoD:** `bench --site miyano run-tests --module assetcore.tests.test_imm12` → `Ran N OK` THẬT (đọc dòng cuối, không false-green) · `--module assetcore.tests.test_workflows` → `Ran N OK` (admin-override 22/22) · live: user role Corrective Manager mở phiếu RCA ở desk THẤY + BẤM được "Bắt đầu/Hoàn thành" (sau `backfill_workflow_admin.run` / fixture re-import — KHÔNG `bench migrate`). **KHÔNG git commit/push — working tree để USER duyệt.**
+- **DoD:** `bench --site miyano run-tests --module assetcore.tests.imm12.test_imm12` → `Ran N OK` THẬT (đọc dòng cuối, không false-green) · `--module assetcore.tests.guards.test_workflows` → `Ran N OK` (admin-override 22/22) · live: user role Corrective Manager mở phiếu RCA ở desk THẤY + BẤM được "Bắt đầu/Hoàn thành" (sau `backfill_workflow_admin.run` / fixture re-import — KHÔNG `bench migrate`). **KHÔNG git commit/push — working tree để USER duyệt.**
 
 ### FE gating test (Round 9, AC7)
 - **File:** `frontend/src/views/incident/tests/RCADetailView.ctaGating.test.ts` (vitest). Mount `RCADetailView` với các combo `(status, allowed_transitions, can_manage_rca)`: (a) `RCA Required`+`can_manage=1` → chỉ "Bắt đầu phân tích RCA"+"Hủy RCA"; (b) `RCA In Progress` → "Hoàn thành RCA"+"Hủy RCA"; (c) `Completed`/`Cancelled` (`allowed_transitions=[]`) → KHÔNG nút action; (d) `can_manage_rca=0` → nút disabled/ẩn; (e) badge = `rcaStatusLabel(status)` VI đầy đủ, KHÔNG lộ mã thô; (f) KHÔNG còn `rca.status === 'X'` gate action. `vue-tsc` sạch.
@@ -323,7 +323,7 @@ Fixture trong `setUp` phải có cleanup — xem `assetcore-test` LL-TEST-17.
 
 ## III.6. API test
 
-**File:** `assetcore/tests/test_imm12.py` (API layer — 14 endpoint LIVE). Cover: happy + envelope `success=true`, invalid params → `VALIDATION`, no permission → 403/`FORBIDDEN`, pagination, idempotent retry.
+**File:** `assetcore/tests/imm12/test_imm12.py` (API layer — 14 endpoint LIVE). Cover: happy + envelope `success=true`, invalid params → `VALIDATION`, no permission → 403/`FORBIDDEN`, pagination, idempotent retry.
 
 | Test | Endpoint | Verify | Kỹ thuật | Trạng thái |
 |---|---|---|---|---|
@@ -385,9 +385,9 @@ UAT data phải thực tế (tên bệnh viện VN, mã NCC chuẩn). Backend fi
 
 ```bash
 # Module test (file đã tồn tại ✅)
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm12
+bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.imm12.test_imm12
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm12 && coverage report
+coverage run -m unittest assetcore.tests.imm12.test_imm12 && coverage report
 # Full suite (CI)
 bench --site assetcore.local run-tests --app assetcore --coverage
 ```
@@ -880,7 +880,7 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 ## VIII. CR-74 — Read-gate CHI TIẾT (getIncident) · bộ TC bắt buộc (2026-07-25)
 
 > Spec: [`05_API_Specification.md` §21](./05_API_Specification.md) · SSoT: [ADR-IMM00-LIST-SCOPE §9](../imm-00/ADR-IMM00-LIST-SCOPE.md).
-> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm12` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
+> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.imm12.test_imm12` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
 
 ### VIII.1 Fixture tối thiểu (dựng 1 lần, dùng chung 6 TC)
 
@@ -922,7 +922,7 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 ## IX. AC-CR-83 — `submit_rca` hết thoát envelope thành HTTP-417 · bộ TC bắt buộc (2026-07-27)
 
 > Hợp đồng: [`05_API_Specification.md §22`](./05_API_Specification.md) · code-shape: [`04_Backend_Design.md §4.3`](./04_Backend_Design.md) · FE: [`06_Frontend_Design.md §7.1`](./06_Frontend_Design.md).
-> Bộ này **phải** land cùng application code ở Bước-4. Chạy: `bench --site miyano run-tests --module assetcore.tests.test_imm12` (⚠️ timeout tool ≥ 600000ms — kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ **đỏ giả**).
+> Bộ này **phải** land cùng application code ở Bước-4. Chạy: `bench --site miyano run-tests --module assetcore.tests.imm12.test_imm12` (⚠️ timeout tool ≥ 600000ms — kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ **đỏ giả**).
 
 ### IX.1 Fixture tối thiểu
 
@@ -977,13 +977,13 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 
 | Bộ | Lệnh | Kết quả verbatim |
 |---|---|---|
-| BE IMM-12 | `bench --site miyano run-tests --module assetcore.tests.test_imm12` | **Ran 198 tests … OK** |
-| Guard hợp đồng | `… --module assetcore.tests.test_mobile_oas` | **Ran 999 tests … OK** |
-| Guard docset | `… --module assetcore.tests.test_mobile_docset` | **Ran 9 tests … OK** |
+| BE IMM-12 | `bench --site miyano run-tests --module assetcore.tests.imm12.test_imm12` | **Ran 198 tests … OK** |
+| Guard hợp đồng | `… --module assetcore.tests.guards.test_mobile_oas` | **Ran 999 tests … OK** |
+| Guard docset | `… --module assetcore.tests.guards.test_mobile_docset` | **Ran 9 tests … OK** |
 | Coupling BE↔FE | `python3 scripts/gen_fe_messages.py --check` | **OK — 149 MSG / 149 MESSAGES, 0 drift** |
 | Không regress lân cận | `test_imm16` · `test_workflows` · `test_capa_open_sot` · `test_notification_framework` · `test_imm12_notify` | **112 / 11 / 5 / 19 / 12 OK** |
 
-**Ánh xạ TC → tên hàm đã land** (`assetcore/tests/test_imm12.py`, 2 class `TestRcaSubmitEnvelope` + `TestRcaValidatorSsot`):
+**Ánh xạ TC → tên hàm đã land** (`assetcore/tests/imm12/test_imm12.py`, 2 class `TestRcaSubmitEnvelope` + `TestRcaValidatorSsot`):
 
 | TC (§IX.2) | Hàm test |
 |---|---|
@@ -1019,6 +1019,6 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 
 ### IX.6 Guard hợp đồng (đã XANH ở Bước-2, Bước-4 lật `cr83_d` → `cr83_g`)
 
-`assetcore/tests/test_mobile_oas.py::TestMobileSubmitRcaContract` `cr83_a..g` (7 TC sau Bước-4) — **999 OK**; `test_mobile_docset` — **9 OK**. Mutation-verified ×3 ở Bước-2 (rot cite ⇒ `cr83_e` đỏ · lọt `corrective_action_summary` vào body ⇒ `cr83_b` đỏ · thêm slot `422` ⇒ `cr83_c` đỏ; hoàn nguyên ⇒ xanh).
+`assetcore/tests/guards/test_mobile_oas.py::TestMobileSubmitRcaContract` `cr83_a..g` (7 TC sau Bước-4) — **999 OK**; `test_mobile_docset` — **9 OK**. Mutation-verified ×3 ở Bước-2 (rot cite ⇒ `cr83_e` đỏ · lọt `corrective_action_summary` vào body ⇒ `cr83_b` đỏ · thêm slot `422` ⇒ `cr83_c` đỏ; hoàn nguyên ⇒ xanh).
 
 > ✅ **Bước-4 ĐÃ LÀM:** `cr83_d` (nay chỉ khoá doc-layer) + `cr83_g` MỚI parity đầy đủ 5/5 mã ∈ registry LIVE (`http_status` 422 ×4 field-level, 409 cho `IMM12-RCA-ALREADY-COMPLETED`, `template` khác rỗng) ⇒ `_EXPECTED_TEST_COUNT` **999** · `_GUARD_SUITE_EXPECTED['test_mobile_oas.py']` **999** · `_GUARD_SUITE_SUM` **1142** · `_MOBILE_OAS_TOTAL` **1168** · `cr83_submit_rca_envelope_delta` **7**. Cite `services/imm12.py` trong OAS đã refresh (predicate + pre-check làm dịch dòng) ⇒ `cr83_e` XANH.

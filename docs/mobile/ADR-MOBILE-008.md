@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | Decision-B (closed-schema oneOf, KHÔNG discriminator) · C7 (200 oneOf [Env, Error] read-path) · A16 (tách 401 expired-bearer vs 403 guest/no-token/thiếu-cap) · C4 (`openid_profile`/`getUserInfo` status-set {200,401} exempt symmetry) · Open#1 (Check-field → `integer enum[0,1]`) |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/layout.py`). Contract: [`04-api-contract.md §8.19`](./04-api-contract.md). Guard: `assetcore/tests/test_mobile_oas.py::TestMobileGetUserContextContract`.
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/layout.py`). Contract: [`04-api-contract.md §8.19`](./04-api-contract.md). Guard: `assetcore/tests/guards/test_mobile_oas.py::TestMobileGetUserContextContract`.
 
 ---
 

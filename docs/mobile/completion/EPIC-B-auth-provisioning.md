@@ -32,7 +32,7 @@
 |---|---|---|---|---|
 | 1 | `preflight.verify_oauth_client()` `ready=True` | `bench --site miyano execute assetcore.api.mobile.preflight.verify_oauth_client` → `ready=true` | B1+B4 | **[HARD-STOP USER]** tạo record |
 | 2 | authorize→token→refresh→revoke + PKCE chạy trên cloud | smoke curl/httpie 6 bước ([`03 §1.3`](../03-auth-oauth2.md)) trên public HTTPS host | B2 | **[HARD-STOP USER]** reload+host |
-| 3 | device-token doctype tồn tại + self-scope | `bench --site miyano run-tests --module assetcore.tests.test_mobile_device_token` | B3 | **[AUTO impl]** + **[HARD-STOP USER]** migrate |
+| 3 | device-token doctype tồn tại + self-scope | `bench --site miyano run-tests --module assetcore.tests.mobile_device_token.test_mobile_device_token` | B3 | **[AUTO impl]** + **[HARD-STOP USER]** migrate |
 
 ### 1.3 Out-of-scope EPIC-B (đẩy sang EPIC khác — ghi RÕ)
 
@@ -84,7 +84,7 @@
 | 7 điều kiện B-1 | `client_count>=1` `:177-179` · `grant_type=='Authorization Code'` `:88` · `response_type=='Code'` `:96` · `default_redirect_uri==assetcore://oauth/callback ∈ redirect_uris` `:105` · `scopes=='all openid'` `:121` · `skip_authorization==0` `:129` · `allowed_roles` non-empty `:136` |
 | Chịu count==0 | `OAuth Client` count = **0** @site miyano → `ready=False` + blocker VI, **KHÔNG raise** `:181-190` |
 | Hằng kỳ vọng | `EXPECTED_REDIRECT_URI="assetcore://oauth/callback"` `:54` · `EXPECTED_SCOPES="all openid"` `:56` · `EXPECTED_GRANT_TYPE="Authorization Code"` `:57` · `EXPECTED_RESPONSE_TYPE="Code"` `:58` |
-| Drift-guard test | `assetcore/tests/test_mobile_preflight.py` TC-MOB-PRE-01..09 (`:59-191`): field exist `:59` · grant options `:68` · response options `:79` · reqd `:89` · allowed_roles child `:96` · report shape `:116` · count==0 no-raise `:131` · 7 conditions `:150` · read-only no-write `:191` |
+| Drift-guard test | `assetcore/tests/guards/test_mobile_preflight.py` TC-MOB-PRE-01..09 (`:59-191`): field exist `:59` · grant options `:68` · response options `:79` · reqd `:89` · allowed_roles child `:96` · report shape `:116` · count==0 no-raise `:131` · 7 conditions `:150` · read-only no-write `:191` |
 | Ngoài hợp đồng app | Verifier KHÔNG vào `openapi/assetcore-mobile.openapi.yaml` (admin-only diagnostic — `12 §0.4`) |
 
 ### 3.3 Provisioning AUTO = KHÔNG có (runbook thủ công + preflight gate)
@@ -120,7 +120,7 @@
 - **Files (Modify):** `docs/mobile/completion/EPIC-B-auth-provisioning.md` (file này, §3.2/§3.3/B1) — TRỎ NGƯỢC `10 §1` + `03 §4` + `12`, KHÔNG nhân đôi bảng field.
 - **Files (KHÔNG tạo):** không tạo fixture/patch/helper-write — quyết định giữ thủ công (§3.3).
 - **Acceptance:**
-  - `bench --site miyano run-tests --module assetcore.tests.test_mobile_preflight` → TC-MOB-PRE-01..26 xanh (`Ran 26 tests ... OK`): drift-guard 7 điều kiện + count==0 no-raise + read-only (01..09) **+ doc-value parity F-B3 (10..13)** **+ report-shape doc↔code F-B4 (14..17)** **+ blocker-VI remediation F-B5 (18..21)** **+ count-self-verify meta-guard F-B6 (22)** **+ stale-line-ref reconciliation §3.4 F-B7 (`TC-MOB-PRE-23a..d`, analog F-C4 `test_mob_oas_29c`)** (`_EXPECTED_PREFLIGHT_TEST_COUNT=26` SSoT đầu module — thêm/bớt TC quên cập const = RED ngay).
+  - `bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_preflight` → TC-MOB-PRE-01..26 xanh (`Ran 26 tests ... OK`): drift-guard 7 điều kiện + count==0 no-raise + read-only (01..09) **+ doc-value parity F-B3 (10..13)** **+ report-shape doc↔code F-B4 (14..17)** **+ blocker-VI remediation F-B5 (18..21)** **+ count-self-verify meta-guard F-B6 (22)** **+ stale-line-ref reconciliation §3.4 F-B7 (`TC-MOB-PRE-23a..d`, analog F-C4 `test_mob_oas_29c`)** (`_EXPECTED_PREFLIGHT_TEST_COUNT=26` SSoT đầu module — thêm/bớt TC quên cập const = RED ngay).
   - Runbook [`10 §1`](../10-deploy-ops.md) step 1 liệt kê đủ 7 field khớp [`03 §4`](../03-auth-oauth2.md) (KHÔNG nhân đôi — TRỎ NGƯỢC). **(F-B3) Nay MACHINE-CHECKED:** `TestMobilePreflightDocValueParity` (`TC-MOB-PRE-10..13`) scan raw-text 4 hằng `preflight.EXPECTED_*` + `skip_authorization=0` xuất hiện nguyên-văn ở CẢ `03 §4` VÀ `10 §1` step1 ⇒ runbook drift khỏi field-spec = test ĐỎ (3-source value-constant drift-guard, STDLIB-only, no-DB).
 - **Owner:** BA · **Tag:** `[AUTO]` (doc + test read-only) · phần TẠO record = **[HARD-STOP USER]** (xem B4).
 - **Dependencies:** none (∥ EPIC-C). Cung cấp gate cho B4.
@@ -132,7 +132,7 @@
 - **Files (Modify):** `docs/mobile/completion/EPIC-B-auth-provisioning.md` (§3.1 + B2) — TRỎ NGƯỢC `03 §1/§2/§2.3.1`, KHÔNG re-litigate.
 - **Files (KHÔNG sửa):** `frappe/integrations/oauth2.py` · `frappe/oauth.py` (core — WIRE-not-write, ADR-MOBILE-001 a).
 - **Acceptance:**
-  - `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` → `TC-MOB-OAUTH-TOKEN-01..05` xanh (passthrough `OAuthError400` 200-keys/400/revoke-empty guard).
+  - `bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas` → `TC-MOB-OAUTH-TOKEN-01..05` xanh (passthrough `OAuthError400` 200-keys/400/revoke-empty guard).
   - **(F-B2) Nay MACHINE-CHECKED:** `TestMobileRefreshOn401DocGuard` (`TC-MOB-OAS-30a..d`, 4 TC) raw-text scan invariant refresh-on-401 hiện diện nguyên-văn ở CẢ `03 §2.5` (policy 401→refresh `grant_type=refresh_token` MỘT lần→retry + fail re-auth + "KHÔNG vòng lặp refresh vô hạn") · `03 §2.6` (block sequence 3-bước: 401 dispatcher RAW → get_token refresh → retry access MỚI) · `04 §9d(n)` (curl 3-bước + quy tắc "refresh MỘT lần → retry → fail re-auth") + cross-file `grant_type=refresh_token` parity (≥1 hit mỗi file) ⇒ xoá block §9d HOẶC đổi `grant_type=refresh_token→authorization_code` = test ĐỎ (RED-before string-mutate, STDLIB-only, no-DB). Thay one-time grep B-A4 bằng guard chạy mỗi suite.
   - **[HARD-STOP USER cloud]** smoke trên public HTTPS host: `http --form POST https://$HOST/api/method/frappe.integrations.oauth2.get_token grant_type=refresh_token refresh_token=$RT` → 200 `{access_token,...}` mới (KHÔNG bắt login lại) — sequence [`03 §1.3 (e)`](../03-auth-oauth2.md).
 - **Owner:** BA · **Tag:** `[AUTO]` (doc + test read-only); smoke cloud = **[HARD-STOP USER]** (cần host + reload).
@@ -148,14 +148,14 @@
   - `assetcore/assetcore/doctype/ac_mobile_device_token/ac_mobile_device_token.py` (controller delegate)
   - `assetcore/services/mobile_device_token.py` (`register_device_token(*, fcm_token, platform, device_label='', app_version='')` ÉP `user=session.user`, UPSERT dedup; `unregister_device_token(fcm_token)` set enabled=0 giữ audit; `invalidate_token(fcm_token)`; gọi `log_audit_event`)
   - `assetcore/api/mobile/v1/__init__.py` (handler `register/unregister_device_token`, `@whitelist methods=[POST]` KHÔNG allow_guest, function-name = operationId)
-  - `assetcore/tests/test_mobile_device_token.py` (upsert dedup · ÉP user=session spoof-chặn · self-scope · unregister enabled=0 · invalidate)
+  - `assetcore/tests/mobile_device_token/test_mobile_device_token.py` (upsert dedup · ÉP user=session spoof-chặn · self-scope · unregister enabled=0 · invalidate)
 - **Files (Modify):**
   - `assetcore/hooks.py` — thêm `AC Mobile Device Token` vào `permission_query_conditions` (self-scope) + `has_permission` (vendor isolation `_VENDOR_ROLE` pattern `permissions.py:46/90/188`). **Same-commit wiring gate** (định nghĩa gate → cùng commit wire hooks).
-  - `assetcore/tests/test_mobile_oas.py` — gỡ 2 path `register/unregister_device_token` khỏi `_STUB_PATHS` (`:108-109`); update `_EXPECTED`/names-frozen (`:641`); assert requestBody `DeviceTokenRequest` typed.
+  - `assetcore/tests/guards/test_mobile_oas.py` — gỡ 2 path `register/unregister_device_token` khỏi `_STUB_PATHS` (`:108-109`); update `_EXPECTED`/names-frozen (`:641`); assert requestBody `DeviceTokenRequest` typed.
   - `docs/mobile/openapi/assetcore-mobile.openapi.yaml` — bồi `DeviceTokenRequest{fcm_token,platform,device_label?,app_version?}` requestBody (oneOf json+form) + response 200 typed cho 2 path (gỡ STUB).
 - **Acceptance:**
-  - `bench --site miyano run-tests --module assetcore.tests.test_mobile_device_token` → xanh (upsert dedup + spoof-chặn + self-scope + unregister enabled=0 + invalidate).
-  - `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` → xanh (2 STUB rời, `DeviceTokenRequest` typed, names-frozen INTACT).
+  - `bench --site miyano run-tests --module assetcore.tests.mobile_device_token.test_mobile_device_token` → xanh (upsert dedup + spoof-chặn + self-scope + unregister enabled=0 + invalidate).
+  - `bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas` → xanh (2 STUB rời, `DeviceTokenRequest` typed, names-frozen INTACT).
   - **[HARD-STOP USER]** `bench migrate` (tạo DocType) — SAU đó endpoint live HTTP cần `bench restart`/reload (gunicorn --preload).
 - **Owner:** BA chốt spec/yaml + BE impl DocType/service/api/test · **Tag:** `[AUTO impl]` (code chờ deploy) + **[HARD-STOP USER]** (`bench migrate` tạo DocType + reload).
 - **Dependencies:** B2 (register cần bearer→set_user — chưa e2e xác nhận OAuth bearer reach `api/mobile/v1`). CHẶN **EPIC-D** (kênh #3 push cần device-token registry). Impl chi tiết kênh #3/FCM sender = EPIC-D (KHÔNG thuộc B3).

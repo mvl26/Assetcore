@@ -29,7 +29,7 @@
 - FE store: `frontend/src/stores/imm03.ts` (78 LOC, Composition API).
 - FE API: `frontend/src/api/imm03.ts` (139 LOC).
 - FE views: `frontend/src/views/procurement/{VendorProfile,VendorEval,Avl,Decision}{List,Detail}View.vue` (7 views LIVE).
-- Tests: `assetcore/tests/test_imm03.py` (5 class pure-Python, KHÔNG mở DB).
+- Tests: `assetcore/tests/imm03/test_imm03.py` (5 class pure-Python, KHÔNG mở DB).
 
 ## 3. Verified fixes vs prior-pass flags
 

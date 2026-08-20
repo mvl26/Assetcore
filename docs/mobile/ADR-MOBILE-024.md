@@ -9,7 +9,7 @@
 | **Status** | **Accepted** |
 | Bám quyết định | **ADR-MOBILE-001** (Decision-B route-by-VALUE `body.success`, Error envelope HTTP-200, 0 discriminator) · **device-token (EPIC-D D4)** (mobile.v1 self-service bearer-gated: slot `{200,401,403}`, ∉ `_MVP_BUSINESS_PATHS`/c5, re-export path-resolvability) · Core Doc IMM-00 [`04_Backend_Design.md`](../imm-00/04_Backend_Design.md) + [`05_API_Specification.md`](../imm-00/05_API_Specification.md) · [`03-auth-oauth2.md`](./03-auth-oauth2.md) (self-service profile) |
 
-> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/mobile/v1/profile.py:78-181`, `assetcore/api/mobile/v1/__init__.py`, `assetcore/api/auth.py:24,310`, `assetcore/api/user.py` (`change_my_password`), `assetcore/utils/response.py` (`_ok`/`_err`/`ErrorCode`), `assetcore/tests/test_mobile_oas.py`, `assetcore/tests/test_mobile_docset.py`). Contract mirror: [`openapi/assetcore-mobile.openapi.yaml`](./openapi/assetcore-mobile.openapi.yaml). Narrative: [`04-api-contract.md`](./04-api-contract.md) (§8.30 Account/Profile).
+> Mọi claim kỹ thuật trích dẫn evidence `file:line` đã VERIFY tại source (`assetcore/api/mobile/v1/profile.py:78-181`, `assetcore/api/mobile/v1/__init__.py`, `assetcore/api/auth.py:24,310`, `assetcore/api/user.py` (`change_my_password`), `assetcore/utils/response.py` (`_ok`/`_err`/`ErrorCode`), `assetcore/tests/guards/test_mobile_oas.py`, `assetcore/tests/guards/test_mobile_docset.py`). Contract mirror: [`openapi/assetcore-mobile.openapi.yaml`](./openapi/assetcore-mobile.openapi.yaml). Narrative: [`04-api-contract.md`](./04-api-contract.md) (§8.30 Account/Profile).
 
 ---
 

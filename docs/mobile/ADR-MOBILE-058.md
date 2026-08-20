@@ -103,7 +103,7 @@ Handler bare `@frappe.whitelist()` @`:166` KHÔNG `allow_guest`, KHÔNG `rbac.re
 
 ### (g) CONTRACT-ONLY — 0 `.py`/reload/migrate
 
-`get_repair_kpis` + `get_kpis` **ĐÃ LIVE** @source ⇒ `git diff` round này = CHỈ `docs/mobile/*` (yaml + ADR-058 + README + 04-api-contract) + `docs/imm-09/*` (Core Doc binding) + `assetcore/tests/test_mobile_oas.py` + `assetcore/tests/test_mobile_docset.py` (guard). **0** file `.py` runtime, **0** gunicorn reload (KHÔNG HARD-STOP USER — `[AUTO]`), **0** `bench migrate`.
+`get_repair_kpis` + `get_kpis` **ĐÃ LIVE** @source ⇒ `git diff` round này = CHỈ `docs/mobile/*` (yaml + ADR-058 + README + 04-api-contract) + `docs/imm-09/*` (Core Doc binding) + `assetcore/tests/guards/test_mobile_oas.py` + `assetcore/tests/guards/test_mobile_docset.py` (guard). **0** file `.py` runtime, **0** gunicorn reload (KHÔNG HARD-STOP USER — `[AUTO]`), **0** `bench migrate`.
 
 ---
 

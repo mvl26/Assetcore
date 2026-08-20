@@ -1,0 +1,9 @@
+{ "skill_name": "assetcore-session",
+  "trigger": {
+    "positive": [
+      { "prompt": "tiếp tục phiên trước, đang dở ở đâu", "top_k": 2 },
+      { "prompt": "lưu context bàn giao checkpoint cho phiên sau", "top_k": 2 }
+    ],
+    "negative": [
+      { "prompt": "commit code rồi push", "owner": "assetcore-commit" }
+    ] } }

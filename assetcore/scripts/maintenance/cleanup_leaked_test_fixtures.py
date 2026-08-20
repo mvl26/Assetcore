@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import frappe
 
-from assetcore.tests._asset_cleanup import purge_asset
+from assetcore.tests._helpers._asset_cleanup import purge_asset
 
 _ASSET_LIKE = ("%Test Asset IMM%", "\\_Test%")
 _PART_LIKE = ("%Test%IMM-15%", "\\_Test%", "Low Stock Part")

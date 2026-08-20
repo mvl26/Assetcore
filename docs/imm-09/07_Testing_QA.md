@@ -200,9 +200,9 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 
 ## III.2. Unit test — Service Layer
 
-> **Trạng thái thực tế**: test code hợp nhất trong **một file duy nhất** `assetcore/tests/test_imm09.py`. Hai class đã live: `TestSlaMatrix` (4 test), `TestRepairWOCreation` (8 test). Các class còn lại là kế hoạch (⬜ Planned) — split sang file riêng là mục tiêu refactor tương lai.
+> **Trạng thái thực tế**: test code hợp nhất trong **một file duy nhất** `assetcore/tests/imm09/test_imm09.py`. Hai class đã live: `TestSlaMatrix` (4 test), `TestRepairWOCreation` (8 test). Các class còn lại là kế hoạch (⬜ Planned) — split sang file riêng là mục tiêu refactor tương lai.
 
-**File**: `assetcore/tests/test_imm09.py`
+**File**: `assetcore/tests/imm09/test_imm09.py`
 
 | Test class | Function cover (I.1) | Kỹ thuật | Cases | Status |
 |---|---|---|---|---|
@@ -236,7 +236,7 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 | **TC-CM-SEED-06** *(backfill phiếu kẹt)* | Phiếu CM legacy `repair_checklist==[]`, `status` chưa đóng (vd `Pending Inspection`), `docstatus==0` | `backfill_repair_checklists(dry_run=0)` | trả `{scanned, backfilled>=1, ...}`; phiếu đó `len(repair_checklist)==6` (danh mục chuẩn); sau backfill `confirm_inspection` (điền Pass) submit được | AC5 |
 | **TC-CM-SEED-07** *(backfill idempotent + skip đã-đóng)* | (a) chạy backfill lần 2; (b) phiếu `Completed`/`Cancelled` hoặc đã có ≥1 dòng | `backfill_repair_checklists(dry_run=0)` ×2 | lần 2 `backfilled==0` (idempotent); phiếu Completed/Cancelled/có-dòng **KHÔNG** bị đụng (`len` giữ nguyên, không thêm) | AC5 |
 
-> **Mẹo thực thi (TestSeedChecklist):** dùng fixture Asset repairable (`lifecycle_status` cho phép → Under Repair). RED-first: viết TC-CM-SEED-01 (len==6) TRƯỚC khi thêm seed vào `create_work_order` ⇒ đỏ (len==0); implement seed ⇒ xanh. TC-CM-SEED-05 chứng minh `_apply_checklist` đi nhánh idx-update (không append) — assert `len` bất biến + category-preserve. Backfill test tạo phiếu 0-dòng qua `frappe.db.set_value`/`doc` trực tiếp (bypass seed) để mô phỏng legacy. Teardown `_asset_cleanup` + purge WO test (prefix `_Test CM-SEED%`). Module-isolated: `bench --site miyano run-tests --module assetcore.tests.test_imm09`.
+> **Mẹo thực thi (TestSeedChecklist):** dùng fixture Asset repairable (`lifecycle_status` cho phép → Under Repair). RED-first: viết TC-CM-SEED-01 (len==6) TRƯỚC khi thêm seed vào `create_work_order` ⇒ đỏ (len==0); implement seed ⇒ xanh. TC-CM-SEED-05 chứng minh `_apply_checklist` đi nhánh idx-update (không append) — assert `len` bất biến + category-preserve. Backfill test tạo phiếu 0-dòng qua `frappe.db.set_value`/`doc` trực tiếp (bypass seed) để mô phỏng legacy. Teardown `_asset_cleanup` + purge WO test (prefix `_Test CM-SEED%`). Module-isolated: `bench --site miyano run-tests --module assetcore.tests.imm09.test_imm09`.
 
 **TestAttachRepairChecklistPhoto — chi tiết test case (BR-09-15/16, mobile CR-15/G6):**
 
@@ -309,7 +309,7 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 | **TC-CM-SPARE-ALLOC-02** *(A3-b — persona THẬT, chống xanh giả)* | như trên; chạy bằng persona KTV (`AssetCore System User` + `Repair User`) | như trên | `allocation` **NON-NULL**. **Nếu đỏ vì `inventory.write`** ⇒ thực thi ADR-IMM09-SPARE-03 (kèm `test_imm15` vào DoD) **HOẶC** báo ngược [PM]. **CẤM** đổi test sang `Administrator` để né | A3-bis |
 | **TC-CM-SPARE-ALLOC-03** *(null hợp lệ)* | phụ tùng có `AC Spare Part` nhưng **không** có `AC Spare Part Stock` | `request_spare_parts(...)` | `success == true`, `allocation is None`, `updated` đúng; **0** `IMM Spare Allocation` mới | BR-09-22 |
 
-**Thực thi 2026-07-25 (BE Bước-4) — TC ↔ test method THẬT:** `assetcore/tests/test_imm09.py::TestSearchSparePartsIdentity` (TC-01 `test_search_spare_parts_distinguishes_by_device_model` · TC-02 `..._row_has_exact_13_string_keys` · TC-03 `..._legacy_10_keys_unchanged` + `..._short_query_returns_empty` · fallback-nhãn `..._device_model_name_fallback_to_id` · TC-04 `..._resolves_spare_part_by_manufacturer_part_no` · TC-05 `..._resolves_spare_part_fallback_by_part_name` · TC-06 `..._unmatched_resolves_to_empty_string` · TC-07 `..._no_n_plus_one`) · `::TestRequestSparePartsAllocation` (ALLOC-01 `test_request_spare_parts_creates_allocation_with_resolved_key` · **ALLOC-02** `..._creates_allocation_as_technician_persona` · ALLOC-03 `..._allocation_null_when_no_stock`) · `assetcore/tests/test_rowscope_docperm_gate.py::TestSearchSparePartsRoleGate` (08a `test_search_spare_parts_requires_read_on_device_model` · 08b `..._technician_persona_still_gets_results`) · `assetcore/tests/test_mobile_oas.py::TestMobileSearchSparePartItemIdentity` (6 TC `cr73a_a..f`, gồm **parity AST BE↔OAS** và **chống cite-rot**). ⚠️ **ALLOC-02 ĐỎ trước khi thực thi ADR-IMM09-SPARE-03** (dù E2 đã sửa) ⇒ K4 đã được thực thi trong vòng, `test_imm15` vào DoD.
+**Thực thi 2026-07-25 (BE Bước-4) — TC ↔ test method THẬT:** `assetcore/tests/imm09/test_imm09.py::TestSearchSparePartsIdentity` (TC-01 `test_search_spare_parts_distinguishes_by_device_model` · TC-02 `..._row_has_exact_13_string_keys` · TC-03 `..._legacy_10_keys_unchanged` + `..._short_query_returns_empty` · fallback-nhãn `..._device_model_name_fallback_to_id` · TC-04 `..._resolves_spare_part_by_manufacturer_part_no` · TC-05 `..._resolves_spare_part_fallback_by_part_name` · TC-06 `..._unmatched_resolves_to_empty_string` · TC-07 `..._no_n_plus_one`) · `::TestRequestSparePartsAllocation` (ALLOC-01 `test_request_spare_parts_creates_allocation_with_resolved_key` · **ALLOC-02** `..._creates_allocation_as_technician_persona` · ALLOC-03 `..._allocation_null_when_no_stock`) · `assetcore/tests/integration/test_rowscope_docperm_gate.py::TestSearchSparePartsRoleGate` (08a `test_search_spare_parts_requires_read_on_device_model` · 08b `..._technician_persona_still_gets_results`) · `assetcore/tests/guards/test_mobile_oas.py::TestMobileSearchSparePartItemIdentity` (6 TC `cr73a_a..f`, gồm **parity AST BE↔OAS** và **chống cite-rot**). ⚠️ **ALLOC-02 ĐỎ trước khi thực thi ADR-IMM09-SPARE-03** (dù E2 đã sửa) ⇒ K4 đã được thực thi trong vòng, `test_imm15` vào DoD.
 
 **Bẫy hạ-tầng test đã gặp (ghi lại để vòng sau không mất giờ):** (1) token fixture PHẢI **rời nhau** — đặt tên phụ tùng chứa token của TC khác (`NPLUS1<TOKEN>`) làm fixture TC này lọt vào `LIKE %TOKEN%` của TC kia ⇒ TC-01 "đúng 2 dòng" vỡ **theo thứ tự chạy**; (2) teardown phải xoá `AC Spare Part Stock` **TRƯỚC** `AC Spare Part` (Link) — sai thứ tự thì `LinkExistsError` bị nuốt ⇒ bản ghi rò sang lần chạy sau và **thắng** quy tắc `order_by name asc`; (3) fixture `IMM Device Model` phải idempotent (unique-guard model_name+manufacturer) vì `setUpClass` đổ giữa chừng sẽ không chạy `tearDownClass`; (4) 1 thiết bị chỉ được có 1 phiếu sửa chữa đang mở ⇒ ca persona cần **asset riêng**.
 
@@ -317,11 +317,11 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 
 **Mẹo thực thi:** teardown purge theo prefix `_Test Model VENT-%` (models) + `_Test SP-%` (`AC Spare Part`/`AC Spare Part Stock`) + WO test; dùng `frappe.set_user` cho 2 ca gate rồi `frappe.set_user("Administrator")` trong `finally`. User test tạo bằng helper sẵn có (`_ensure_user` kiểu `test_rowscope_docperm_gate.py:63-85`) — **KHÔNG** gán role bằng cách sửa Role Profile (sẽ ảnh hưởng user thật).
 
-**Suite phải XANH trong vòng (A9):** `bench --site miyano run-tests --module assetcore.tests.test_imm09` · `…test_mobile_oas` · `…test_mobile_docset` · `…test_rowscope_docperm_gate` · `npm run test -- CMCreateView` · `npx vue-tsc --noEmit`. Nếu thực thi ADR-IMM09-SPARE-03 ⇒ **thêm** `…test_imm15`. Nếu thực thi K3 (`"search_"` vào `_ENTRYPOINT_PREFIXES`) ⇒ **thêm** `…test_rowscope_scope_guard`.
+**Suite phải XANH trong vòng (A9):** `bench --site miyano run-tests --module assetcore.tests.imm09.test_imm09` · `…test_mobile_oas` · `…test_mobile_docset` · `…test_rowscope_docperm_gate` · `npm run test -- CMCreateView` · `npx vue-tsc --noEmit`. Nếu thực thi ADR-IMM09-SPARE-03 ⇒ **thêm** `…test_imm15`. Nếu thực thi K3 (`"search_"` vào `_ENTRYPOINT_PREFIXES`) ⇒ **thêm** `…test_rowscope_scope_guard`.
 
 ## III.3. Integration — DocType lifecycle
 
-**File**: `assetcore/tests/test_imm09.py` (hợp nhất — xem §III.2). Cover hook `validate / before_insert / on_submit / on_update_after_submit`.
+**File**: `assetcore/tests/imm09/test_imm09.py` (hợp nhất — xem §III.2). Cover hook `validate / before_insert / on_submit / on_update_after_submit`.
 
 | Test | Setup | Action | Assert | Kỹ thuật | Status |
 |---|---|---|---|---|---|
@@ -346,7 +346,7 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 
 > **RED-prove (BR-09-SOD):** bỏ SoD-check trong `confirm_inspection` ⇒ TC-CM-SOD-01 FAIL (A tự nghiệm thu submit được, KHÔNG Error). Đặt SoD-check TRƯỚC BAD_STATE ⇒ TC-CM-SOD-04 FAIL (WO In Repair trả FORBIDDEN thay vì BAD_STATE). Fail-closed thay fail-open ⇒ TC-CM-SOD-05 FAIL (legacy deadlock). GREEN khi đúng cả 3.
 >
-> **DoD (AC7):** `bench --site miyano run-tests --module assetcore.tests.test_imm09` XANH THẬT (Ran N OK). **KHÔNG curl** — gunicorn `--preload` stale tới khi USER reload (chạm `services/imm09.py` + `utils/messages.py`). Đây là **application-code** ⇒ bàn giao [BE] implement + verify.
+> **DoD (AC7):** `bench --site miyano run-tests --module assetcore.tests.imm09.test_imm09` XANH THẬT (Ran N OK). **KHÔNG curl** — gunicorn `--preload` stale tới khi USER reload (chạm `services/imm09.py` + `utils/messages.py`). Đây là **application-code** ⇒ bàn giao [BE] implement + verify.
 
 > Fixture trong `setUpClass` phải có `tearDownClass` purge — xem skill `assetcore-test` LL-TEST-17.
 >
@@ -356,7 +356,7 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 
 ## III.4. Integration — Workflow transitions
 
-**File**: `assetcore/tests/test_imm09.py`. Workflow `IMM-09 Repair Workflow` (`workflow/imm_09_repair_workflow.json`) — **9 state, 15 transition** (verified `len(...['transitions']) == 15`). Roles thực trong JSON: `System Manager`, `Repair User`. **Bắt buộc** cover 100% transition.
+**File**: `assetcore/tests/imm09/test_imm09.py`. Workflow `IMM-09 Repair Workflow` (`workflow/imm_09_repair_workflow.json`) — **9 state, 15 transition** (verified `len(...['transitions']) == 15`). Roles thực trong JSON: `System Manager`, `Repair User`. **Bắt buộc** cover 100% transition.
 
 | # | Action | From → To | Role required | Test pass | Test fail (wrong role / gate) |
 |---|---|---|---|---|---|
@@ -388,7 +388,7 @@ Status: ⬜ Planned (chưa có test method trong `test_imm09.py` hiện tại).
 
 ## III.6. API test
 
-**File**: `assetcore/tests/test_imm09.py`. Cover: happy path + envelope `success=true`; invalid params; FORBIDDEN; pagination; idempotent retry.
+**File**: `assetcore/tests/imm09/test_imm09.py`. Cover: happy path + envelope `success=true`; invalid params; FORBIDDEN; pagination; idempotent retry.
 
 | Test | Endpoint (`api/imm09.py`) | Verify | Kỹ thuật | Status |
 |---|---|---|---|---|
@@ -414,7 +414,7 @@ Status: ⬜ Planned (chưa có test method trong `test_imm09.py` hiện tại).
 
 ### III.6-bis. Contract guard — OpenAPI mobile (CR-65, `repair_checklist[]` typed)
 
-**File**: `assetcore/tests/test_mobile_oas.py::TestMobileRepairChecklistItemTyped` — guard **tầng hợp đồng** (thuần-shape: đọc yaml + DocType json, **không** đụng DB/`.py` production). Xem spec: [`05_API_Specification.md` §3.2 + ADR-IMM09-CHECKLIST-WIRE-01](./05_API_Specification.md).
+**File**: `assetcore/tests/guards/test_mobile_oas.py::TestMobileRepairChecklistItemTyped` — guard **tầng hợp đồng** (thuần-shape: đọc yaml + DocType json, **không** đụng DB/`.py` production). Xem spec: [`05_API_Specification.md` §3.2 + ADR-IMM09-CHECKLIST-WIRE-01](./05_API_Specification.md).
 
 | TC | Verify | Kỹ thuật | Status |
 |---|---|---|---|
@@ -428,11 +428,11 @@ Status: ⬜ Planned (chưa có test method trong `test_imm09.py` hiện tại).
 
 > **RED-before (đo được):** xoá property `repair_checklist` hoặc schema `RepairChecklistItem` khỏi yaml ⇒ `cr65_a`/`cr65_b` FAIL. Khai `result.enum: [Pass, Fail, N/A]` ⇒ `cr65_e` FAIL (đúng lớp lỗi sẽ reject 100% phiếu CM mới seed `result=""`).
 >
-> **DoD:** `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` → **Ran 905 tests … OK** và `--module assetcore.tests.test_mobile_docset` → **Ran 9 tests … OK** (2026-07-25). Đổi số test PHẢI sync 4 counter: `_EXPECTED_TEST_COUNT` (+2 assert literal trong `test_mob_oas_cancelcal_j…`/`test_mob_oas_receivecert_j…`) @`test_mobile_oas.py`, và `_GUARD_SUITE_EXPECTED["test_mobile_oas.py"]` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL` + Δ transition-baseline @`test_mobile_docset.py`.
+> **DoD:** `bench --site miyano run-tests --module assetcore.tests.guards.test_mobile_oas` → **Ran 905 tests … OK** và `--module assetcore.tests.guards.test_mobile_docset` → **Ran 9 tests … OK** (2026-07-25). Đổi số test PHẢI sync 4 counter: `_EXPECTED_TEST_COUNT` (+2 assert literal trong `test_mob_oas_cancelcal_j…`/`test_mob_oas_receivecert_j…`) @`test_mobile_oas.py`, và `_GUARD_SUITE_EXPECTED["test_mobile_oas.py"]` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL` + Δ transition-baseline @`test_mobile_docset.py`.
 
 ### III.6-ter. Contract guard — OpenAPI mobile (CR-73a, `SearchSparePartItem` 10→13 prop) 🔴 Planned (Bước-4)
 
-**File**: `assetcore/tests/test_mobile_oas.py::TestMobileSearchSparePartItemIdentity` — guard **thuần-shape** (đọc yaml, KHÔNG đụng DB/`.py`). Spec: [`05_API_Specification.md §3.13-bis(8)`](./05_API_Specification.md).
+**File**: `assetcore/tests/guards/test_mobile_oas.py::TestMobileSearchSparePartItemIdentity` — guard **thuần-shape** (đọc yaml, KHÔNG đụng DB/`.py`). Spec: [`05_API_Specification.md §3.13-bis(8)`](./05_API_Specification.md).
 
 | TC (gợi ý) | Verify |
 |---|---|
@@ -479,11 +479,11 @@ Dùng cho flow UI khó cover bằng API: dropdown cascade (Asset → auto-fill r
 
 ```bash
 # Module test (tất cả trong một file)
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm09
+bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.imm09.test_imm09
 # Coverage
-coverage run -m unittest assetcore.tests.test_imm09 && coverage report
+coverage run -m unittest assetcore.tests.imm09.test_imm09 && coverage report
 # Workflow smoke
-bench --site assetcore.local run-tests --module assetcore.tests.test_workflows
+bench --site assetcore.local run-tests --module assetcore.tests.guards.test_workflows
 ```
 
 | Layer | Target coverage | Đo |
@@ -899,7 +899,7 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 ## VIII. CR-74 — Read-gate CHI TIẾT (getRepairWorkOrder) · bộ TC bắt buộc (2026-07-25)
 
 > Spec: [`05_API_Specification.md` §12](./05_API_Specification.md) · SSoT: [ADR-IMM00-LIST-SCOPE §9](../imm-00/ADR-IMM00-LIST-SCOPE.md).
-> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm09` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
+> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.imm09.test_imm09` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
 
 ### VIII.1 Fixture tối thiểu (dựng 1 lần, dùng chung 6 TC)
 
@@ -1022,10 +1022,10 @@ Bắt buộc **mount thật + assert text đã render** (không assert store/typ
 
 | Suite | Trước | Sau |
 |---|---|---|
-| `bench --site miyano run-tests --module assetcore.tests.test_imm09` | 221 OK | **229 OK** (+8 TC `TestRepairSparePartsStockEntryStatus` TC-CM-PARTS-01..08) |
-| `… --module assetcore.tests.test_mobile_oas` | 951 OK | **959 OK** |
-| `… --module assetcore.tests.test_mobile_docset` | 9 OK | **9 OK** (không đổi số TC) |
-| `… --module assetcore.tests.test_rowscope_docperm_gate` / `test_rowscope_invariant` | xanh | **xanh** (0 regress CR-74) |
+| `bench --site miyano run-tests --module assetcore.tests.imm09.test_imm09` | 221 OK | **229 OK** (+8 TC `TestRepairSparePartsStockEntryStatus` TC-CM-PARTS-01..08) |
+| `… --module assetcore.tests.guards.test_mobile_oas` | 951 OK | **959 OK** |
+| `… --module assetcore.tests.guards.test_mobile_docset` | 9 OK | **9 OK** (không đổi số TC) |
+| `… --module assetcore.tests.integration.test_rowscope_docperm_gate` / `test_rowscope_invariant` | xanh | **xanh** (0 regress CR-74) |
 | FE `vue-tsc --noEmit` · `vitest run` | xanh | **xanh** |
 
 > 🔴 **Mọi `run-tests` đặt `timeout` tool ≥ 600000ms.** Kill giữa chừng = nhiễm DB, **không phải** bug sản phẩm.
@@ -1125,9 +1125,9 @@ Bảng TC: [`05 §15.7`](./05_API_Specification.md). BE Bước-4 bồi thêm **
 
 | Suite | Trước | Sau |
 |---|---|---|
-| `bench --site miyano run-tests --module assetcore.tests.test_imm09` | baseline hiện hành (đếm tĩnh **243** `def test` @2026-07-27) | **baseline + 12 OK** — chấm **DELTA**, đọc lại số thật trước khi sửa (đa-phiên ⇒ số tuyệt đối luôn có thể stale) |
-| `… --module assetcore.tests.test_mobile_oas` | 983 OK | **991 OK** *(Bước-2 — ĐÃ ĐẠT)* → **992 OK** sau `cr82_i` |
-| `… --module assetcore.tests.test_mobile_docset` | 9 OK | **9 OK** *(Bước-2 — ĐÃ ĐẠT)* |
+| `bench --site miyano run-tests --module assetcore.tests.imm09.test_imm09` | baseline hiện hành (đếm tĩnh **243** `def test` @2026-07-27) | **baseline + 12 OK** — chấm **DELTA**, đọc lại số thật trước khi sửa (đa-phiên ⇒ số tuyệt đối luôn có thể stale) |
+| `… --module assetcore.tests.guards.test_mobile_oas` | 983 OK | **991 OK** *(Bước-2 — ĐÃ ĐẠT)* → **992 OK** sau `cr82_i` |
+| `… --module assetcore.tests.guards.test_mobile_docset` | 9 OK | **9 OK** *(Bước-2 — ĐÃ ĐẠT)* |
 | FE `vue-tsc --noEmit` · `vitest run` | xanh | **xanh** (+7 TC `cmDetailCtaGating`) |
 
 > 🔴 **Mọi `run-tests` đặt `timeout` tool ≥ 600000ms.** Kill giữa chừng = nhiễm DB, **không phải** bug sản phẩm.
@@ -1209,9 +1209,9 @@ Chi tiết ở [`06 §CMEvidencePhoto`](./06_Frontend_Design.md). Bắt buộc *
 
 | Suite | Trước | Sau |
 |---|---|---|
-| `bench --site miyano run-tests --module assetcore.tests.test_imm09` | **259 OK** (đếm THẬT ngay trước Bước-4) | **273 OK** ✅ ĐÃ ĐẠT 2026-07-27 (DELTA **+14** = 12 TC `§XII.2` + `TC-CR84-13` mutation-probe thường trực + `TC-CR84-14` biên predicate thuần) → **278 OK** sau **AC-CR-85** (DELTA **+5** = `TC-CM-EVID-15..18` + meta-guard `TC-CR82-B3`) |
-| `… --module assetcore.tests.test_mobile_oas` | 999 OK | **1008 OK** *(Bước-2 — ĐÃ ĐẠT)*; Bước-4 lật `cr84_i` ⇒ **GIỮ 1008** |
-| `… --module assetcore.tests.test_mobile_docset` | 9 OK | **9 OK** *(Bước-2 — ĐÃ ĐẠT)* |
+| `bench --site miyano run-tests --module assetcore.tests.imm09.test_imm09` | **259 OK** (đếm THẬT ngay trước Bước-4) | **273 OK** ✅ ĐÃ ĐẠT 2026-07-27 (DELTA **+14** = 12 TC `§XII.2` + `TC-CR84-13` mutation-probe thường trực + `TC-CR84-14` biên predicate thuần) → **278 OK** sau **AC-CR-85** (DELTA **+5** = `TC-CM-EVID-15..18` + meta-guard `TC-CR82-B3`) |
+| `… --module assetcore.tests.guards.test_mobile_oas` | 999 OK | **1008 OK** *(Bước-2 — ĐÃ ĐẠT)*; Bước-4 lật `cr84_i` ⇒ **GIỮ 1008** |
+| `… --module assetcore.tests.guards.test_mobile_docset` | 9 OK | **9 OK** *(Bước-2 — ĐÃ ĐẠT)* |
 | `python scripts/gen_fe_messages.py --check` | xanh | **xanh** (bắt buộc — thiếu ⇒ FE render `SYS-500`) |
 | FE `vue-tsc --noEmit` · `npm run test` | xanh | **xanh** (+7 TC `FE-CM-EVID-*`) |
 

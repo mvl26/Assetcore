@@ -311,6 +311,52 @@ cd frontend && npx vitest run src/guards/testFileConvention.guard.test.ts
 ```
 Spec đầy đủ + kế hoạch L0–L5: `docs/architecture/SPEC_chuan_hoa_cau_truc_frontend.md`.
 
+### 🧭 R-14: Vị trí & tên file test BE — BẮT BUỘC
+
+> SSoT cưỡng chế: `assetcore/tests/guards/test_test_layout_convention.py` (K1–K9 + guard §5.4).
+> Spec đầy đủ: `docs/architecture/SPEC_chuan_hoa_cau_truc_backend.md`.
+
+Mỗi file test chỉ được ở **một trong bốn nhà**:
+
+| # | Loại test | Nhà | Tên file |
+|---|---|---|---|
+| 1 | Test của **một DocType** (validate, hooks, naming, permission trên chính doc) | `assetcore/assetcore/doctype/<dt>/` — **chuẩn Frappe** | `test_<dt>.py` |
+| 2 | Test của **một module logic** (`services/<X>.py` / `api/<X>.py`) | `assetcore/tests/<X>/` | `test_<X>[_<khia_canh>].py` |
+| 3 | **Guard / hợp đồng / parity** — đọc đĩa, lint OAS, đối chiếu doc↔mã, không cần DB | `assetcore/tests/guards/` | `test_<chu_de>.py` |
+| 4 | **Tích hợp cắt ngang ≥2 module** | `assetcore/tests/integration/` | `test_<luong>.py` |
+
+Helper dùng chung → `assetcore/tests/_helpers/` (`paths.py`, `_asset_cleanup.py`, `oas_baseline.py`).
+
+**CẤM (guard sẽ ĐỎ):**
+- Để file test ở **gốc `assetcore/tests/`** · thư mục con thiếu `__init__.py` (R2 — `--module` sẽ gãy) · mã ticket trong **tên file** (đưa vào docstring/`test_*` method).
+- **Đổi tên file trong `patches/`** — Frappe nhận diện patch bằng **chuỗi dotted path** (`patch_handler.py:228`); đổi tên patch ĐÃ CHẠY ⇒ Frappe coi là patch mới ⇒ **chạy lại trên production** (R3).
+- Test **ghi DB** (`frappe.get_doc/new_doc/insert/db.set/delete_doc`) mà lớp cơ sở không phải **`FrappeTestCase`** — không rollback ⇒ rác rơi vào site thật.
+- Test **quét thư mục** (`os.walk`/`glob`/`listdir`) mà không ở `tests/guards/`; hoặc guard quét mà **không chốt dân số** (`list_files(DIR, ext, min_count=N)` / `assertGreater(len(files), N)`).
+- Guard tính đường dẫn theo **độ sâu** (`Path(__file__).resolve().parents[N]`, `os.path.dirname(os.path.dirname(...))`, `process.cwd()`) — phải lấy anchor từ **`assetcore.tests._helpers.paths`**.
+
+**Ranh giới `utils/` ⇄ `services/shared/` (§5.4 — MỘT CHIỀU):**
+
+| Nhà | Chứa gì | Được import |
+|---|---|---|
+| `assetcore/utils/` | hạ tầng kỹ thuật, không biết nghiệp vụ (response envelope, pagination, attachment, email, idempotency, FCM, `ServiceError`) | thư viện ngoài + `frappe`. **CẤM** import `services/**` ở mức module |
+| `assetcore/services/shared/` | nhân nghiệp vụ dùng chung (scope/RBAC, state machine, filters, connection meta) | được import `utils/` |
+
+Lazy-import **bên trong hàm** là lối thoát hợp lệ (không tạo vòng lúc nạp module) — vd `utils/fcm.py` gọi `services.mobile_device_token` chỉ khi gặp dead-token.
+
+**Trước khi báo xong:**
+```bash
+bench --site <site> run-tests --module assetcore.tests.guards.test_test_layout_convention
+```
+
+**Kỷ luật rollback (bệnh gốc §3.4):** test BE ghi DB **PHẢI** kế thừa `FrappeTestCase`
+(Frappe bọc mỗi test trong savepoint và rollback). Trước lô B4 có **75 file** chỉ dùng
+`unittest.TestCase` ⇒ commit thẳng vào site ⇒ 45 CAPA + 24 hiệu chuẩn mồ côi và **16 script
+`purge_*`/`cleanup_*`** sinh ra để dọn hậu quả. Allowlist K7 nay **đóng băng ở 0**: file mới
+KHÔNG thể ghi DB mà không rollback.
+
+> ⚠️ `FrappeTestCase` rollback **per-test**, KHÔNG per-class. Fixture tạo trong
+> `setUpClass` + commit vẫn LEAK — phải tự dọn ở `tearDownClass` (R-9).
+
 ## Phần 2 — UI Tests (Playwright MCP)
 
 Playwright MCP là phương tiện DUY NHẤT — không đoán từ code. Base `http://localhost:3000` (`bench start` chạy song song). Đọc `.env` lấy creds (KHÔNG hardcode). Dùng bộ dữ liệu mẫu thực tế (R-1/R-3). Mỗi module đi đủ full user journey (R-5) + DoD UI checklist. MCP hay chết sau 1-2 calls → có recovery recipe; 2 lần fail → fallback static code-audit, báo USER sớm.
@@ -379,11 +425,21 @@ Small chiếm đa số → nhanh, ổn định, dễ debug khi đỏ. Large (Pla
 
 ## Verification
 
+> **Mốc DoD của dự án** (áp cho MỌI thay đổi, bổ sung chứ không thay thế checklist dưới đây):
+> [`../_shared/definition-of-done.md`](../_shared/definition-of-done.md)
+
+> **Bẫy Frappe hỏng ÂM THẦM** (autoname · patch · permlevel · rollback · worker stale):
+> [`../_shared/frappe-invariants.md`](../_shared/frappe-invariants.md)
+
+> **Hợp đồng BE↔FE** (envelope · 3 bẫy status-line · grep symbol phía kia khi chạy song song):
+> [`../_shared/contracts.md`](../_shared/contracts.md)
+
+
 Trước khi khai báo test "xong" — phải có BẰNG CHỨNG (không "có vẻ đúng"):
 
 ### Backend
 - [ ] `bench --site miyano run-tests --module assetcore.tests.test_immXX` chạy THẬT — paste dòng `Ran N ... OK`/`FAILED` (LL-TEST-21).
-- [ ] Workflow smoke test còn pass: `--module assetcore.tests.test_workflows`; `EXPECTED_WORKFLOWS` update nếu thêm workflow mới (đếm từ JSON).
+- [ ] Workflow smoke test còn pass: `--module assetcore.tests.guards.test_workflows`; `EXPECTED_WORKFLOWS` update nếu thêm workflow mới (đếm từ JSON).
 - [ ] Sửa SSoT introspect-được (tổng endpoint/cap-set/status-map/schema) → chạy LẠI MỌI suite assert vào nó (LL-TEST-27).
 - [ ] Feature side-effect (notification/hook/scheduler/SLA): assert side-effect THẬT xảy ra (row tồn tại), KHÔNG chỉ return; RED fail vì đúng lý do (LL-TEST-18/21).
 - [ ] Output sinh ra (PDF/ảnh/file): assert ARTIFACT render thật (`pypdf` page+MediaBox / PIL pixel), KHÔNG template (LL-TEST-29).
@@ -404,8 +460,8 @@ Trước khi khai báo test "xong" — phải có BẰNG CHỨNG (không "có v�
 - [ ] Pre-release: count `%test%` trên AC Asset / IMM Audit Trail = 0 (R-9).
 
 ### Reference files
-- `assetcore/tests/test_imm00.py` — DocType-level pattern
-- `assetcore/tests/test_workflows.py` — smoke test
+- `assetcore/tests/imm00/test_imm00.py` — DocType-level pattern
+- `assetcore/tests/guards/test_workflows.py` — smoke test
 - `/home/miyano/frappe-bench/apps/assetcore/.env` — `TEST_USER` / `TEST_PASSWORD`
 - `docs/imm-XX/07_Testing_QA.md` — UAT scenarios nguồn
 - `.claude/skills/assetcore-test/references/playwright-patterns.md` — Playwright patterns
@@ -415,8 +471,6 @@ Trước khi khai báo test "xong" — phải có BẰNG CHỨNG (không "có v�
 
 ---
 
-## 🔗 Session context — bàn giao phiên (assetcore-session)
+## 🔗 Session context
 
-- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE + file phiên mới nhất (curated; cần truy gốc chi tiết → đọc mục 🪞 Mirror của file phiên) — "đang dở ở đâu"; dữ liệu trong `.claude/contexts/` — gitignored; file phiên ở `sessions/<ngày>/`). Main session: hook tự nạp mỗi prompt + tự **mirror TOÀN BỘ lượt** (prompt+phản hồi+tool) vào file phiên qua hook `Stop`; subagent phải TỰ chạy lệnh này.
-- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY: `STATE.md`(ghi đè) + bồi **semantic** vào file phiên (`session-log.sh current` → path; **KHÔNG còn LOG.md**). Hook `Stop` đã mirror nguyên văn → bạn CHỈ cần tóm Làm/Quyết-định/Để-lại. KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
-- **Ranh giới:** state-tạm-sẽ-hết → `.claude/contexts/` (STATE.md + sessions/<ngày>/); fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.
+Đọc trước / checkpoint sau + ranh giới `contexts/` vs `memory/`: [`../_shared/session-protocol.md`](../_shared/session-protocol.md)
